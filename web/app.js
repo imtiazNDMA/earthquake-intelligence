@@ -66,3 +66,48 @@ async function calculate() {
 }
 
 document.getElementById("calc").addEventListener("click", calculate);
+
+// --- Event catalog (Plan B) ---
+const eventsEl = document.getElementById("events");
+const impactEl = document.getElementById("impact");
+
+async function refreshEvents() {
+  const resp = await fetch("/events?limit=20");
+  if (!resp.ok) return;
+  const events = await resp.json();
+  eventsEl.innerHTML = "<strong>Catalog</strong>" + events.map(e =>
+    `<div class="evt" data-id="${e.id}" style="cursor:pointer;padding:3px 0;border-bottom:1px solid #eee">
+       M${e.magnitude.toFixed(1)} · ${e.source} · ${new Date(e.occurred_at).toLocaleString()}
+     </div>`).join("");
+  document.querySelectorAll(".evt").forEach(el =>
+    el.addEventListener("click", () => showImpact(el.dataset.id)));
+}
+
+async function showImpact(id) {
+  impactEl.textContent = "Computing impact…";
+  const resp = await fetch(`/events/${id}/impact`, { method: "POST" });
+  if (!resp.ok) { impactEl.textContent = "Impact failed"; return; }
+  const data = await resp.json();
+  if (intensityLayer) map.removeLayer(intensityLayer);
+  intensityLayer = L.geoJSON(data.bands, { style }).addTo(map);
+  if (intensityLayer.getBounds().isValid()) map.fitBounds(intensityLayer.getBounds());
+  const top = data.districts.filter(d => d.mmi_max > 0).slice(0, 12);
+  impactEl.innerHTML = "<strong>District impact</strong><table style='width:100%'>" +
+    "<tr><th align=left>District</th><th>Max</th><th>Repr</th></tr>" +
+    top.map(d => `<tr><td>${d.name ?? "?"}</td><td align=center>${d.mmi_max}</td>` +
+                 `<td align=center>${d.mmi_repr}</td></tr>`).join("") + "</table>";
+}
+
+document.getElementById("ingest").addEventListener("click", async () => {
+  statusEl.textContent = "Pulling USGS feed…";
+  try {
+    const r = await fetch("/events/ingest", { method: "POST" });
+    const res = await r.json();
+    statusEl.textContent = `Ingest: ${res.inserted} new of ${res.fetched}`;
+  } catch (e) {
+    statusEl.textContent = "Ingest failed: " + e.message;
+  }
+  refreshEvents();
+});
+
+refreshEvents();
