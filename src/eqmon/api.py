@@ -57,21 +57,13 @@ class EventRequest(BaseModel):
 
 @app.post("/intensity")
 def intensity(req: EventRequest) -> JSONResponse:
-    import numpy as np
-
     grid = get_grid()
     mmi = compute_mmi_grid(
         grid.lon, grid.lat, grid.vs30,
         mag=req.magnitude, depth_km=req.depth_km,
         epi_lon=req.lon, epi_lat=req.lat,
     )
-    # mmi_to_geojson appends nanmax(mmi)+1 as the open upper bound; any level
-    # >= that value would produce a (lower, upper) pair where upper < lower and
-    # contourpy would raise.  Keep only levels strictly below nanmax so the
-    # final bounds list is strictly ascending.
-    mmi_max = float(np.nanmax(mmi))
-    safe_levels = [lvl for lvl in config.MMI_BAND_LEVELS if lvl < mmi_max]
-    fc = mmi_to_geojson(mmi, grid.transform, levels=safe_levels)
+    fc = mmi_to_geojson(mmi, grid.transform, levels=config.MMI_BAND_LEVELS)
     return JSONResponse(fc)
 
 

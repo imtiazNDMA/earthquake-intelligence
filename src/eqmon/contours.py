@@ -41,10 +41,20 @@ def mmi_to_geojson(mmi: np.ndarray, transform, levels: list[int]) -> dict:
     """
     # OuterOffset: one element per outer contour, offsets split exterior/holes.
     gen = contour_generator(z=mmi, name="serial", fill_type=FillType.OuterOffset)
-    bounds = list(levels) + [float(np.nanmax(mmi)) + 1.0]
+    # Open top band runs from the highest level to just past the data maximum.
+    # Guard the sentinel so bounds stay strictly ascending even when the data
+    # peaks below the highest requested level (otherwise contourpy raises on a
+    # band whose upper bound is below its lower bound).
+    data_max = float(np.nanmax(mmi))
+    top = max(data_max, float(levels[-1])) + 1.0
+    bounds = list(levels) + [top]
     features = []
 
     for lower, upper in zip(bounds[:-1], bounds[1:]):
+        # A level at or above the data maximum yields an empty band; skip it
+        # (and never pass a degenerate upper <= lower to contourpy).
+        if upper <= lower or lower >= data_max:
+            continue
         filled = gen.filled(lower, upper)
         points_list = filled[0]   # list of (N, 2) arrays
         offsets_list = filled[1]  # list of int offset arrays
