@@ -17,6 +17,9 @@ Vs30_Polygons.zip
 data/Vs30.tif
 data/Vs30.tif.aux.xml
 
+# Local secrets / connection strings
+.env
+
 # Session/agent transient state
 .remember/
 
