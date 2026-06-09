@@ -36,9 +36,13 @@ def test_pga_to_mmi_uses_wald_segments_and_clamps():
     assert pga_to_mmi(np.array([2000.0]))[0] <= 10.0
     # very low PGA -> clamped at 1, never below
     assert pga_to_mmi(np.array([0.001]))[0] >= 1.0
-    # crossover continuity: both segments near MMI 5 should be close
-    near5 = pga_to_mmi(np.array([18.0]))[0]
-    assert 4.0 < near5 < 6.0
+    # The two Wald segments are designed to meet at MMI 5: the low segment
+    # reaches 5.0 at PGA ~= 65.8 gal, and the high segment gives ~4.99 there,
+    # so the conversion is continuous across the crossover.
+    near5 = pga_to_mmi(np.array([65.8]))[0]
+    assert 4.7 < near5 < 5.3
+    assert math.isclose(2.20 * math.log10(65.8) + 1.00,
+                        3.66 * math.log10(65.8) - 1.66, abs_tol=0.05)
 
 
 def test_compute_mmi_grid_shape_matches_input():
