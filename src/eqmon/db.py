@@ -32,7 +32,13 @@ def get_pool() -> ConnectionPool:
 
 @contextmanager
 def get_conn():
-    """Yield a pooled connection (autocommit). For request handlers."""
+    """Yield a pooled connection for a request handler.
+
+    The connection is transactional (autocommit is OFF); psycopg's pool commits
+    on clean block exit and rolls back if the block raises. Write handlers may
+    also commit explicitly mid-block when they need the effect visible before
+    returning.
+    """
     with get_pool().connection() as conn:
         yield conn
 

@@ -16,11 +16,11 @@ def client(monkeypatch):
     db.init_schema()
     # clean slate so committed rows from these tests don't leak to other tests
     with db.get_conn() as conn:
-        conn.execute("TRUNCATE seismic_event RESTART IDENTITY")
+        conn.execute("TRUNCATE seismic_event, district RESTART IDENTITY")
         conn.commit()
     yield TestClient(api.app)
     with db.get_conn() as conn:
-        conn.execute("TRUNCATE seismic_event RESTART IDENTITY")
+        conn.execute("TRUNCATE seismic_event, district RESTART IDENTITY")
         conn.commit()
     db._pool = None
 

@@ -17,7 +17,9 @@ from .vs30 import Grid
 
 def sample_grid_at(grid_array: np.ndarray, transform, lons: np.ndarray,
                    lats: np.ndarray) -> np.ndarray:
-    """Nearest-cell value of a raster array at geographic points."""
+    """Value of the raster cell that contains each geographic point.
+
+    Points outside the raster extent are clipped to the edge cell."""
     inv = ~transform
     cols, rows = inv * (np.asarray(lons), np.asarray(lats))
     cols = np.clip(np.floor(cols).astype(int), 0, grid_array.shape[1] - 1)

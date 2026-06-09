@@ -135,6 +135,8 @@ def event_impact(event_id: int):
         event = get_event(conn, event_id)
         if event is None:
             raise HTTPException(status_code=404, detail="event not found")
+        # read-only w.r.t. persisted tables; the ON COMMIT DROP temp table used
+        # inside compute_event_impact is reclaimed by the pool's commit-on-exit.
         impact = compute_event_impact(conn, event, get_grid())
     return impact
 
