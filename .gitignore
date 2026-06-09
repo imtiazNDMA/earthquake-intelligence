@@ -1,0 +1,24 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Large Vs30 reference data — kept locally, rasterized via scripts/rasterize_vs30.py
+Vs30_Polygons/
+Vs30_Polygons.zip
+
+# Generated reference data (regenerate via scripts/rasterize_vs30.py)
+data/Vs30.tif
+data/Vs30.tif.aux.xml
+
+# Session/agent transient state
+.remember/
+
+# Vendored Claude Code tooling
+.claude/
