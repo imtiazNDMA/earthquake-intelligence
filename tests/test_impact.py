@@ -44,5 +44,9 @@ def test_compute_event_impact_reports_max_and_repr(db_conn):
 
     assert impact["bands"]["type"] == "FeatureCollection"
     epi = next(d for d in impact["districts"] if d["name"] == "Epi")
-    assert epi["mmi_max"] >= epi["mmi_repr"]   # worst-case >= point value
+    # mmi_max is the worst-case band (integer mmi_lower); mmi_repr is the precise
+    # point reading. The band containing the representative point intersects the
+    # district, so the worst-case band is at least that band: mmi_max >= floor(mmi_repr).
+    assert epi["mmi_max"] >= int(epi["mmi_repr"])
     assert epi["mmi_repr"] >= 1.0
+    assert isinstance(epi["mmi_repr"], float)  # precise reading, not floored to a band

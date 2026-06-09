@@ -70,6 +70,6 @@ def compute_event_impact(conn: psycopg.Connection, event: dict, grid: Grid) -> d
     for r, rm in zip(rows, repr_mmi):
         districts.append({
             "id": r["id"], "name": r["name"], "province": r["province"],
-            "mmi_max": int(r["mmi_max"]), "mmi_repr": int(np.floor(float(rm))),
+            "mmi_max": int(r["mmi_max"]), "mmi_repr": round(float(rm), 1),
         })
     return {"bands": bands, "districts": districts}
