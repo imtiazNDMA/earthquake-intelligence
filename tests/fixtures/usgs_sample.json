@@ -1,0 +1,15 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "id": "us1000abcd",
+      "properties": {"mag": 5.4, "time": 1767225600000, "place": "near Pakistan"},
+      "geometry": {"type": "Point", "coordinates": [72.5, 34.0, 15.0]}
+    },
+    {
+      "id": "us1000ffff",
+      "properties": {"mag": 6.0, "time": 1767225601000, "place": "Pacific"},
+      "geometry": {"type": "Point", "coordinates": [-150.0, 60.0, 30.0]}
+    }
+  ]
+}
