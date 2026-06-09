@@ -18,7 +18,7 @@ from importlib.resources import files
 def pin_bundled_proj() -> None:
     try:
         proj_data = str(files("rasterio").joinpath("proj_data"))
-    except Exception:
+    except (ModuleNotFoundError, FileNotFoundError, AttributeError):
         return
     if os.path.isdir(proj_data):
         # Force (not setdefault): our app requires the bundled DB, and a system

@@ -31,15 +31,19 @@ browser. The heavy grid never leaves the server.
 Ported from the original ArcGIS field calculator (`Expression.cal`):
 
 ```
-r        = sqrt(geodesic_dist(epi, cell)^2 + depth^2) / 1000   # km
+r        = sqrt(haversine_dist(epi, cell)^2 + depth^2) / 1000  # km
 pga      = 1.385 * 10^(0.49 + 0.23*(mag-6) - log10(r) - 0.0027*r) * 980  # gal
 pga_site = pga * 10^(1.35 - 0.47*log10(vs30))                  # site amplification
 MMI      = Wald et al. (1999) PGA->MMI, clamped to [1, 10]
 ```
 
-Geodesic distance uses pyproj (matching the original GEODESIC measurement).
-Where the Vs30 grid has no value, the Default Site Condition (Vs30 = 760 m/s)
-is used. See `CONTEXT.md` for the domain language.
+Epicentral distance uses the haversine (great-circle) formula. The original
+arcpy used a GEODESIC call; haversine is fully vectorized (the request stays
+interactive over a 24M-cell grid) and the difference is sub-metre in the near
+field where high intensities are decided — at most a few km at the grid's far
+corners, where MMI is already at its floor. Where the Vs30 grid has no value,
+the Default Site Condition (Vs30 = 760 m/s) is used. See `CONTEXT.md` for the
+domain language.
 
 ## Layout
 
