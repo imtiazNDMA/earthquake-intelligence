@@ -54,9 +54,15 @@ src/eqmon/
   vs30.py        load Vs30 COG -> coordinate-aware Grid
   intensity.py   ported formula: PGA + MMI (vectorized NumPy)
   contours.py    MMI grid -> filled-band GeoJSON
-  api.py         FastAPI /intensity endpoint + static web/ mount
+  api.py         FastAPI: /intensity + /events* endpoints + static web/ mount
+  db.py          PostGIS connection pool + schema helpers
+  _env.py        loads local .env (DATABASE_URL) into os.environ
+  events/        sources.py (USGS + MET stub), ingest.py (dedup), repo.py
+  impact.py      per-event district impact (max band via PostGIS + repr point)
+schema.sql                  PostGIS tables (seismic_event, district)
 scripts/rasterize_vs30.py   one-time shapefile -> COG
-web/             Leaflet map + event form
+scripts/load_districts.py   one-time district load into PostGIS
+web/             Leaflet map + event form + catalog + impact table
 ```
 
 ## Tests
@@ -65,10 +71,42 @@ web/             Leaflet map + event form
 uv run pytest -q
 ```
 
-## Not yet built (next phase)
+DB-backed tests require a PostGIS test database; set `DATABASE_URL_TEST`
+(see below). Without it, those tests skip cleanly and the pure-logic tests run.
 
-Event catalog and feeds are a separate subsystem: Postgres/PostGIS for the
-earthquake event catalog, Manual Event Input persistence, MET (Primary) / USGS
-(Secondary) feed ingestion, and district impact aggregation against
-`boundary/district.geojson`. The Vs30 grid stays a GeoTIFF — it does **not**
-belong in the database.
+## Event catalog & impact (Plan B)
+
+A PostGIS-backed earthquake catalog with Manual Event Input, USGS feed
+ingestion, source dedup, and per-event district impact aggregation.
+
+**One-time database setup** (PostgreSQL + PostGIS):
+```sql
+CREATE DATABASE eqmon;       \c eqmon       CREATE EXTENSION IF NOT EXISTS postgis;
+CREATE DATABASE eqmon_test;  \c eqmon_test  CREATE EXTENSION IF NOT EXISTS postgis;
+```
+Create a local `.env` (gitignored) with the connection strings:
+```
+DATABASE_URL=postgresql://user:pass@localhost:5432/eqmon
+DATABASE_URL_TEST=postgresql://user:pass@localhost:5432/eqmon_test
+```
+Then apply the schema and load districts:
+```bash
+uv run python -c "from eqmon.db import init_schema; init_schema()"
+uv run python scripts/load_districts.py        # 161 districts into PostGIS
+```
+
+**Endpoints** (in addition to the ad-hoc `POST /intensity`):
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /events` | Manual Event Input (Coverage-Region validated) |
+| `POST /events/ingest` | Pull the USGS feed (Secondary Seismic Source) now |
+| `GET /events` | List canonical catalog events (`since`, `min_magnitude`, `limit`) |
+| `GET /events/{id}` | Event detail |
+| `POST /events/{id}/impact` | MMI bands + district impact (max band + representative MMI) |
+
+**Sources:** USGS is fully implemented behind a `SeismicSource` interface; the
+Pakistan MET feed (Primary) is a documented stub (`METSource`) pending its
+format. **Dedup:** feed events within 60 s / 50 km cluster; the higher-priority
+source (MET > USGS) is canonical. **The Vs30 grid stays a GeoTIFF — it is not in
+the database.**
