@@ -13,6 +13,9 @@ dependencies = [
     "contourpy>=1.2",
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
+    "psycopg[binary]>=3.1",
+    "psycopg-pool>=3.2",
+    "httpx>=0.27",
 ]
 
 [dependency-groups]
