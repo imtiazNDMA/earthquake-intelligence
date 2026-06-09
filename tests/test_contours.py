@@ -36,6 +36,31 @@ def test_higher_band_is_nested_inside_lower_band_area():
     assert lowers[0] == 3
 
 
+def _count_coords(fc):
+    total = 0
+    for f in fc["features"]:
+        for ring in f["geometry"]["coordinates"]:
+            total += len(ring)
+    return total
+
+
+def test_simplification_reduces_vertex_count():
+    n = 60
+    yy, xx = np.mgrid[0:n, 0:n]
+    dist = np.sqrt((xx - n / 2) ** 2 + (yy - n / 2) ** 2)
+    mmi = np.clip(9.0 - dist * 0.2, 1.0, 10.0).astype("float32")
+    transform = from_origin(70.0, 32.0, 0.1, 0.1)
+
+    raw = mmi_to_geojson(mmi, transform, [3, 5, 7], simplify_deg=0.0, min_area_deg2=0.0)
+    simplified = mmi_to_geojson(mmi, transform, [3, 5, 7])
+
+    assert _count_coords(simplified) < _count_coords(raw)
+    # bands are still present and well-formed
+    assert len(simplified["features"]) >= 1
+    for f in simplified["features"]:
+        assert f["geometry"]["type"] in ("Polygon", "MultiPolygon")
+
+
 def test_levels_above_data_max_do_not_crash():
     # Regression: when the MMI surface peaks below the highest requested level,
     # the open top band's sentinel must stay above the last level so contourpy

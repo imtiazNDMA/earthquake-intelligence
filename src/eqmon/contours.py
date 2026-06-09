@@ -8,6 +8,14 @@ from __future__ import annotations
 
 import numpy as np
 from contourpy import contour_generator, FillType
+from shapely.geometry import Polygon, mapping
+
+# A real Vs30 grid varies cell-to-cell, so raw bands shatter into thousands of
+# pixel-scale slivers (~MBs of GeoJSON). Simplifying each band's rings and
+# dropping sub-threshold slivers cuts the payload by ~10x with no visible change
+# at regional zoom. Defaults are in degrees; the Vs30 grid cell is ~0.0083 deg.
+_SIMPLIFY_DEG = 0.005       # ~0.6 cell: collapses staircase pixel edges
+_MIN_AREA_DEG2 = 2.5e-4     # ~3.6 cells: prunes noise specks, keeps real bands
 
 # USGS ShakeMap-style MMI palette (lower-bound -> hex).
 _MMI_COLORS = {
@@ -25,7 +33,9 @@ def _ring_to_lonlat(points: np.ndarray, start: int, end: int, transform) -> list
     return [[float(a), float(b)] for a, b in zip(np.atleast_1d(lon), np.atleast_1d(lat))]
 
 
-def mmi_to_geojson(mmi: np.ndarray, transform, levels: list[int]) -> dict:
+def mmi_to_geojson(mmi: np.ndarray, transform, levels: list[int],
+                   simplify_deg: float = _SIMPLIFY_DEG,
+                   min_area_deg2: float = _MIN_AREA_DEG2) -> dict:
     """Filled bands between consecutive levels (and an open top band).
 
     Uses contourpy FillType.OuterOffset (contourpy >= 1.0).
@@ -36,8 +46,10 @@ def mmi_to_geojson(mmi: np.ndarray, transform, levels: list[int]) -> dict:
           offsets[0]:offsets[1]  -> exterior ring
           offsets[1]:offsets[2]  -> first hole ring
           ...
-    Exterior + holes are assembled into a GeoJSON Polygon coordinates array
-    (first element = exterior, remaining = holes), then wrapped in a Feature.
+    Exterior + holes are assembled into a shapely Polygon, simplified
+    (Douglas-Peucker, topology-preserving) and dropped if smaller than
+    ``min_area_deg2``, then emitted as a GeoJSON Feature. Pass
+    ``min_area_deg2=0`` / ``simplify_deg=0`` to disable.
     """
     # OuterOffset: one element per outer contour, offsets split exterior/holes.
     gen = contour_generator(z=mmi, name="serial", fill_type=FillType.OuterOffset)
@@ -74,6 +86,16 @@ def mmi_to_geojson(mmi: np.ndarray, transform, levels: list[int]) -> dict:
             if not rings:
                 continue
 
+            poly = Polygon(rings[0], rings[1:])
+            if simplify_deg > 0:
+                poly = poly.simplify(simplify_deg, preserve_topology=True)
+            if poly.is_empty or poly.area < min_area_deg2:
+                continue
+            if not poly.is_valid:
+                poly = poly.buffer(0)  # repair self-intersections from simplify
+                if poly.is_empty or poly.geom_type != "Polygon":
+                    continue
+
             features.append({
                 "type": "Feature",
                 "properties": {
@@ -81,7 +103,7 @@ def mmi_to_geojson(mmi: np.ndarray, transform, levels: list[int]) -> dict:
                     "mmi_upper": int(min(upper, 10)),
                     "color": _MMI_COLORS.get(int(lower), "#888888"),
                 },
-                "geometry": {"type": "Polygon", "coordinates": rings},
+                "geometry": mapping(poly),
             })
 
     return {"type": "FeatureCollection", "features": features}

@@ -1,7 +1,28 @@
 import math
 import numpy as np
 
-from eqmon.intensity import pga_gal, pga_to_mmi, compute_mmi_grid
+from eqmon.intensity import (
+    epicentral_distance_m,
+    pga_gal,
+    pga_to_mmi,
+    compute_mmi_grid,
+)
+
+
+def test_epicentral_distance_zero_at_epicenter():
+    lon = np.array([[72.5]])
+    lat = np.array([[34.0]])
+    d = epicentral_distance_m(lon, lat, 72.5, 34.0)
+    assert d.shape == (1, 1)
+    assert d[0, 0] == 0.0
+
+
+def test_epicentral_distance_one_degree_latitude_is_about_111km():
+    # 1 degree of latitude is ~111.2 km on a great circle
+    lon = np.array([[72.5]])
+    lat = np.array([[35.0]])
+    d = epicentral_distance_m(lon, lat, 72.5, 34.0)
+    assert math.isclose(d[0, 0], 111_195.0, rel_tol=1e-3)
 
 
 def _reference_pga_gal(dist_m, depth_m, mag, vs30):
