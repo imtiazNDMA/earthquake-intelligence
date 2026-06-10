@@ -6,7 +6,11 @@ format truncates names to 10 chars, which is why e.g. the national name column
 is ``Admin01_Na``."""
 from __future__ import annotations
 
+from typing import Any
+
 # level -> {column: source DBF field name (or None if absent for this level)}
+# Note: where a value equals the column key (e.g. district/tehsil "division"),
+# the DBF field and our column happen to share a name — not a special case.
 _LEVEL_FIELDS: dict[str, dict[str, str | None]] = {
     "national": {"name": "Admin01_Na", "parent": None,       "division": None,       "population": None},
     "province": {"name": "Province",   "parent": None,       "division": None,       "population": None},
@@ -15,13 +19,13 @@ _LEVEL_FIELDS: dict[str, dict[str, str | None]] = {
 }
 
 
-def map_feature(level: str, props: dict) -> dict:
+def map_feature(level: str, props: dict[str, Any]) -> dict:
     """Map one shapefile feature's properties to admin_boundary column values."""
     if level not in _LEVEL_FIELDS:
         raise ValueError(f"unknown level: {level!r}")
     fields = _LEVEL_FIELDS[level]
 
-    def src(col: str):
+    def src(col: str) -> str | None:
         field = fields[col]
         return props.get(field) if field is not None else None
 
