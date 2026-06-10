@@ -6,8 +6,11 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
 // --- Vector-tile reference overlays (protomaps-leaflet over pmtiles) ---
 // `dataLayer` MUST equal the tippecanoe -l layer id used in scripts/build_tiles.py.
 const Line = (color, width) => new protomapsL.LineSymbolizer({ color, width });
+// Admin outlines: a PolygonSymbolizer fills + strokes its rings under a single
+// canvas globalAlpha = `opacity`. The fill is fully transparent so only the
+// stroke shows; `opacity` MUST stay > 0 or the stroke is drawn invisibly too.
 const Outline = (color, width) =>
-  new protomapsL.PolygonSymbolizer({ fill: "#000000", opacity: 0, stroke: color, width });
+  new protomapsL.PolygonSymbolizer({ fill: "rgba(0,0,0,0)", opacity: 1, stroke: color, width });
 
 function overlay(id, symbolizer) {
   return protomapsL.leafletLayer({

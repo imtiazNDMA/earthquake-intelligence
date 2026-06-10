@@ -87,7 +87,8 @@ DB-backed tests require a PostGIS test database; set `DATABASE_URL_TEST`
 ## Event catalog & impact (Plan B)
 
 A PostGIS-backed earthquake catalog with Manual Event Input, USGS feed
-ingestion, source dedup, and per-event district impact aggregation.
+ingestion, source dedup, and per-event multi-level impact aggregation
+(province/district/tehsil).
 
 **One-time database setup** (PostgreSQL + PostGIS):
 ```sql
@@ -99,7 +100,7 @@ Create a local `.env` (gitignored) with the connection strings:
 DATABASE_URL=postgresql://user:pass@localhost:5432/eqmon
 DATABASE_URL_TEST=postgresql://user:pass@localhost:5432/eqmon_test
 ```
-Then apply the schema and load districts:
+Then apply the schema and load boundaries:
 ```bash
 uv run python -c "from eqmon.db import init_schema; init_schema()"
 uv run python scripts/load_boundaries.py       # 757 admin units (4/8/167/578) into PostGIS
@@ -114,7 +115,7 @@ uv run python scripts/build_tiles.py           # one-time: build web/tiles/*.pmt
 | `POST /events/ingest` | Pull the USGS feed (Secondary Seismic Source) now |
 | `GET /events` | List canonical catalog events (`since`, `min_magnitude`, `limit`) |
 | `GET /events/{id}` | Event detail |
-| `POST /events/{id}/impact` | MMI bands + district impact (max band + representative MMI) |
+| `POST /events/{id}/impact` | MMI bands + multi-level impact (province/district/tehsil: max band + representative MMI) |
 
 **Sources:** USGS is fully implemented behind a `SeismicSource` interface; the
 Pakistan MET feed (Primary) is a documented stub (`METSource`) pending its
