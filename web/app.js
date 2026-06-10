@@ -3,6 +3,36 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   attribution: "© OpenStreetMap", maxZoom: 12,
 }).addTo(map);
 
+// --- Vector-tile reference overlays (protomaps-leaflet over pmtiles) ---
+// `dataLayer` MUST equal the tippecanoe -l layer id used in scripts/build_tiles.py.
+const Line = (color, width) => new protomapsL.LineSymbolizer({ color, width });
+const Outline = (color, width) =>
+  new protomapsL.PolygonSymbolizer({ fill: "#000000", opacity: 0, stroke: color, width });
+
+function overlay(id, symbolizer) {
+  return protomapsL.leafletLayer({
+    url: `/tiles/${id}.pmtiles`,
+    paintRules: [{ dataLayer: id, symbolizer }],
+    backgroundColor: "rgba(0,0,0,0)",
+  });
+}
+
+const OVERLAYS = {
+  National: overlay("national", Outline("#444", 1.5)),
+  Provinces: overlay("provinces", Outline("#666", 1.0)),
+  Districts: overlay("districts", Outline("#999", 0.6)),
+  Tehsils: overlay("tehsils", Outline("#bbb", 0.4)),
+  Faults: overlay("faults", Line("#d00000", 1.2)),
+  "Plate boundaries": overlay("plate_boundaries", Line("#ff8800", 1.6)),
+  Plates: overlay("plates",
+    new protomapsL.PolygonSymbolizer({ fill: "#ffcc66", opacity: 0.12 })),
+};
+
+// Default-on overlays (others toggle via the control to avoid clutter).
+OVERLAYS.National.addTo(map);
+OVERLAYS.Provinces.addTo(map);
+L.control.layers(null, OVERLAYS, { collapsed: true }).addTo(map);
+
 // MMI legend (colors mirror _MMI_COLORS in src/eqmon/contours.py).
 const MMI_PALETTE = [
   [2, "#bfccff"], [3, "#a0e6ff"], [4, "#80ffff"], [5, "#7aff93"],
@@ -91,11 +121,30 @@ async function showImpact(id) {
   if (intensityLayer) map.removeLayer(intensityLayer);
   intensityLayer = L.geoJSON(data.bands, { style }).addTo(map);
   if (intensityLayer.getBounds().isValid()) map.fitBounds(intensityLayer.getBounds());
-  const top = data.districts.filter(d => d.mmi_max > 0).slice(0, 12);
-  impactEl.innerHTML = "<strong>District impact</strong><table style='width:100%'>" +
-    "<tr><th align=left>District</th><th>Max</th><th>Repr</th></tr>" +
-    top.map(d => `<tr><td>${d.name ?? "?"}</td><td align=center>${d.mmi_max}</td>` +
-                 `<td align=center>${d.mmi_repr}</td></tr>`).join("") + "</table>";
+  impactEl._rollups = data.rollups;
+  renderRollup(data.rollups, "district");
+}
+
+// Render one admin level's rollup as a table with a level switcher.
+function renderRollup(rollups, level) {
+  const top = (rollups[level] || []).filter(d => d.mmi_max > 0).slice(0, 12);
+  const opts = ["province", "district", "tehsil"]
+    .map(l => `<option value="${l}"${l === level ? " selected" : ""}>${l}</option>`).join("");
+  impactEl.innerHTML =
+    `<strong>Impact</strong> by <select id="rollup-level">${opts}</select>` +
+    "<table style='width:100%'><tr><th align=left>Name</th><th>Max</th><th>Repr</th></tr>" +
+    top.map(d => `<tr><td>${escapeHtml(d.name ?? "?")}</td>` +
+                 `<td align=center>${d.mmi_max}</td>` +
+                 `<td align=center>${d.mmi_repr}</td></tr>`).join("") +
+    "</table>";
+  document.getElementById("rollup-level").addEventListener("change", (e) =>
+    renderRollup(impactEl._rollups, e.target.value));
+}
+
+// Minimal HTML escaper for server-supplied names rendered via innerHTML.
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
 document.getElementById("ingest").addEventListener("click", async () => {
