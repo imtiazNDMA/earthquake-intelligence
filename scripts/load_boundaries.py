@@ -29,6 +29,8 @@ SOURCES = {
     "district": DATA / "pak_districts.shp",
     "tehsil":   DATA / "pak_tehsils.shp",
 }
+# Feature counts confirmed against the source shapefiles; the asserts below make
+# the load self-verifying. Update these if the source datasets are ever replaced.
 EXPECTED = {"national": 4, "province": 8, "district": 167, "tehsil": 578}
 SIMPLIFY_DEG = 0.001  # ~100 m; coarse vs km-scale MMI bands, keeps joins fast
 
@@ -50,6 +52,8 @@ def main() -> None:
                 with fiona.open(path) as src:
                     for feat in src:
                         cols = map_feature(level, dict(feat["properties"]))
+                        # shape()/mapping() normalises the fiona Geometry into a
+                        # plain GeoJSON dict that ST_GeomFromGeoJSON accepts.
                         geom = json.dumps(mapping(shape(feat["geometry"])))
                         cur.execute(INSERT, (cols["level"], cols["name"], cols["parent"],
                                              cols["division"], cols["population"],
