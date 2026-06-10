@@ -13,10 +13,10 @@ pytestmark = pytest.mark.skipif(
 def test_apply_schema_creates_tables(db_conn):
     rows = db_conn.execute(
         "SELECT table_name FROM information_schema.tables "
-        "WHERE table_schema='public' AND table_name IN ('seismic_event','district')"
+        "WHERE table_schema='public' AND table_name IN ('seismic_event','admin_boundary')"
     ).fetchall()
     names = {r[0] for r in rows}
-    assert names == {"seismic_event", "district"}
+    assert names == {"seismic_event", "admin_boundary"}
 
 
 def test_postgis_available(db_conn):

@@ -1,7 +1,8 @@
-"""Per-event district impact. Reuses the Plan A engine for the MMI surface, then:
-- max-band-intersecting MMI per district via a PostGIS spatial join;
-- representative-point MMI per district by sampling the MMI grid at each
-  district's point-on-surface."""
+"""Per-event admin-boundary impact. Reuses the Plan A engine for the MMI
+surface, then for each admin level:
+- max-band-intersecting MMI per unit via a PostGIS spatial join;
+- representative-point MMI per unit by sampling the MMI grid at each unit's
+  point-on-surface."""
 from __future__ import annotations
 import json
 
@@ -13,6 +14,9 @@ from .config import MMI_BAND_LEVELS
 from .contours import mmi_to_geojson
 from .intensity import compute_mmi_grid
 from .vs30 import Grid
+
+# Levels rolled up per event (national is overlay-only, not aggregated).
+ROLLUP_LEVELS = ("province", "district", "tehsil")
 
 
 def sample_grid_at(grid_array: np.ndarray, transform, lons: np.ndarray,
@@ -27,6 +31,40 @@ def sample_grid_at(grid_array: np.ndarray, transform, lons: np.ndarray,
     return grid_array[rows, cols]
 
 
+def _rollup_for_level(conn: psycopg.Connection, level: str,
+                      mmi: np.ndarray, grid: Grid) -> list[dict]:
+    """Max-band + representative MMI for every admin unit at `level`.
+
+    Assumes a temp `_bands` table (mmi int, geom) with a GIST index already
+    exists in this transaction."""
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            """
+            SELECT a.id, a.name, a.parent,
+                   ST_X(ST_PointOnSurface(a.geom)) AS rlon,
+                   ST_Y(ST_PointOnSurface(a.geom)) AS rlat,
+                   COALESCE(MAX(b.mmi), 0) AS mmi_max
+            FROM admin_boundary a
+            LEFT JOIN _bands b ON ST_Intersects(a.geom, b.geom)
+            WHERE a.level = %s
+            GROUP BY a.id, a.name, a.parent, a.geom
+            ORDER BY mmi_max DESC, a.name
+            """,
+            (level,),
+        )
+        rows = cur.fetchall()
+
+    rlons = np.array([r["rlon"] for r in rows], dtype="float64")
+    rlats = np.array([r["rlat"] for r in rows], dtype="float64")
+    repr_mmi = (sample_grid_at(mmi, grid.transform, rlons, rlats)
+                if rows else np.array([]))
+    return [
+        {"id": r["id"], "name": r["name"], "parent": r["parent"],
+         "mmi_max": int(r["mmi_max"]), "mmi_repr": round(float(rm), 1)}
+        for r, rm in zip(rows, repr_mmi)
+    ]
+
+
 def compute_event_impact(conn: psycopg.Connection, event: dict, grid: Grid) -> dict:
     mmi = compute_mmi_grid(
         grid.lon, grid.lat, grid.vs30,
@@ -35,7 +73,7 @@ def compute_event_impact(conn: psycopg.Connection, event: dict, grid: Grid) -> d
     )
     bands = mmi_to_geojson(mmi, grid.transform, levels=MMI_BAND_LEVELS)
 
-    # --- max band per district (spatial join in PostGIS) ---
+    # Build the band surface once; reused across every level's spatial join.
     with conn.cursor() as cur:
         cur.execute("CREATE TEMP TABLE _bands (mmi int, geom geometry(Geometry,4326)) "
                     "ON COMMIT DROP")
@@ -47,31 +85,5 @@ def compute_event_impact(conn: psycopg.Connection, event: dict, grid: Grid) -> d
             )
         cur.execute("CREATE INDEX ON _bands USING GIST (geom)")
 
-    # representative points + max band, one row per district
-    with conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(
-            """
-            SELECT d.id, d.name, d.province,
-                   ST_X(ST_PointOnSurface(d.geom)) AS rlon,
-                   ST_Y(ST_PointOnSurface(d.geom)) AS rlat,
-                   COALESCE(MAX(b.mmi), 0) AS mmi_max
-            FROM district d
-            LEFT JOIN _bands b ON ST_Intersects(d.geom, b.geom)
-            GROUP BY d.id, d.name, d.province, d.geom
-            ORDER BY mmi_max DESC, d.name
-            """
-        )
-        rows = cur.fetchall()
-
-    rlons = np.array([r["rlon"] for r in rows], dtype="float64")
-    rlats = np.array([r["rlat"] for r in rows], dtype="float64")
-    repr_mmi = (sample_grid_at(mmi, grid.transform, rlons, rlats)
-                if len(rows) else np.array([]))
-
-    districts = []
-    for r, rm in zip(rows, repr_mmi):
-        districts.append({
-            "id": r["id"], "name": r["name"], "province": r["province"],
-            "mmi_max": int(r["mmi_max"]), "mmi_repr": round(float(rm), 1),
-        })
-    return {"bands": bands, "districts": districts}
+    rollups = {lvl: _rollup_for_level(conn, lvl, mmi, grid) for lvl in ROLLUP_LEVELS}
+    return {"bands": bands, "rollups": rollups}

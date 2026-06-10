@@ -19,10 +19,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS seismic_event_source_uq
 CREATE INDEX IF NOT EXISTS seismic_event_geom_gix ON seismic_event USING GIST (geom);
 CREATE INDEX IF NOT EXISTS seismic_event_time_ix ON seismic_event (occurred_at);
 
-CREATE TABLE IF NOT EXISTS district (
-    id        BIGSERIAL PRIMARY KEY,
-    name      TEXT NOT NULL,
-    province  TEXT,
-    geom      geometry(MultiPolygon, 4326) NOT NULL
+CREATE TABLE IF NOT EXISTS admin_boundary (
+    id         BIGSERIAL PRIMARY KEY,
+    level      TEXT NOT NULL CHECK (level IN ('national','province','district','tehsil')),
+    name       TEXT NOT NULL,
+    parent     TEXT,
+    division   TEXT,
+    population DOUBLE PRECISION,
+    geom       geometry(MultiPolygon, 4326) NOT NULL
 );
-CREATE INDEX IF NOT EXISTS district_geom_gix ON district USING GIST (geom);
+CREATE INDEX IF NOT EXISTS admin_boundary_geom_gix ON admin_boundary USING GIST (geom);
+CREATE INDEX IF NOT EXISTS admin_boundary_level_ix ON admin_boundary (level);
