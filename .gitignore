@@ -17,6 +17,16 @@ Vs30_Polygons.zip
 data/Vs30.tif
 data/Vs30.tif.aux.xml
 
+# Raw boundary/seismotectonic source data — kept locally, loaded/tiled via scripts
+data/Boundaries_Data/
+data/Global_Active_Earthquake_Faults-shp/
+data/Tectonic Plate Boundaries/
+data/Tectonic Plates/
+data/_tiles_src/
+
+# Generated vector tiles (regenerate via scripts/build_tiles.py)
+web/tiles/
+
 # Local secrets / connection strings
 .env
 
@@ -25,3 +35,6 @@ data/Vs30.tif.aux.xml
 
 # Vendored Claude Code tooling
 .claude/
+
+# Playwright MCP verification artifacts
+.playwright-mcp/

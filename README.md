@@ -26,6 +26,14 @@ grid). At runtime intensity is computed at full native resolution in NumPy; only
 the output — a handful of MMI contour bands (tens of KB) — is sent to the
 browser. The heavy grid never leaves the server.
 
+The boundary and seismotectonic layers follow the same discipline. Admin
+polygons load into PostGIS **simplified to ~100 m** (`scripts/load_boundaries.py`)
+— enough for the km-scale MMI spatial join, not the 287 MB of raw district
+vertices. For *display*, `scripts/build_tiles.py` bakes each layer into a
+`.pmtiles` vector-tile archive (tippecanoe, run in Docker); the browser fetches
+only the byte ranges it needs via `protomaps-leaflet`. Full-resolution geometry
+never crosses the wire.
+
 ## Intensity model
 
 Ported from the original ArcGIS field calculator (`Expression.cal`):
@@ -55,14 +63,16 @@ src/eqmon/
   intensity.py   ported formula: PGA + MMI (vectorized NumPy)
   contours.py    MMI grid -> filled-band GeoJSON
   api.py         FastAPI: /intensity + /events* endpoints + static web/ mount
+  boundaries.py  pure shapefile-props -> admin_boundary field mapping
   db.py          PostGIS connection pool + schema helpers
   _env.py        loads local .env (DATABASE_URL) into os.environ
   events/        sources.py (USGS + MET stub), ingest.py (dedup), repo.py
-  impact.py      per-event district impact (max band via PostGIS + repr point)
-schema.sql                  PostGIS tables (seismic_event, district)
+  impact.py      per-event multi-level impact (province/district/tehsil)
+schema.sql                  PostGIS tables (seismic_event, admin_boundary)
 scripts/rasterize_vs30.py   one-time shapefile -> COG
-scripts/load_districts.py   one-time district load into PostGIS
-web/             Leaflet map + event form + catalog + impact table
+scripts/load_boundaries.py  one-time admin-boundary load into PostGIS (simplified)
+scripts/build_tiles.py      one-time overlay .pmtiles via tippecanoe-in-Docker
+web/             Leaflet map + tile overlays + event form + catalog + impact table
 ```
 
 ## Tests
@@ -92,7 +102,8 @@ DATABASE_URL_TEST=postgresql://user:pass@localhost:5432/eqmon_test
 Then apply the schema and load districts:
 ```bash
 uv run python -c "from eqmon.db import init_schema; init_schema()"
-uv run python scripts/load_districts.py        # 161 districts into PostGIS
+uv run python scripts/load_boundaries.py       # 757 admin units (4/8/167/578) into PostGIS
+uv run python scripts/build_tiles.py           # one-time: build web/tiles/*.pmtiles (needs Docker)
 ```
 
 **Endpoints** (in addition to the ad-hoc `POST /intensity`):
