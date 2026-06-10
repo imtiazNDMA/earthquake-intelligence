@@ -33,12 +33,13 @@ def test_compute_event_impact_reports_rollups_per_level(db_conn):
     from eqmon.impact import compute_event_impact
 
     # one district + its enclosing province, both over the epicenter
-    for level, name in [("province", "TestProv"), ("district", "Epi")]:
+    # (a province's parent is NULL; the district's parent is its province)
+    for level, name, parent in [("province", "TestProv", None), ("district", "Epi", "TestProv")]:
         db_conn.execute(
             "INSERT INTO admin_boundary (level, name, parent, geom) VALUES "
-            "(%s, %s, 'TestProv', ST_Multi(ST_SetSRID("
+            "(%s, %s, %s, ST_Multi(ST_SetSRID("
             "ST_MakeEnvelope(72.0, 33.5, 73.0, 34.5), 4326)))",
-            (level, name),
+            (level, name, parent),
         )
     grid = load_grid(VS30_TIF)
     ev = create_manual_event(db_conn, magnitude=6.5, depth_km=10, lon=72.5, lat=34.0)

@@ -85,5 +85,7 @@ def compute_event_impact(conn: psycopg.Connection, event: dict, grid: Grid) -> d
             )
         cur.execute("CREATE INDEX ON _bands USING GIST (geom)")
 
+    # _rollup_for_level reads the _bands temp table built above; keep that
+    # setup immediately before this fan-out so the coupling stays visible.
     rollups = {lvl: _rollup_for_level(conn, lvl, mmi, grid) for lvl in ROLLUP_LEVELS}
     return {"bands": bands, "rollups": rollups}
