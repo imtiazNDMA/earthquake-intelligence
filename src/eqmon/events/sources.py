@@ -14,6 +14,9 @@ USGS_FEED_URL = (
     "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson"
 )
 
+FDSN_QUERY_URL = "https://earthquake.usgs.gov/fdsnws/event/1/query"
+DEFAULT_WINDOW_DAYS = 30
+
 
 @dataclass(frozen=True)
 class RawEvent:
@@ -62,6 +65,34 @@ def parse_usgs(geojson: dict) -> list[RawEvent]:
             lat=float(lat),
         ))
     return out
+
+
+def fdsn_query_params(*, starttime: datetime,
+                      bbox: tuple[float, float, float, float],
+                      minmagnitude: float | None = None,
+                      limit: int = 20000) -> dict:
+    """Build FDSN `event/query` parameters for a region + time window.
+
+    `bbox` is (min lon, min lat, max lon, max lat) — matches config.COVERAGE_BBOX.
+    `starttime` must be a UTC datetime; formatted without a tz suffix (FDSN
+    assumes UTC). `limit` is capped at FDSN's hard max (20000); `orderby=time`
+    keeps the most recent events if the window ever saturates. Proper time
+    windowing for large historical pulls is Phase 1.
+    """
+    minx, miny, maxx, maxy = bbox
+    params: dict = {
+        "format": "geojson",
+        "starttime": starttime.strftime("%Y-%m-%dT%H:%M:%S"),
+        "minlatitude": miny,
+        "maxlatitude": maxy,
+        "minlongitude": minx,
+        "maxlongitude": maxx,
+        "orderby": "time",
+        "limit": limit,
+    }
+    if minmagnitude is not None:
+        params["minmagnitude"] = minmagnitude
+    return params
 
 
 class USGSSource:
