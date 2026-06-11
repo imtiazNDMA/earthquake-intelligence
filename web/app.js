@@ -1,7 +1,30 @@
 const map = L.map("map").setView([30.4, 69.3], 5); // Primary Focus Country: Pakistan
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  attribution: "© OpenStreetMap", maxZoom: 12,
-}).addTo(map);
+
+// --- Basemaps (all free + keyless; tile servers reachable without a token) ---
+const OSM_ATTR = "© OpenStreetMap contributors";
+const CARTO_ATTR = OSM_ATTR + " © CARTO";
+const ESRI_ATTR = "Tiles © Esri";
+const BASEMAPS = {
+  "OpenStreetMap": L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: OSM_ATTR, maxZoom: 19,
+  }),
+  "Humanitarian (HOT)": L.tileLayer("https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png", {
+    attribution: OSM_ATTR + " © Humanitarian OpenStreetMap Team", maxZoom: 19,
+  }),
+  "Topographic": L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", {
+    attribution: OSM_ATTR + " © OpenTopoMap (CC-BY-SA)", maxZoom: 17,
+  }),
+  "Light (Positron)": L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+    attribution: CARTO_ATTR, subdomains: "abcd", maxZoom: 20,
+  }),
+  "Dark (Dark Matter)": L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+    attribution: CARTO_ATTR, subdomains: "abcd", maxZoom: 20,
+  }),
+  "Satellite (Esri)": L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+    attribution: ESRI_ATTR + ", Maxar, Earthstar Geographics", maxZoom: 19,
+  }),
+};
+BASEMAPS["OpenStreetMap"].addTo(map); // default basemap
 
 // --- Vector-tile reference overlays (protomaps-leaflet over pmtiles) ---
 // `dataLayer` MUST equal the tippecanoe -l layer id used in scripts/build_tiles.py.
@@ -34,7 +57,37 @@ const OVERLAYS = {
 // Default-on overlays (others toggle via the control to avoid clutter).
 OVERLAYS.National.addTo(map);
 OVERLAYS.Provinces.addTo(map);
-L.control.layers(null, OVERLAYS, { collapsed: true }).addTo(map);
+L.control.layers(BASEMAPS, OVERLAYS, { collapsed: true }).addTo(map);
+
+// --- Basemap switching button: click to cycle to the next basemap ---
+// Leaflet's baselayerchange keeps `current` in sync whether the user switches
+// via this button or the layer-control radios.
+const BASEMAP_NAMES = Object.keys(BASEMAPS);
+let currentBasemap = "OpenStreetMap";
+function setBasemap(name) {
+  map.removeLayer(BASEMAPS[currentBasemap]);
+  BASEMAPS[name].addTo(map);
+  currentBasemap = name;
+  if (basemapBtn) basemapBtn.title = `Basemap: ${name} (click to switch)`;
+}
+map.on("baselayerchange", (e) => { currentBasemap = e.name; basemapBtn.title = `Basemap: ${e.name} (click to switch)`; });
+
+const basemapControl = L.control({ position: "topleft" });
+let basemapBtn;
+basemapControl.onAdd = function () {
+  const div = L.DomUtil.create("div", "leaflet-bar leaflet-control");
+  basemapBtn = L.DomUtil.create("a", "", div);
+  basemapBtn.href = "#";
+  basemapBtn.textContent = "🗺";
+  basemapBtn.title = `Basemap: ${currentBasemap} (click to switch)`;
+  basemapBtn.style.cssText = "font-size:18px;text-align:center;line-height:30px";
+  L.DomEvent.on(basemapBtn, "click", L.DomEvent.stop).on(basemapBtn, "click", () => {
+    const next = (BASEMAP_NAMES.indexOf(currentBasemap) + 1) % BASEMAP_NAMES.length;
+    setBasemap(BASEMAP_NAMES[next]);
+  });
+  return div;
+};
+basemapControl.addTo(map);
 
 // MMI legend (colors mirror _MMI_COLORS in src/eqmon/contours.py).
 const MMI_PALETTE = [
