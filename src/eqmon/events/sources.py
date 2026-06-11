@@ -110,6 +110,8 @@ class USGSSource:
         self.timeout = timeout
 
     def fetch(self, since: datetime | None = None) -> list[RawEvent]:
+        """Query FDSN for the region window; fall back to the all-day feed on
+        HTTP error. `since` (if given) sets `starttime` and post-filters."""
         starttime = since or (datetime.now(timezone.utc)
                               - timedelta(days=self.window_days))
         try:

@@ -132,3 +132,18 @@ def test_fetch_since_is_passed_and_postfilters(monkeypatch):
     events = USGSSource().fetch(since=since)
     assert captured["params"]["starttime"] == "2026-01-15T00:00:00"
     assert [e.source_event_id for e in events] == ["b"]  # only Feb >= since
+
+
+def test_fetch_threads_min_magnitude_into_query(monkeypatch):
+    captured = {}
+
+    def fake_get(url, params=None, timeout=None):
+        captured["params"] = params
+        return _FakeResp({"features": []})
+
+    monkeypatch.setattr("eqmon.events.sources.httpx.get", fake_get)
+    USGSSource(min_magnitude=3.0).fetch()
+    assert captured["params"]["minmagnitude"] == 3.0
+    # default source sets no floor
+    USGSSource().fetch()
+    assert "minmagnitude" not in captured["params"]
