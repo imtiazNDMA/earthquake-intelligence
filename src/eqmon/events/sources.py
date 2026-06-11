@@ -3,7 +3,7 @@
 pure (no network) for testability."""
 from __future__ import annotations
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Protocol
 
 import httpx
@@ -98,14 +98,32 @@ def fdsn_query_params(*, starttime: datetime,
 class USGSSource:
     name = "USGS"
 
-    def __init__(self, url: str = USGS_FEED_URL, timeout: float = 15.0):
-        self.url = url
+    def __init__(self, query_url: str = FDSN_QUERY_URL,
+                 feed_url: str = USGS_FEED_URL,
+                 min_magnitude: float | None = None,
+                 window_days: int = DEFAULT_WINDOW_DAYS,
+                 timeout: float = 15.0):
+        self.query_url = query_url
+        self.feed_url = feed_url
+        self.min_magnitude = min_magnitude
+        self.window_days = window_days
         self.timeout = timeout
 
     def fetch(self, since: datetime | None = None) -> list[RawEvent]:
-        resp = httpx.get(self.url, timeout=self.timeout)
-        resp.raise_for_status()
-        events = parse_usgs(resp.json())
+        starttime = since or (datetime.now(timezone.utc)
+                              - timedelta(days=self.window_days))
+        try:
+            params = fdsn_query_params(starttime=starttime, bbox=COVERAGE_BBOX,
+                                       minmagnitude=self.min_magnitude)
+            resp = httpx.get(self.query_url, params=params, timeout=self.timeout)
+            resp.raise_for_status()
+            events = parse_usgs(resp.json())
+        except httpx.HTTPError:
+            # FDSN unreachable or returned an error status: fall back to the
+            # real-time feed (24h, global; parse_usgs filters to the region).
+            resp = httpx.get(self.feed_url, timeout=self.timeout)
+            resp.raise_for_status()
+            events = parse_usgs(resp.json())
         if since is not None:
             events = [e for e in events if e.occurred_at >= since]
         return events
