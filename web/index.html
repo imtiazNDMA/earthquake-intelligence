@@ -11,33 +11,113 @@
   <style>
     html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; }
     #map { position: absolute; inset: 0; }
-    #panel {
-      position: absolute; z-index: 1000; top: 12px; left: 12px; width: 240px;
-      background: #fff; padding: 14px; border-radius: 8px;
-      box-shadow: 0 2px 12px rgba(0,0,0,.25);
+
+    /* --- Sidebar shell: icon rail + panel --- */
+    #sidebar {
+      position: absolute; z-index: 1000; top: 0; left: 0; bottom: 0;
+      display: flex; align-items: stretch;
+      box-shadow: 0 0 14px rgba(0,0,0,.12);
     }
-    #panel label { display: block; font-size: 12px; margin: 8px 0 2px; color: #333; }
-    #panel input { width: 100%; box-sizing: border-box; padding: 6px; }
-    #panel button { margin-top: 12px; width: 100%; padding: 8px; cursor: pointer;
-      background: #c0392b; color: #fff; border: none; border-radius: 6px; }
-    #status { font-size: 12px; margin-top: 8px; color: #666; min-height: 16px; }
+    #sidebar .rail {
+      width: 46px; background: #fafafa; border-right: 1px solid #eee;
+      display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 0;
+    }
+    .rail-ic {
+      width: 32px; height: 32px; border: none; background: transparent; cursor: pointer;
+      border-radius: 7px; font-size: 17px; line-height: 1; color: #888;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .rail-ic:hover { background: #eee; color: #333; }
+    .rail-ic.active { background: #111; color: #fff; }
+    .rail-collapse { margin-top: auto; font-size: 20px; }
+
+    #panel-body {
+      width: 260px; background: #fff; padding: 14px; box-sizing: border-box;
+      overflow-y: auto;
+    }
+    #sidebar.collapsed #panel-body { display: none; }
+
+    #panel-body h4 { margin: 0 0 8px; font-size: 13px; font-weight: 700; color: #1a1a1a; }
+    #panel-body section + section { display: none; } /* JS controls visibility from a later task */
+
+    .field-label {
+      display: block; font-size: 10px; margin: 9px 0 2px; color: #999;
+      text-transform: uppercase; letter-spacing: .4px;
+    }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    #panel-body input[type="number"] {
+      width: 100%; box-sizing: border-box; padding: 6px;
+      border: 1px solid #e2e2e2; background: #fafafa; border-radius: 5px; font-size: 13px;
+    }
+    .btn-primary {
+      margin-top: 12px; width: 100%; padding: 9px; cursor: pointer; font-weight: 600;
+      background: #111; color: #fff; border: none; border-radius: 6px;
+    }
+    .btn-secondary {
+      margin-top: 8px; width: 100%; padding: 8px; cursor: pointer; font-size: 12px;
+      background: #f0f0f0; color: #333; border: 1px solid #e2e2e2; border-radius: 6px;
+    }
+    #status { font-size: 12px; margin-top: 8px; color: #777; min-height: 16px; }
+
+    #events { font-size: 12px; }
+    #impact { margin-top: 10px; font-size: 12px; }
+
+    /* Map config rows (overlays checklist + basemap radios) */
+    .cfg-row {
+      display: flex; align-items: center; gap: 7px;
+      font-size: 12px; padding: 4px 0; cursor: pointer;
+    }
+    .cfg-row .swatch {
+      width: 14px; height: 14px; border-radius: 3px; flex: none;
+      border: 1px solid rgba(0,0,0,.15);
+    }
+    .cfg-group + .cfg-group { margin-top: 14px; }
+
     .legend { line-height: 18px; color: #333; }
     .legend i { width: 16px; height: 16px; float: left; margin-right: 6px; opacity: .8; }
   </style>
 </head>
 <body>
   <div id="map"></div>
-  <div id="panel">
-    <strong>Event parameters</strong>
-    <label>Magnitude</label>      <input id="magnitude" type="number" value="6.5" step="0.1" />
-    <label>Depth (km)</label>     <input id="depth_km" type="number" value="10" step="1" />
-    <label>Latitude</label>       <input id="lat" type="number" value="34.0" step="0.01" />
-    <label>Longitude</label>      <input id="lon" type="number" value="72.5" step="0.01" />
-    <button id="calc">Calculate intensity</button>
-    <button id="ingest" style="margin-top:8px;background:#2c3e50">Pull USGS feed</button>
-    <div id="status"></div>
-    <div id="events" style="margin-top:10px;max-height:160px;overflow:auto;font-size:12px"></div>
-    <div id="impact" style="margin-top:10px;max-height:200px;overflow:auto;font-size:12px"></div>
+  <div id="sidebar">
+    <div class="rail">
+      <button class="rail-ic active" data-section="event" title="Event input">✚</button>
+      <button class="rail-ic" data-section="catalog" title="Catalog">≣</button>
+      <button class="rail-ic" data-section="config" title="Map config">⚙</button>
+      <button id="rail-collapse" class="rail-ic rail-collapse" title="Collapse">‹</button>
+    </div>
+    <div id="panel-body">
+      <section id="sec-event">
+        <h4>Event input</h4>
+        <div class="grid2">
+          <div><span class="field-label">Magnitude</span>
+            <input id="magnitude" type="number" value="6.5" step="0.1" /></div>
+          <div><span class="field-label">Depth (km)</span>
+            <input id="depth_km" type="number" value="10" step="1" /></div>
+        </div>
+        <div class="grid2">
+          <div><span class="field-label">Latitude</span>
+            <input id="lat" type="number" value="34.0" step="0.01" /></div>
+          <div><span class="field-label">Longitude</span>
+            <input id="lon" type="number" value="72.5" step="0.01" /></div>
+        </div>
+        <button id="calc" class="btn-primary">Calculate intensity</button>
+        <button id="ingest" class="btn-secondary">Pull USGS feed</button>
+        <div id="status"></div>
+      </section>
+      <section id="sec-catalog">
+        <h4>Catalog</h4>
+        <div id="events"></div>
+        <div id="impact"></div>
+      </section>
+      <section id="sec-config">
+        <h4>Map configuration</h4>
+        <div class="cfg-group"><div class="field-label">Overlays</div>
+          <div id="overlay-list"></div></div>
+        <div class="cfg-group"><div class="field-label">Basemap</div>
+          <div id="basemap-list"></div></div>
+      </section>
+    </div>
   </div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
           integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
