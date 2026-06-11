@@ -78,8 +78,8 @@ Replaces the floating Leaflet layer control **and** the basemap cycle button:
   symbolizer color and a checkbox that adds/removes the corresponding
   `OVERLAYS[name]` layer from the map. Initial checked state mirrors current
   defaults (National + Provinces on).
-- **Basemap** — a single-select control (radio list or `<select>`) over the six free
-  basemaps in `BASEMAPS`. Selecting one swaps the active basemap (reusing the
+- **Basemap** — a **radio list** over the six free basemaps in `BASEMAPS` (one row
+  per basemap, all visible). Selecting one swaps the active basemap (reusing the
   existing `setBasemap`/single-active-layer logic). Default: OpenStreetMap.
 
 The `BASEMAPS` and `OVERLAYS` object definitions in `app.js` are **unchanged**; only
