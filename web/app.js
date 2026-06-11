@@ -57,37 +57,64 @@ const OVERLAYS = {
 // Default-on overlays (others toggle via the control to avoid clutter).
 OVERLAYS.National.addTo(map);
 OVERLAYS.Provinces.addTo(map);
-L.control.layers(BASEMAPS, OVERLAYS, { collapsed: true }).addTo(map);
+// Move the zoom control clear of the left-edge sidebar shell.
+map.zoomControl.setPosition("topright");
 
-// --- Basemap switching button: click to cycle to the next basemap ---
-// Leaflet's baselayerchange keeps `current` in sync whether the user switches
-// via this button or the layer-control radios.
+// --- Map config panel: overlay checklist + basemap radios ---
+// Hosts the controls that used to be the floating Leaflet layer control.
+// `BASEMAPS` / `OVERLAYS` are defined above and unchanged.
 const BASEMAP_NAMES = Object.keys(BASEMAPS);
 let currentBasemap = "OpenStreetMap";
 function setBasemap(name) {
+  if (name === currentBasemap) return;
   map.removeLayer(BASEMAPS[currentBasemap]);
   BASEMAPS[name].addTo(map);
   currentBasemap = name;
-  if (basemapBtn) basemapBtn.title = `Basemap: ${name} (click to switch)`;
 }
-map.on("baselayerchange", (e) => { currentBasemap = e.name; basemapBtn.title = `Basemap: ${e.name} (click to switch)`; });
 
-const basemapControl = L.control({ position: "topleft" });
-let basemapBtn;
-basemapControl.onAdd = function () {
-  const div = L.DomUtil.create("div", "leaflet-bar leaflet-control");
-  basemapBtn = L.DomUtil.create("a", "", div);
-  basemapBtn.href = "#";
-  basemapBtn.textContent = "🗺";
-  basemapBtn.title = `Basemap: ${currentBasemap} (click to switch)`;
-  basemapBtn.style.cssText = "font-size:18px;text-align:center;line-height:30px";
-  L.DomEvent.on(basemapBtn, "click", L.DomEvent.stop).on(basemapBtn, "click", () => {
-    const next = (BASEMAP_NAMES.indexOf(currentBasemap) + 1) % BASEMAP_NAMES.length;
-    setBasemap(BASEMAP_NAMES[next]);
-  });
-  return div;
+const OVERLAY_COLORS = {
+  National: "#444", Provinces: "#666", Districts: "#999", Tehsils: "#bbb",
+  Faults: "#d00000", "Plate boundaries": "#ff8800", Plates: "#ffcc66",
 };
-basemapControl.addTo(map);
+const OVERLAY_DEFAULT_ON = new Set(["National", "Provinces"]); // mirrors addTo() above
+
+function buildConfigPanel() {
+  const ovEl = document.getElementById("overlay-list");
+  Object.keys(OVERLAYS).forEach((name) => {
+    const row = document.createElement("label");
+    row.className = "cfg-row";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = OVERLAY_DEFAULT_ON.has(name);
+    cb.addEventListener("change", () => {
+      if (cb.checked) OVERLAYS[name].addTo(map);
+      else map.removeLayer(OVERLAYS[name]);
+    });
+    const sw = document.createElement("span");
+    sw.className = "swatch";
+    sw.style.background = OVERLAY_COLORS[name];
+    const txt = document.createElement("span");
+    txt.textContent = name;
+    row.append(cb, sw, txt);
+    ovEl.appendChild(row);
+  });
+
+  const bmEl = document.getElementById("basemap-list");
+  BASEMAP_NAMES.forEach((name) => {
+    const row = document.createElement("label");
+    row.className = "cfg-row";
+    const rb = document.createElement("input");
+    rb.type = "radio";
+    rb.name = "basemap";
+    rb.checked = (name === currentBasemap);
+    rb.addEventListener("change", () => { if (rb.checked) setBasemap(name); });
+    const txt = document.createElement("span");
+    txt.textContent = name;
+    row.append(rb, txt);
+    bmEl.appendChild(row);
+  });
+}
+buildConfigPanel();
 
 // MMI legend (colors mirror _MMI_COLORS in src/eqmon/contours.py).
 const MMI_PALETTE = [
