@@ -38,3 +38,6 @@ web/tiles/
 
 # Playwright MCP verification artifacts
 .playwright-mcp/
+
+# Visual-companion brainstorm scratch
+.superpowers/
