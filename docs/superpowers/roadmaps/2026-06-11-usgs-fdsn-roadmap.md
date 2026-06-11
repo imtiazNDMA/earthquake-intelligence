@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-11
 **API:** USGS FDSN event web service — https://earthquake.usgs.gov/fdsnws/event/1/
-**Status:** Roadmap approved; Phase 0 in progress.
+**Status:** Roadmap approved; Phase 0 complete (2026-06-11); Phases 1–5 pending.
 
 ## Context: where the project stands today
 
@@ -53,7 +53,7 @@ Relevant code: `src/eqmon/events/sources.py` (feed + parse), `events/ingest.py`
 Each phase is a self-contained vertical slice, ordered by risk and dependency.
 Every phase ships working, testable value and builds on the prior one.
 
-### Phase 0 — Swap feed → FDSN `query` (enabler, low risk) — IN PROGRESS
+### Phase 0 — Swap feed → FDSN `query` (enabler, low risk) — DONE (2026-06-11)
 Add an FDSN client that builds `query?format=geojson` with the region bounding
 box, `minmagnitude`, and time parameters; reuse `parse_usgs` (identical GeoJSON
 schema). Replace the global-fetch-then-filter pattern with server-side region +
