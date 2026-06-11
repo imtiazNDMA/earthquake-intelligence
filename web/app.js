@@ -216,3 +216,33 @@ document.getElementById("ingest").addEventListener("click", async () => {
 });
 
 refreshEvents();
+
+// --- Sidebar rail: section switching + collapse ---
+const SECTIONS = { event: "sec-event", catalog: "sec-catalog", config: "sec-config" };
+let activeSection = "event";
+let sidebarCollapsed = false;
+
+function setCollapsed(value) {
+  sidebarCollapsed = value;
+  document.getElementById("sidebar").classList.toggle("collapsed", value);
+  document.getElementById("rail-collapse").textContent = value ? "›" : "‹";
+}
+
+function showSection(key) {
+  // Clicking the already-active icon toggles the panel closed.
+  if (key === activeSection && !sidebarCollapsed) { setCollapsed(true); return; }
+  activeSection = key;
+  setCollapsed(false);
+  for (const [k, id] of Object.entries(SECTIONS)) {
+    document.getElementById(id).style.display = (k === key) ? "block" : "none";
+  }
+  document.querySelectorAll(".rail-ic[data-section]").forEach((b) =>
+    b.classList.toggle("active", b.dataset.section === key));
+}
+
+document.querySelectorAll(".rail-ic[data-section]").forEach((b) =>
+  b.addEventListener("click", () => showSection(b.dataset.section)));
+document.getElementById("rail-collapse")
+  .addEventListener("click", () => setCollapsed(!sidebarCollapsed));
+
+showSection("event"); // default panel on load
