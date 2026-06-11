@@ -246,7 +246,9 @@ refreshEvents();
 
 // --- Sidebar rail: section switching + collapse ---
 const SECTIONS = { event: "sec-event", catalog: "sec-catalog", config: "sec-config" };
-let activeSection = "event";
+// Start as null (not "event") so the initial showSection("event") renders the
+// section instead of matching the active-icon-toggle guard and collapsing.
+let activeSection = null;
 let sidebarCollapsed = false;
 
 function setCollapsed(value) {
