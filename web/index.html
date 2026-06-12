@@ -146,13 +146,19 @@
 
     /* Map config rows (overlays checklist + basemap radios) */
     .cfg-row {
-      display: flex; align-items: center; gap: 7px;
-      font-size: 12px; padding: 4px 0; cursor: pointer;
+      display: flex; align-items: center; gap: 4px;
+      font-size: 12px; padding: 3px 0; cursor: pointer;
     }
+    .cfg-row input[type="checkbox"] { margin: 0; }
     .cfg-row .swatch {
       width: 14px; height: 14px; border-radius: 3px; flex: none;
-      border: 1px solid rgba(0,0,0,.15);
+      border: 1px solid rgba(0,0,0,.15); cursor: pointer;
     }
+    .cfg-row .ov-name { flex: 0 0 auto; min-width: 0; }
+    .ov-controls { display: flex; align-items: center; gap: 3px; margin-left: auto; }
+    .ov-width { width: 28px; font-size: 10px; padding: 1px 2px; border: 1px solid #ddd; border-radius: 2px; text-align: center; }
+    .ov-color { width: 14px; height: 14px; padding: 0; border: none; border-radius: 2px; cursor: pointer; flex: none; }
+    .ov-opacity { width: 36px; height: 12px; margin: 0; flex: none; }
     .cfg-group + .cfg-group { margin-top: 14px; }
 
     .legend { line-height: 18px; color: #333; }

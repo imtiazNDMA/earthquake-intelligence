@@ -28,41 +28,50 @@ BASEMAPS["OpenStreetMap"].addTo(map); // default basemap
 
 // --- Vector-tile reference overlays (protomaps-leaflet over pmtiles) ---
 // `dataLayer` MUST equal the tippecanoe -l layer id used in scripts/build_tiles.py.
-const Line = (color, width) => new protomapsL.LineSymbolizer({ color, width });
-// Admin outlines: a PolygonSymbolizer fills + strokes its rings under a single
-// canvas globalAlpha = `opacity`. The fill is fully transparent so only the
-// stroke shows; `opacity` MUST stay > 0 or the stroke is drawn invisibly too.
-const Outline = (color, width) =>
-  new protomapsL.PolygonSymbolizer({ fill: "rgba(0,0,0,0)", opacity: 1, stroke: color, width });
 
-function overlay(id, symbolizer) {
-  return protomapsL.leafletLayer({
-    url: `/tiles/${id}.pmtiles`,
-    paintRules: [{ dataLayer: id, symbolizer }],
-    backgroundColor: "rgba(0,0,0,0)",
-  });
-}
-
-const OVERLAYS = {
-  National: overlay("national", Outline("#444", 1.5)),
-  Provinces: overlay("provinces", Outline("#666", 1.0)),
-  Districts: overlay("districts", Outline("#999", 0.6)),
-  Tehsils: overlay("tehsils", Outline("#bbb", 0.4)),
-  Faults: overlay("faults", Line("#d00000", 1.2)),
-  "Plate boundaries": overlay("plate_boundaries", Line("#ff8800", 1.6)),
-  Plates: overlay("plates",
-    new protomapsL.PolygonSymbolizer({ fill: "#ffcc66", opacity: 0.12 })),
+const OVERLAY_CONFIG = {
+  National:        { id: "national",         color: "#444",   width: 1.5, defaultOn: true },
+  Provinces:       { id: "provinces",        color: "#666",   width: 1.0, defaultOn: true },
+  Districts:       { id: "districts",        color: "#999",   width: 0.6, defaultOn: false },
+  Tehsils:         { id: "tehsils",          color: "#bbb",   width: 0.4, defaultOn: false },
+  Faults:          { id: "faults",           color: "#d00000", width: 1.2, defaultOn: false, lineOnly: true },
+  "Plate boundaries": { id: "plate_boundaries", color: "#ff8800", width: 1.6, defaultOn: false, lineOnly: true },
+  Plates:          { id: "plates",           color: "#ffcc66", width: 0.5, defaultOn: false,
+                     fillColor: "#ffcc66", fillOpacity: 0.12 },
 };
 
-// Default-on overlays (others toggle via the control to avoid clutter).
-OVERLAYS.National.addTo(map);
-OVERLAYS.Provinces.addTo(map);
+function buildOverlay(name) {
+  const c = OVERLAY_CONFIG[name];
+  let sym;
+  if (c.fillColor) {
+    sym = new protomapsL.PolygonSymbolizer({ fill: c.fillColor, opacity: c.fillOpacity, stroke: c.color, width: c.width });
+  } else if (c.lineOnly) {
+    sym = new protomapsL.LineSymbolizer({ color: c.color, width: c.width });
+  } else {
+    sym = new protomapsL.PolygonSymbolizer({ fill: "rgba(0,0,0,0)", opacity: 1, stroke: c.color, width: c.width });
+  }
+  return protomapsL.leafletLayer({ url: `/tiles/${c.id}.pmtiles`, paintRules: [{ dataLayer: c.id, symbolizer: sym }], backgroundColor: "rgba(0,0,0,0)" });
+}
+
+function rebuildOverlay(name) {
+  const c = OVERLAY_CONFIG[name];
+  const old = OVERLAYS[name];
+  const on = old && map.hasLayer(old);
+  if (on) map.removeLayer(old);
+  OVERLAYS[name] = buildOverlay(name);
+  if (on) OVERLAYS[name].addTo(map);
+}
+
+const OVERLAYS = {};
+Object.keys(OVERLAY_CONFIG).forEach(name => {
+  OVERLAYS[name] = buildOverlay(name);
+  if (OVERLAY_CONFIG[name].defaultOn) OVERLAYS[name].addTo(map);
+});
+
 // Move the zoom control clear of the left-edge sidebar shell.
 map.zoomControl.setPosition("topright");
 
 // --- Map config panel: overlay checklist + basemap radios ---
-// Hosts the controls that used to be the floating Leaflet layer control.
-// `BASEMAPS` / `OVERLAYS` are defined above and unchanged.
 const BASEMAP_NAMES = Object.keys(BASEMAPS);
 let currentBasemap = "OpenStreetMap";
 function setBasemap(name) {
@@ -72,30 +81,60 @@ function setBasemap(name) {
   currentBasemap = name;
 }
 
-const OVERLAY_COLORS = {
-  National: "#444", Provinces: "#666", Districts: "#999", Tehsils: "#bbb",
-  Faults: "#d00000", "Plate boundaries": "#ff8800", Plates: "#ffcc66",
-};
-const OVERLAY_DEFAULT_ON = new Set(["National", "Provinces"]); // mirrors addTo() above
-
 function buildConfigPanel() {
   const ovEl = document.getElementById("overlay-list");
-  Object.keys(OVERLAYS).forEach((name) => {
-    const row = document.createElement("label");
+  Object.keys(OVERLAY_CONFIG).forEach((name) => {
+    const c = OVERLAY_CONFIG[name];
+    const row = document.createElement("div");
     row.className = "cfg-row";
     const cb = document.createElement("input");
     cb.type = "checkbox";
-    cb.checked = OVERLAY_DEFAULT_ON.has(name);
+    cb.checked = !!c.defaultOn;
     cb.addEventListener("change", () => {
       if (cb.checked) OVERLAYS[name].addTo(map);
       else map.removeLayer(OVERLAYS[name]);
+      controls.style.display = cb.checked ? "flex" : "none";
     });
     const sw = document.createElement("span");
     sw.className = "swatch";
-    sw.style.background = OVERLAY_COLORS[name];
+    sw.style.background = c.color;
+    sw.addEventListener("click", () => colPick.click());
     const txt = document.createElement("span");
+    txt.className = "ov-name";
     txt.textContent = name;
-    row.append(cb, sw, txt);
+    const controls = document.createElement("span");
+    controls.className = "ov-controls";
+    controls.style.display = cb.checked ? "flex" : "none";
+    const w = document.createElement("input");
+    w.type = "number";
+    w.className = "ov-width";
+    w.value = c.width;
+    w.step = "0.1"; w.min = "0.1"; w.max = "5";
+    w.title = "Line width";
+    w.addEventListener("change", () => { c.width = parseFloat(w.value) || c.width; rebuildOverlay(name); });
+    controls.appendChild(w);
+    const colPick = document.createElement("input");
+    colPick.type = "color";
+    colPick.className = "ov-color";
+    colPick.value = c.color;
+    colPick.title = "Line color";
+    colPick.addEventListener("input", () => {
+      c.color = colPick.value;
+      sw.style.background = c.color;
+      if (c.fillColor) c.fillColor = colPick.value;
+      rebuildOverlay(name);
+    });
+    controls.appendChild(colPick);
+    if (c.fillColor) {
+      const o = document.createElement("input");
+      o.type = "range";
+      o.className = "ov-opacity";
+      o.min = "0"; o.max = "1"; o.step = "0.05"; o.value = c.fillOpacity;
+      o.title = "Fill opacity";
+      o.addEventListener("input", () => { c.fillOpacity = parseFloat(o.value); rebuildOverlay(name); });
+      controls.appendChild(o);
+    }
+    row.append(cb, sw, txt, controls);
     ovEl.appendChild(row);
   });
 
