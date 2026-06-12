@@ -17,3 +17,6 @@ MAP_ZOOM = 5
 
 # MMI band thresholds for filled contours (Modified Mercalli classes).
 MMI_BAND_LEVELS = [2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+# Automated ingest interval (minutes).
+INGEST_INTERVAL_MINUTES = 15

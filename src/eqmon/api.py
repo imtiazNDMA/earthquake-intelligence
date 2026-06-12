@@ -2,7 +2,9 @@
 contour bands per submitted event."""
 from __future__ import annotations
 import os
-from datetime import datetime
+import threading
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 
@@ -21,7 +23,125 @@ from .impact import compute_event_impact
 from .intensity import compute_mmi_grid
 from .vs30 import Grid, load_grid
 
-app = FastAPI(title="Earthquake Intensity Platform")
+_ingest_scheduler_thread: threading.Thread | None = None
+_STOP_SCHEDULER = False
+
+
+def _ingest_tick() -> None:
+    """One ingest cycle: read last sync, fetch, update timestamp."""
+    try:
+        source = USGSSource()
+        with db.get_conn() as conn:
+            row = conn.execute(
+                "SELECT value FROM _sync_state WHERE key = 'usgs_last_sync'"
+            ).fetchone()
+            updatedafter = (
+                datetime.fromisoformat(row[0]) if row is not None else None
+            )
+            result = ingest(conn, source, updatedafter=updatedafter)
+            conn.commit()
+            now_iso = datetime.now(timezone.utc).isoformat()
+            conn.execute(
+                "INSERT INTO _sync_state (key, value) "
+                "VALUES ('usgs_last_sync', %s) "
+                "ON CONFLICT (key) DO UPDATE SET value = %s, updated_at = now()",
+                (now_iso, now_iso),
+            )
+            conn.commit()
+            print(f"[scheduler] ingest: {result.inserted} new, {result.fetched} fetched")
+    except Exception as exc:
+        print(f"[scheduler] ingest error: {exc!r}")
+
+
+def _scheduler_loop(interval_sec: float) -> None:
+    global _STOP_SCHEDULER
+    _ingest_tick()
+    while not _STOP_SCHEDULER:
+        threading.Event().wait(interval_sec)
+        if _STOP_SCHEDULER:
+            break
+        _ingest_tick()
+
+
+def start_ingest_scheduler(interval_minutes: int = config.INGEST_INTERVAL_MINUTES) -> None:
+    global _ingest_scheduler_thread
+    if _ingest_scheduler_thread is not None and _ingest_scheduler_thread.is_alive():
+        return
+    _STOP_SCHEDULER = False
+    _ingest_scheduler_thread = threading.Thread(
+        target=_scheduler_loop, args=(interval_minutes * 60,), daemon=True,
+    )
+    _ingest_scheduler_thread.start()
+
+
+def stop_ingest_scheduler() -> None:
+    global _STOP_SCHEDULER
+    _STOP_SCHEDULER = True
+
+
+@asynccontextmanager
+async def _lifespan(_app):
+    start_ingest_scheduler()
+    yield
+    stop_ingest_scheduler()
+
+
+app = FastAPI(title="Earthquake Intensity Platform", lifespan=_lifespan)
+
+_ingest_scheduler_thread: threading.Thread | None = None
+_STOP_SCHEDULER = False
+
+
+def _ingest_tick() -> None:
+    """One ingest cycle: read last sync, fetch, update timestamp."""
+    try:
+        source = USGSSource()
+        with db.get_conn() as conn:
+            row = conn.execute(
+                "SELECT value FROM _sync_state WHERE key = 'usgs_last_sync'"
+            ).fetchone()
+            updatedafter = (
+                datetime.fromisoformat(row[0]) if row is not None else None
+            )
+            result = ingest(conn, source, updatedafter=updatedafter)
+            conn.commit()
+            now_iso = datetime.now(timezone.utc).isoformat()
+            conn.execute(
+                "INSERT INTO _sync_state (key, value) "
+                "VALUES ('usgs_last_sync', %s) "
+                "ON CONFLICT (key) DO UPDATE SET value = %s, updated_at = now()",
+                (now_iso, now_iso),
+            )
+            conn.commit()
+            print(f"[scheduler] ingest: {result.inserted} new, {result.fetched} fetched")
+    except Exception as exc:
+        print(f"[scheduler] ingest error: {exc!r}")
+
+
+def _scheduler_loop(interval_sec: float) -> None:
+    global _STOP_SCHEDULER
+    _ingest_tick()  # one-shot on start
+    while not _STOP_SCHEDULER:
+        threading.Event().wait(interval_sec)
+        if _STOP_SCHEDULER:
+            break
+        _ingest_tick()
+
+
+def start_ingest_scheduler(interval_minutes: int = config.INGEST_INTERVAL_MINUTES) -> None:
+    global _ingest_scheduler_thread
+    if _ingest_scheduler_thread is not None and _ingest_scheduler_thread.is_alive():
+        return
+    _STOP_SCHEDULER = False
+    _ingest_scheduler_thread = threading.Thread(
+        target=_scheduler_loop, args=(interval_minutes * 60,), daemon=True,
+    )
+    _ingest_scheduler_thread.start()
+
+
+def stop_ingest_scheduler() -> None:
+    global _STOP_SCHEDULER
+    _STOP_SCHEDULER = True
 
 
 def _vs30_path() -> Path:
