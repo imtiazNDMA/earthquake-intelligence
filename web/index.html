@@ -92,6 +92,44 @@
     }
     .btn-refresh:hover { background: #ddd; }
     .btn-refresh:disabled { opacity: .5; cursor: not-allowed; }
+    .btn-del-detail {
+      width: 100%; padding: 4px; cursor: pointer; font-size: 11px;
+      background: transparent; color: #c00; border: 1px solid #f0c0c0; border-radius: 4px;
+    }
+    .btn-del-detail:hover { background: #ffe0e0; }
+
+    /* Delete button on event cards */
+    .evt { position: relative; }
+    .evt-del {
+      position: absolute; top: 2px; right: 2px;
+      width: 18px; height: 18px; border: none; background: transparent;
+      cursor: pointer; font-size: 13px; line-height: 1; color: #ccc; padding: 0;
+      display: none; border-radius: 3px;
+    }
+    .evt:hover .evt-del { display: block; }
+    .evt-del:hover { color: #c00; background: #ffe0e0; }
+
+    /* Confirmation overlay */
+    #confirm-overlay {
+      position: fixed; inset: 0; z-index: 9999;
+      background: rgba(0,0,0,.3); display: none;
+      align-items: center; justify-content: center;
+    }
+    #confirm-overlay.open { display: flex; }
+    #confirm-box {
+      background: #fff; padding: 20px 24px; border-radius: 8px;
+      box-shadow: 0 4px 20px rgba(0,0,0,.2); text-align: center; min-width: 240px;
+    }
+    #confirm-box p { margin: 0 0 14px; font-size: 14px; color: #333; }
+    #confirm-box .btn-row { display: flex; gap: 8px; justify-content: center; }
+    #confirm-box button {
+      padding: 6px 16px; border: none; border-radius: 5px; cursor: pointer;
+      font-size: 13px; font-weight: 600;
+    }
+    #confirm-cancel { background: #f0f0f0; color: #333; }
+    #confirm-ok { background: #c00; color: #fff; }
+    #confirm-cancel:hover { background: #e0e0e0; }
+    #confirm-ok:hover { background: #a00; }
 
     /* Map config rows (overlays checklist + basemap radios) */
     .cfg-row {
@@ -149,6 +187,15 @@
         <div class="cfg-group"><div class="field-label">Basemap</div>
           <div id="basemap-list"></div></div>
       </section>
+    </div>
+  </div>
+  <div id="confirm-overlay">
+    <div id="confirm-box">
+      <p id="confirm-msg">Delete this event?</p>
+      <div class="btn-row">
+        <button id="confirm-cancel">Cancel</button>
+        <button id="confirm-ok">Delete</button>
+      </div>
     </div>
   </div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"

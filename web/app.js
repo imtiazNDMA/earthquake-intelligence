@@ -194,6 +194,7 @@ async function refreshEvents() {
     const alertClass = ev.alert ? `evt-alert ${ev.alert}` : "";
     const alertText = ev.alert ? ev.alert.toUpperCase() : "";
     return `<div class="evt" data-id="${ev.id}">
+      <button class="evt-del" data-del-id="${ev.id}" title="Delete event">✕</button>
       <div class="evt-head">
         <span class="evt-mag">M${ev.magnitude.toFixed(1)}${ev.mag_type ? ` <span class="evt-magtype">${escapeHtml(ev.mag_type)}</span>` : ""}</span>
         ${ev.alert ? `<span class="${alertClass}">${alertText}</span>` : ""}
@@ -205,8 +206,57 @@ async function refreshEvents() {
     </div>`;
   }).join("");
   document.querySelectorAll(".evt").forEach(el =>
-    el.addEventListener("click", () => showImpact(el.dataset.id)));
+    el.addEventListener("click", (e) => {
+      if (e.target.closest(".evt-del")) return;  // ignore delete button clicks
+      showImpact(el.dataset.id);
+    }));
+  document.querySelectorAll(".evt-del").forEach(btn =>
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      confirmDelete(parseInt(btn.dataset.delId));
+    }));
 }
+
+// --- Confirmation dialog for delete ---
+const confirmOverlay = document.getElementById("confirm-overlay");
+const confirmMsg = document.getElementById("confirm-msg");
+const confirmOk = document.getElementById("confirm-ok");
+let _pendingDeleteId = null;
+
+function confirmDelete(eventId) {
+  _pendingDeleteId = eventId;
+  confirmMsg.textContent = "Delete this event and all its data?";
+  confirmOverlay.classList.add("open");
+}
+
+confirmOk.addEventListener("click", async () => {
+  if (_pendingDeleteId === null) return;
+  const id = _pendingDeleteId;
+  _pendingDeleteId = null;
+  confirmOverlay.classList.remove("open");
+  try {
+    const r = await fetch(`/events/${id}`, { method: "DELETE" });
+    if (r.ok) {
+      document.getElementById("detail").innerHTML = "";
+      impactEl.innerHTML = "";
+      refreshEvents();
+    }
+  } catch (e) {
+    // ignore
+  }
+});
+
+document.getElementById("confirm-cancel").addEventListener("click", () => {
+  _pendingDeleteId = null;
+  confirmOverlay.classList.remove("open");
+});
+
+confirmOverlay.addEventListener("click", (e) => {
+  if (e.target === confirmOverlay) {
+    _pendingDeleteId = null;
+    confirmOverlay.classList.remove("open");
+  }
+});
 
 async function showImpact(id) {
   const detailEl = document.getElementById("detail");
@@ -234,16 +284,29 @@ async function showImpact(id) {
 function renderDetail(evt) {
   const el = document.getElementById("detail");
   el.innerHTML = "";
-  if (!evt || !evt.source_event_id) return;  // manual event — no USGS data
+  if (!evt) return;
   const detail = evt.usgs_detail;
   const props = detail?.properties;
+  if (!evt.source_event_id) {
+    // Manual event — show delete button only
+    el.innerHTML = `<div class="evt-detail">
+      <div class="detail-info">Manual event — no USGS data.</div>
+      <button class="btn-del-detail" data-del-id="${evt.id}">✕ Delete event</button>
+    </div>`;
+    el.querySelector(".btn-del-detail").addEventListener("click", () => confirmDelete(evt.id));
+    return;
+  }
   if (!props) {
     // Have source_event_id but no cached detail
     el.innerHTML = `<div class="evt-detail">
       <div class="detail-info">No USGS detail cached.</div>
-      <button class="btn-refresh">🔄 Refresh from USGS</button>
+      <button class="btn-refresh" style="margin-bottom:4px">🔄 Refresh from USGS</button>
+      <button class="btn-del-detail" data-del-id="${evt.id}">✕ Delete event</button>
     </div>`;
     el.querySelector(".btn-refresh").addEventListener("click", () => refreshFromUsgs(evt.id));
+    el.querySelector(".btn-del-detail").addEventListener("click", () => confirmDelete(evt.id));
+    return;
+  }
     return;
   }
   const prods = props.products || {};
@@ -267,9 +330,11 @@ function renderDetail(evt) {
       ${badges.length ? `<div class="detail-prods">${badges.join(" · ")}</div>` : ""}
       ${props.url ? `<a href="${escapeHtml(props.url)}" target="_blank" class="detail-link">View on USGS ↗</a>` : ""}
     </div>
-    <button class="btn-refresh">🔄 Refresh from USGS</button>
+    <button class="btn-refresh" style="margin-bottom:4px">🔄 Refresh from USGS</button>
+    <button class="btn-del-detail" data-del-id="${evt.id}">✕ Delete event</button>
   </div>`;
   el.querySelector(".btn-refresh").addEventListener("click", () => refreshFromUsgs(evt.id));
+  el.querySelector(".btn-del-detail").addEventListener("click", () => confirmDelete(evt.id));
 }
 
 async function refreshFromUsgs(eventId) {

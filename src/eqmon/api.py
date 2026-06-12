@@ -14,8 +14,8 @@ from pydantic import BaseModel, Field, field_validator
 from . import config, db
 from .contours import mmi_to_geojson
 from .events.ingest import ingest
-from .events.repo import (create_manual_event, get_event, list_events,
-                           update_usgs_detail)
+from .events.repo import (create_manual_event, delete_event, get_event,
+                           list_events, update_event, update_usgs_detail)
 from .events.sources import USGSSource
 from .impact import compute_event_impact
 from .intensity import compute_mmi_grid
@@ -182,6 +182,42 @@ def refresh_from_usgs(event_id: int):
         updated = update_usgs_detail(conn, event_id, detail)
         conn.commit()
     return updated
+
+
+class EventUpdate(BaseModel):
+    magnitude: float | None = None
+    depth_km: float | None = None
+    lat: float | None = None
+    lon: float | None = None
+    place: str | None = None
+    occurred_at: datetime | None = None
+
+
+@app.put("/events/{event_id}")
+def edit_event(event_id: int, body: EventUpdate):
+    with db.get_conn() as conn:
+        event = get_event(conn, event_id)
+        if event is None:
+            raise HTTPException(status_code=404, detail="event not found")
+        updated = update_event(conn, event_id, magnitude=body.magnitude,
+                                depth_km=body.depth_km, lon=body.lon,
+                                lat=body.lat, place=body.place,
+                                occurred_at=body.occurred_at)
+        conn.commit()
+    return updated
+
+
+@app.delete("/events/{event_id}")
+def remove_event(event_id: int):
+    with db.get_conn() as conn:
+        event = get_event(conn, event_id)
+        if event is None:
+            raise HTTPException(status_code=404, detail="event not found")
+        ok = delete_event(conn, event_id)
+        conn.commit()
+    if not ok:
+        raise HTTPException(status_code=500, detail="delete failed")
+    return {"deleted": True, "id": event_id}
 
 
 # serve the Leaflet frontend (built in a later task) at /

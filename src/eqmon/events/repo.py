@@ -58,6 +58,44 @@ def update_usgs_detail(conn: psycopg.Connection, event_id: int,
         return cur.fetchone()
 
 
+def update_event(conn: psycopg.Connection, event_id: int, *,
+                 magnitude: float | None = None,
+                 depth_km: float | None = None,
+                 lon: float | None = None,
+                 lat: float | None = None,
+                 place: str | None = None,
+                 occurred_at: datetime | None = None) -> dict | None:
+    sets: list[str] = []
+    params: list = []
+    if magnitude is not None:
+        sets.append("magnitude = %s"); params.append(magnitude)
+    if depth_km is not None:
+        sets.append("depth_km = %s"); params.append(depth_km)
+    if place is not None:
+        sets.append("place = %s"); params.append(place)
+    if occurred_at is not None:
+        sets.append("occurred_at = %s"); params.append(occurred_at)
+    if lon is not None and lat is not None:
+        sets.append("geom = ST_SetSRID(ST_MakePoint(%s, %s), 4326)")
+        params.extend([lon, lat])
+    if not sets:
+        return get_event(conn, event_id)
+    params.append(event_id)
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            "UPDATE seismic_event SET " + ", ".join(sets) + " WHERE id = %s",
+            params,
+        )
+        cur.execute(_SELECT_DETAIL + " WHERE id = %s", (event_id,))
+        return cur.fetchone()
+
+
+def delete_event(conn: psycopg.Connection, event_id: int) -> bool:
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM seismic_event WHERE id = %s", (event_id,))
+        return cur.rowcount > 0
+
+
 def list_events(conn: psycopg.Connection, *, since: datetime | None = None,
                 min_magnitude: float | None = None, limit: int = 100) -> list[dict]:
     clauses = ["is_canonical = TRUE"]
