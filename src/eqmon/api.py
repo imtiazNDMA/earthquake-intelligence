@@ -14,7 +14,8 @@ from pydantic import BaseModel, Field, field_validator
 from . import config, db
 from .contours import mmi_to_geojson
 from .events.ingest import ingest
-from .events.repo import create_manual_event, get_event, list_events
+from .events.repo import (create_manual_event, get_event, list_events,
+                           update_usgs_detail)
 from .events.sources import USGSSource
 from .impact import compute_event_impact
 from .intensity import compute_mmi_grid
@@ -162,6 +163,25 @@ def event_impact(event_id: int):
         # inside compute_event_impact is reclaimed by the pool's commit-on-exit.
         impact = compute_event_impact(conn, event, get_grid())
     return impact
+
+
+@app.post("/events/{event_id}/refresh-from-usgs")
+def refresh_from_usgs(event_id: int):
+    with db.get_conn() as conn:
+        event = get_event(conn, event_id)
+        if event is None:
+            raise HTTPException(status_code=404, detail="event not found")
+        source_event_id = event.get("source_event_id")
+        if not source_event_id:
+            raise HTTPException(status_code=400,
+                                detail="event has no source_event_id")
+        detail = USGSSource().fetch_event(source_event_id)
+        if detail is None:
+            raise HTTPException(status_code=502,
+                                detail="USGS FDSN request failed")
+        updated = update_usgs_detail(conn, event_id, detail)
+        conn.commit()
+    return updated
 
 
 # serve the Leaflet frontend (built in a later task) at /

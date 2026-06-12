@@ -244,3 +244,35 @@ def test_fetch_threads_min_magnitude_into_query(monkeypatch):
     USGSSource().fetch()
     for p in captured:
         assert "minmagnitude" not in p
+
+
+def test_fetch_event_returns_feature_dict(monkeypatch):
+    payload = {"type": "Feature", "id": "us1000abcd",
+               "properties": {"mag": 5.4, "place": "near Pakistan",
+                              "products": {"shakemap": [{"properties": {}}]}},
+               "geometry": {"type": "Point", "coordinates": [72.5, 34.0, 15.0]}}
+    calls = []
+
+    def fake_get(url, params=None, timeout=None):
+        calls.append((url, params))
+        class _Fake:
+            def raise_for_status(self): pass
+            def json(self): return payload
+        return _Fake()
+
+    monkeypatch.setattr("eqmon.events.sources.httpx.get", fake_get)
+    result = USGSSource().fetch_event("us1000abcd")
+    assert result is not None
+    assert result["type"] == "Feature"
+    assert result["properties"]["products"]["shakemap"][0]["properties"] == {}
+    assert len(calls) == 1
+    assert calls[0][1]["eventid"] == "us1000abcd"
+    assert calls[0][1]["format"] == "geojson"
+
+
+def test_fetch_event_returns_none_on_error(monkeypatch):
+    def fake_get(url, params=None, timeout=None):
+        raise httpx.ConnectError("boom")
+
+    monkeypatch.setattr("eqmon.events.sources.httpx.get", fake_get)
+    assert USGSSource().fetch_event("bad") is None

@@ -13,6 +13,14 @@ _SELECT = (
     "FROM seismic_event"
 )
 
+_SELECT_DETAIL = (
+    "SELECT id, source, source_event_id, occurred_at, magnitude, depth_km, "
+    "ST_X(geom) AS lon, ST_Y(geom) AS lat, cluster_id, is_canonical, created_at, "
+    "place, mag_type, event_type, alert, tsunami, sig, review_status, "
+    "felt, cdi, mmi_report, gap, nst, url, detail_url, updated_at, usgs_detail "
+    "FROM seismic_event"
+)
+
 
 def create_manual_event(conn: psycopg.Connection, *, magnitude: float,
                         depth_km: float, lon: float, lat: float,
@@ -35,7 +43,18 @@ def create_manual_event(conn: psycopg.Connection, *, magnitude: float,
 
 def get_event(conn: psycopg.Connection, event_id: int) -> dict | None:
     with conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(_SELECT + " WHERE id = %s", (event_id,))
+        cur.execute(_SELECT_DETAIL + " WHERE id = %s", (event_id,))
+        return cur.fetchone()
+
+
+def update_usgs_detail(conn: psycopg.Connection, event_id: int,
+                       detail: dict) -> dict | None:
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            "UPDATE seismic_event SET usgs_detail = %s WHERE id = %s",
+            (psycopg.types.json.Json(detail), event_id),
+        )
+        cur.execute(_SELECT_DETAIL + " WHERE id = %s", (event_id,))
         return cur.fetchone()
 
 

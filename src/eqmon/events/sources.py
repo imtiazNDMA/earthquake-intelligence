@@ -158,6 +158,21 @@ class USGSSource:
         self.window_days = window_days
         self.timeout = timeout
 
+    def fetch_event(self, event_id: str) -> dict | None:
+        """Fetch a single event's full GeoJSON detail from USGS FDSN by
+        source_event_id. Returns the feature dict (which includes
+        ``products`` — moment tensor, shakemap, DYFI, etc.) or None on
+        HTTP error."""
+        try:
+            resp = httpx.get(self.query_url, params={
+                "format": "geojson",
+                "eventid": event_id,
+            }, timeout=self.timeout)
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError:
+            return None
+
     def fetch(self, since: datetime | None = None,
               updatedafter: datetime | None = None) -> list[RawEvent]:
         """Fetch events from USGS FDSN.

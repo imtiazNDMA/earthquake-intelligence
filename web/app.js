@@ -209,15 +209,83 @@ async function refreshEvents() {
 }
 
 async function showImpact(id) {
+  const detailEl = document.getElementById("detail");
   impactEl.textContent = "Computing impact…";
-  const resp = await fetch(`/events/${id}/impact`, { method: "POST" });
-  if (!resp.ok) { impactEl.textContent = "Impact failed"; return; }
-  const data = await resp.json();
+  detailEl.innerHTML = "";
+  // Fetch event detail + impact in parallel
+  const [evtResp, impactResp] = await Promise.all([
+    fetch(`/events/${id}`),
+    fetch(`/events/${id}/impact`, { method: "POST" }),
+  ]);
+  if (!impactResp.ok) { impactEl.textContent = "Impact failed"; return; }
+  const evt = evtResp.ok ? await evtResp.json() : null;
+  const data = await impactResp.json();
+  // Render intensity bands on map
   if (intensityLayer) map.removeLayer(intensityLayer);
   intensityLayer = L.geoJSON(data.bands, { style }).addTo(map);
   if (intensityLayer.getBounds().isValid()) map.fitBounds(intensityLayer.getBounds());
+  // Render USGS detail card
+  renderDetail(evt);
+  // Render impact table
   impactEl._rollups = data.rollups;
   renderRollup(data.rollups, "district");
+}
+
+function renderDetail(evt) {
+  const el = document.getElementById("detail");
+  el.innerHTML = "";
+  if (!evt || !evt.source_event_id) return;  // manual event — no USGS data
+  const detail = evt.usgs_detail;
+  const props = detail?.properties;
+  if (!props) {
+    // Have source_event_id but no cached detail
+    el.innerHTML = `<div class="evt-detail">
+      <div class="detail-info">No USGS detail cached.</div>
+      <button class="btn-refresh">🔄 Refresh from USGS</button>
+    </div>`;
+    el.querySelector(".btn-refresh").addEventListener("click", () => refreshFromUsgs(evt.id));
+    return;
+  }
+  const prods = props.products || {};
+  const badges = [];
+  if (prods.shakemap?.length) badges.push("🏛 ShakeMap");
+  if (prods["moment-tensor"]?.length) badges.push("🌀 Moment Tensor");
+  if (prods.dyfi?.length) badges.push("📊 DYFI");
+  if (prods["focal-mechanism"]?.length) badges.push("⚙ Focal Mechanism");
+  const alertBadge = props.alert
+    ? `<span class="evt-alert ${props.alert}">${props.alert.toUpperCase()}</span>` : "";
+  el.innerHTML = `<div class="evt-detail">
+    <div class="detail-head">
+      <span class="detail-title">USGS Detail</span>
+      ${alertBadge}
+      ${props.tsunami ? '<span class="evt-tsunami" title="Tsunami warning">🌊</span>' : ""}
+    </div>
+    <div class="detail-info">
+      ${props.place ? `<div>📍 ${escapeHtml(props.place)}</div>` : ""}
+      <div>M${props.mag} ${props.magType || ""} · depth ${props.depth} km</div>
+      <div>${props.felt ? `👤 ${props.felt} felt · ` : ""}${props.sig ? `⚡ sig ${props.sig}` : ""}</div>
+      ${badges.length ? `<div class="detail-prods">${badges.join(" · ")}</div>` : ""}
+      ${props.url ? `<a href="${escapeHtml(props.url)}" target="_blank" class="detail-link">View on USGS ↗</a>` : ""}
+    </div>
+    <button class="btn-refresh">🔄 Refresh from USGS</button>
+  </div>`;
+  el.querySelector(".btn-refresh").addEventListener("click", () => refreshFromUsgs(evt.id));
+}
+
+async function refreshFromUsgs(eventId) {
+  const btn = document.querySelector(".btn-refresh");
+  if (btn) { btn.disabled = true; btn.textContent = "Refreshing…"; }
+  try {
+    const r = await fetch(`/events/${eventId}/refresh-from-usgs`, { method: "POST" });
+    if (r.ok) {
+      const evt = await r.json();
+      renderDetail(evt);
+    } else {
+      document.getElementById("detail").innerHTML = `<div class="evt-detail">USGS refresh failed.</div>`;
+    }
+  } catch (e) {
+    document.getElementById("detail").innerHTML = `<div class="evt-detail">USGS refresh failed: ${e.message}</div>`;
+  }
 }
 
 // Render one admin level's rollup as a table with a level switcher.

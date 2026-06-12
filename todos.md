@@ -33,35 +33,44 @@
 
 ---
 
-## Phase 3 ⏳ Incremental sync
+## Phase 3 ✅ Incremental sync
 
-**Value:** 1 API call per ingest instead of 30. Faster, less bandwidth.
+**Value:** Each `/events/ingest` call after the first fetches *only* events updated since the last sync (1 API call) instead of re-fetching the full 30-day window (~30 API calls).
 
 | File | What |
 |------|------|
-| `sources.py` | Add `updatedafter` param to `fdsn_query_params()` + `USGSSource.fetch()` |
-| `ingest.py` | Track `last_sync_at` in `IngestResult` |
-| `api.py` | Read/write last_sync_at between ingests (file or DB) |
-| `migrations/003_sync_state.sql` | `CREATE TABLE IF NOT EXISTS _sync_state (key TEXT PRIMARY KEY, value TEXT)` |
+| ✅ `migrations/003_sync_state.sql` | `_sync_state` key-value table for `usgs_last_sync` |
+| ✅ `sources.py` | `fdsn_query_params` accepts `updatedafter`; `USGSSource.fetch()` has fast incremental path (single query, falls back to chunking on error) |
+| ✅ `ingest.py` | `ingest()` forwards `updatedafter` to `source.fetch()` |
+| ✅ `api.py` | `/events/ingest` reads `usgs_last_sync`, writes current timestamp on success |
+
+**Behavior:** First run → full chunking; subsequent → single `updatedafter` query; HTTP error on `updatedafter` → falls back to chunking.
 
 ---
 
-## Phase 4 ⏳ Event detail + USGS MMI comparison
+## Phase 4 ✅ Event detail + USGS metadata
 
-**Value:** Click a catalog event → fetch full USGS detail (moment tensor, focal mechanism, ShakeMap MMI). Compare our MMI vs USGS MMI.
+**Value:** Click a catalog event → fetch full USGS detail (moment tensor, focal mechanism, ShakeMap products). Shows USGS metadata card alongside the impact rollup.
 
 ### Backend
 | File | What |
 |------|------|
-| `sources.py` | `USGSSource.fetch_event(event_id)` using `?eventid=<id>&format=geojson` |
-| `api.py` | `POST /events/{id}/refresh-from-usgs` endpoint |
-| `migrations/004_usgs_detail.sql` | `ALTER TABLE seismic_event ADD COLUMN usgs_detail JSONB` |
+| ✅ `migrations/004_usgs_detail.sql` | `ALTER TABLE seismic_event ADD COLUMN usgs_detail JSONB` |
+| ✅ `sources.py` | `USGSSource.fetch_event(event_id)` using `?eventid=<id>&format=geojson` |
+| ✅ `repo.py` | `_SELECT_DETAIL` includes usgs_detail for `get_event`; `update_usgs_detail()` |
+| ✅ `api.py` | `POST /events/{id}/refresh-from-usgs` endpoint |
 
 ### Frontend
 | File | What |
 |------|------|
-| `app.js` | Detail panel: USGS MMI vs our MMI comparison, PAGER alert, DYFI, beachball |
-| `index.html` | Detail panel section in sidebar |
+| ✅ `app.js:211-289` | `showImpact` fetches both event+impact in parallel; `renderDetail()` displays USGS card with place, mag+type, depth, alert badge, tsunami flag, felt, sig, product badges (ShakeMap/Moment Tensor/DYFI/Focal Mechanism), USGS link; `refreshFromUsgs()` button triggers detail fetch |
+| ✅ `index.html` | `#detail` div in catalog section; CSS for detail card, product badges, refresh button, detail info, USGS link |
+
+### Behavior
+- Clicking an event: fetches `/events/{id}` + impact in parallel, renders USGS card (if cached) + rollup table
+- No USGS data cached yet: shows "No USGS detail cached" + Refresh button
+- "Refresh from USGS" → calls detail fetch → stores to DB → re-renders card
+- Manual events (no source_event_id): no USGS section shown
 
 ---
 
