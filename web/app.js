@@ -196,7 +196,7 @@ async function refreshEvents(append = false) {
   if (maxmag) url += "&max_magnitude=" + encodeURIComponent(maxmag);
   if (source) url += "&source=" + encodeURIComponent(source);
   if (sort) url += "&orderby=" + encodeURIComponent(sort);
-  if (append) url += "&offset=" + eventsEl._offset;
+  if (append && eventsEl._offset != null) url += "&offset=" + eventsEl._offset;
   const resp = await fetch(url);
   if (!resp.ok) return;
   const data = await resp.json();
@@ -302,10 +302,12 @@ async function showImpact(id) {
   // Render intensity bands on map
   if (intensityLayer) map.removeLayer(intensityLayer);
   intensityLayer = L.geoJSON(data.bands, { style }).addTo(map);
-  if (epicenterMarker) map.removeLayer(epicenterMarker);
-  epicenterMarker = L.circleMarker([evt.lat, evt.lon], {
-    radius: 6, color: "#000", fillColor: "#fff", fillOpacity: 1,
-  }).addTo(map).bindPopup(`Epicenter — M${evt.magnitude.toFixed(1)}`);
+  if (evt && (evt.lat != null || evt.lon != null)) {
+    if (epicenterMarker) map.removeLayer(epicenterMarker);
+    epicenterMarker = L.circleMarker([evt.lat, evt.lon], {
+      radius: 6, color: "#000", fillColor: "#fff", fillOpacity: 1,
+    }).addTo(map).bindPopup(`Epicenter — M${evt.magnitude.toFixed(1)}`);
+  }
   if (intensityLayer.getBounds().isValid()) map.fitBounds(intensityLayer.getBounds());
   // Render USGS detail card
   renderDetail(evt);
@@ -342,8 +344,6 @@ function renderDetail(evt) {
     el.querySelector(".btn-refresh").addEventListener("click", () => refreshFromUsgs(evt.id));
     el.querySelector(".btn-edit").addEventListener("click", () => showEditForm(evt));
     el.querySelector(".btn-del-detail").addEventListener("click", () => confirmDelete(evt.id));
-    return;
-  }
     return;
   }
   const prods = props.products || {};
@@ -440,10 +440,9 @@ function renderRollup(rollups, level) {
     .map(l => `<option value="${l}"${l === level ? " selected" : ""}>${l}</option>`).join("");
   impactEl.innerHTML =
     `<strong>Impact</strong> by <select id="rollup-level">${opts}</select>` +
-    "<table style='width:100%'><tr><th align=left>Name</th><th>Max</th><th>Repr</th></tr>" +
+    "<table style='width:100%'><tr><th align=left>Name</th><th>Max MMI</th></tr>" +
     top.map(d => `<tr><td>${escapeHtml(d.name ?? "?")}</td>` +
-                 `<td align=center>${d.mmi_max}</td>` +
-                 `<td align=center>${d.mmi_repr}</td></tr>`).join("") +
+                 `<td align=center>${d.mmi_max}</td></tr>`).join("") +
     "</table>";
   document.getElementById("rollup-level").addEventListener("change", (e) =>
     renderRollup(impactEl._rollups, e.target.value));
@@ -487,7 +486,7 @@ refreshEvents();
 ["filter-search", "filter-minmag", "filter-maxmag", "filter-source", "filter-sort"].forEach(id => {
   const el = document.getElementById(id);
   const ev = el.tagName === "SELECT" ? "change" : "input";
-  el.addEventListener(ev, refreshEvents);
+  el.addEventListener(ev, () => refreshEvents());
 });
 
 // --- Sidebar rail: section switching + collapse ---
