@@ -258,6 +258,14 @@ def ingest_events():
     return result.__dict__
 
 
+@app.get("/events/ingest/status")
+def ingest_status():
+    with db.get_conn() as conn:
+        row = conn.execute(
+            "SELECT value FROM _sync_state WHERE key = 'usgs_last_sync'"
+        ).fetchone()
+        return {"last_sync": row[0] if row else None}
+
 @app.get("/events")
 def get_events(since: datetime | None = None,
                min_magnitude: float | None = None,

@@ -86,6 +86,19 @@
     .detail-info div { margin: 2px 0; }
     .detail-link { display: inline-block; margin-top: 4px; font-size: 11px; color: #0366d6; }
     .detail-prods { font-size: 11px; color: #888; margin: 3px 0; }
+
+    /* Edit mode inside detail card */
+    .edit-row { display: flex; gap: 4px; margin: 3px 0; align-items: center; }
+    .edit-row label { font-size: 10px; color: #999; width: 38px; flex: none; }
+    .edit-row input { flex: 1; font-size: 11px; padding: 2px 4px; border: 1px solid #ddd; border-radius: 3px; }
+    .btn-edit { margin-top: 4px; width: 100%; padding: 4px; cursor: pointer; font-size: 11px;
+                background: #e8e8e8; color: #333; border: 1px solid #ccc; border-radius: 4px; }
+    .btn-edit:hover { background: #ddd; }
+    .btn-group { display: flex; gap: 4px; margin-top: 4px; }
+    .btn-group button { flex: 1; }
+
+    /* Ingest status indicator */
+    #ingest-status { font-size: 10px; color: #aaa; margin-top: 4px; min-height: 14px; }
     .btn-refresh {
       margin-top: 6px; width: 100%; padding: 5px; cursor: pointer; font-size: 11px;
       background: #e8e8e8; color: #333; border: 1px solid #ccc; border-radius: 4px;
@@ -182,6 +195,7 @@
         </div>
         <button id="calc" class="btn-primary">Calculate intensity</button>
         <button id="ingest" class="btn-secondary">Pull USGS feed</button>
+        <div id="ingest-status"></div>
         <div id="status"></div>
       </section>
       <section id="sec-catalog">

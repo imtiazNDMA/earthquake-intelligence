@@ -295,11 +295,13 @@ function renderDetail(evt) {
   const detail = evt.usgs_detail;
   const props = detail?.properties;
   if (!evt.source_event_id) {
-    // Manual event — show delete button only
+    // Manual event — show edit + delete buttons
     el.innerHTML = `<div class="evt-detail">
       <div class="detail-info">Manual event — no USGS data.</div>
+      <button class="btn-edit" data-edit-id="${evt.id}">✏️ Edit</button>
       <button class="btn-del-detail" data-del-id="${evt.id}">✕ Delete event</button>
     </div>`;
+    el.querySelector(".btn-edit").addEventListener("click", () => showEditForm(evt));
     el.querySelector(".btn-del-detail").addEventListener("click", () => confirmDelete(evt.id));
     return;
   }
@@ -308,9 +310,11 @@ function renderDetail(evt) {
     el.innerHTML = `<div class="evt-detail">
       <div class="detail-info">No USGS detail cached.</div>
       <button class="btn-refresh" style="margin-bottom:4px">🔄 Refresh from USGS</button>
+      <button class="btn-edit" data-edit-id="${evt.id}">✏️ Edit</button>
       <button class="btn-del-detail" data-del-id="${evt.id}">✕ Delete event</button>
     </div>`;
     el.querySelector(".btn-refresh").addEventListener("click", () => refreshFromUsgs(evt.id));
+    el.querySelector(".btn-edit").addEventListener("click", () => showEditForm(evt));
     el.querySelector(".btn-del-detail").addEventListener("click", () => confirmDelete(evt.id));
     return;
   }
@@ -338,9 +342,11 @@ function renderDetail(evt) {
       ${props.url ? `<a href="${escapeHtml(props.url)}" target="_blank" class="detail-link">View on USGS ↗</a>` : ""}
     </div>
     <button class="btn-refresh" style="margin-bottom:4px">🔄 Refresh from USGS</button>
+    <button class="btn-edit" data-edit-id="${evt.id}">✏️ Edit</button>
     <button class="btn-del-detail" data-del-id="${evt.id}">✕ Delete event</button>
   </div>`;
   el.querySelector(".btn-refresh").addEventListener("click", () => refreshFromUsgs(evt.id));
+  el.querySelector(".btn-edit").addEventListener("click", () => showEditForm(evt));
   el.querySelector(".btn-del-detail").addEventListener("click", () => confirmDelete(evt.id));
 }
 
@@ -358,6 +364,47 @@ async function refreshFromUsgs(eventId) {
   } catch (e) {
     document.getElementById("detail").innerHTML = `<div class="evt-detail">USGS refresh failed: ${e.message}</div>`;
   }
+}
+
+function showEditForm(evt) {
+  const el = document.getElementById("detail");
+  el.innerHTML = `<div class="evt-detail">
+    <div class="detail-info">
+      <div class="edit-row"><label>Mag</label><input id="edit-mag" type="number" step="0.1" value="${evt.magnitude}"></div>
+      <div class="edit-row"><label>Depth</label><input id="edit-depth" type="number" step="0.1" value="${evt.depth_km}"></div>
+      <div class="edit-row"><label>Lat</label><input id="edit-lat" type="number" step="0.01" value="${evt.lat}"></div>
+      <div class="edit-row"><label>Lon</label><input id="edit-lon" type="number" step="0.01" value="${evt.lon}"></div>
+      <div class="edit-row"><label>Place</label><input id="edit-place" type="text" value="${escapeHtml(evt.place || "")}"></div>
+    </div>
+    <div class="btn-group">
+      <button id="edit-save" class="btn-refresh" style="margin:0">💾 Save</button>
+      <button id="edit-cancel" class="btn-edit" style="margin:0">Cancel</button>
+    </div>
+    <button class="btn-del-detail" data-del-id="${evt.id}">✕ Delete event</button>
+  </div>`;
+  document.getElementById("edit-cancel").addEventListener("click", () => renderDetail(evt));
+  document.getElementById("edit-save").addEventListener("click", async () => {
+    const body = {
+      magnitude: parseFloat(document.getElementById("edit-mag").value),
+      depth_km: parseFloat(document.getElementById("edit-depth").value),
+      lat: parseFloat(document.getElementById("edit-lat").value),
+      lon: parseFloat(document.getElementById("edit-lon").value),
+      place: document.getElementById("edit-place").value || null,
+    };
+    try {
+      const r = await fetch(`/events/${evt.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (r.ok) {
+        const updated = await r.json();
+        renderDetail(updated);
+        refreshEvents();
+      }
+    } catch (e) { /* ignore */ }
+  });
+  el.querySelector(".btn-del-detail").addEventListener("click", () => confirmDelete(evt.id));
 }
 
 // Render one admin level's rollup as a table with a level switcher.
@@ -393,6 +440,17 @@ document.getElementById("ingest").addEventListener("click", async () => {
   }
   refreshEvents();
 });
+
+// Ingest status indicator
+function updateIngestStatus() {
+  fetch("/events/ingest/status").then(r => r.json()).then(s => {
+    const el = document.getElementById("ingest-status");
+    if (s.last_sync) el.textContent = "Last sync: " + new Date(s.last_sync).toLocaleString();
+    else el.textContent = "";
+  });
+}
+updateIngestStatus();
+setInterval(updateIngestStatus, 30000);
 
 refreshEvents();
 
