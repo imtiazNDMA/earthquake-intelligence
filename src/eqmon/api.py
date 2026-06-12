@@ -81,6 +81,7 @@ def stop_ingest_scheduler() -> None:
 
 @asynccontextmanager
 async def _lifespan(_app):
+    db.init_schema()
     start_ingest_scheduler()
     yield
     stop_ingest_scheduler()
