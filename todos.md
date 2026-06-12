@@ -18,15 +18,15 @@
 
 ---
 
-## Phase 2 ⏳ Richer catalog UI
+## Phase 2 ✅ Richer catalog UI
 
 **Value:** Catalog goes from `M5.4 · USGS · 1/1/2026` to showing place, magType, alert badge, tsunami flag.
 
 ### Frontend
 | File | What |
 |------|------|
-| `app.js:191-194` | Richer event card: `M6.1 mww · near Chaman, Pakistan · 🟡 YELLOW` |
-| `index.html` | CSS for alert badges, tsunami pill, mag-type label |
+| ✅ `app.js:191-206` | Richer event card: magnitude + magType, alert badge (colored by level), tsunami flag, sig score, place name, source + timestamp |
+| ✅ `index.html` | CSS for alert badges (green/yellow/orange/red), tsunami pill, mag-type label, text truncation |
 
 ### Backend
 - No changes needed — `/events` endpoint already returns all new fields via `_SELECT`.

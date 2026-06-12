@@ -59,7 +59,22 @@
     }
     #status { font-size: 12px; margin-top: 8px; color: #777; min-height: 16px; }
 
+    /* Event catalog cards */
     #events { font-size: 12px; }
+    .evt { cursor: pointer; padding: 6px 8px; border-bottom: 1px solid #eee; border-radius: 4px; }
+    .evt:hover { background: #f5f5f5; }
+    .evt-head { display: flex; align-items: center; gap: 5px; font-size: 13px; }
+    .evt-mag { font-weight: 700; color: #1a1a1a; }
+    .evt-magtype { font-weight: 400; color: #999; font-size: 10px; }
+    .evt-alert { font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 3px; text-transform: uppercase; }
+    .evt-alert.green { background: #d4edda; color: #155724; }
+    .evt-alert.yellow { background: #fff3cd; color: #856404; }
+    .evt-alert.orange { background: #ffe0b2; color: #e65100; }
+    .evt-alert.red { background: #f8d7da; color: #721c24; }
+    .evt-tsunami { font-size: 13px; line-height: 1; }
+    .evt-sig { font-size: 10px; color: #bbb; margin-left: auto; }
+    .evt-place { font-size: 12px; color: #555; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .evt-meta { font-size: 10px; color: #aaa; margin-top: 1px; }
     #impact { margin-top: 10px; font-size: 12px; }
 
     /* Map config rows (overlays checklist + basemap radios) */

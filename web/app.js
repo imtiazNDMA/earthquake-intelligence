@@ -188,10 +188,22 @@ async function refreshEvents() {
   const resp = await fetch("/events?limit=20");
   if (!resp.ok) return;
   const events = await resp.json();
-  eventsEl.innerHTML = "<strong>Catalog</strong>" + events.map(e =>
-    `<div class="evt" data-id="${e.id}" style="cursor:pointer;padding:3px 0;border-bottom:1px solid #eee">
-       M${e.magnitude.toFixed(1)} · ${e.source} · ${new Date(e.occurred_at).toLocaleString()}
-     </div>`).join("");
+  eventsEl.innerHTML = "<strong>Catalog</strong>" + (
+    events.length === 0 ? '<div style="color:#999;padding:8px 0;font-size:12px">No events yet — pull the USGS feed or calculate intensity</div>'
+    : events.map(ev => {
+    const alertClass = ev.alert ? `evt-alert ${ev.alert}` : "";
+    const alertText = ev.alert ? ev.alert.toUpperCase() : "";
+    return `<div class="evt" data-id="${ev.id}">
+      <div class="evt-head">
+        <span class="evt-mag">M${ev.magnitude.toFixed(1)}${ev.mag_type ? ` <span class="evt-magtype">${escapeHtml(ev.mag_type)}</span>` : ""}</span>
+        ${ev.alert ? `<span class="${alertClass}">${alertText}</span>` : ""}
+        ${ev.tsunami ? `<span class="evt-tsunami" title="Tsunami warning">🌊</span>` : ""}
+        ${ev.sig ? `<span class="evt-sig">${ev.sig}</span>` : ""}
+      </div>
+      ${ev.place ? `<div class="evt-place">${escapeHtml(ev.place)}</div>` : ""}
+      <div class="evt-meta">${ev.source} · ${new Date(ev.occurred_at).toLocaleString()}</div>
+    </div>`;
+  }).join("");
   document.querySelectorAll(".evt").forEach(el =>
     el.addEventListener("click", () => showImpact(el.dataset.id)));
 }
