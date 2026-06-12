@@ -97,7 +97,11 @@ def delete_event(conn: psycopg.Connection, event_id: int) -> bool:
 
 
 def list_events(conn: psycopg.Connection, *, since: datetime | None = None,
-                min_magnitude: float | None = None, limit: int = 100) -> list[dict]:
+                min_magnitude: float | None = None,
+                max_magnitude: float | None = None,
+                source: str | None = None,
+                search: str | None = None,
+                limit: int = 100) -> list[dict]:
     clauses = ["is_canonical = TRUE"]
     params: list = []
     if since is not None:
@@ -106,6 +110,15 @@ def list_events(conn: psycopg.Connection, *, since: datetime | None = None,
     if min_magnitude is not None:
         clauses.append("magnitude >= %s")
         params.append(min_magnitude)
+    if max_magnitude is not None:
+        clauses.append("magnitude <= %s")
+        params.append(max_magnitude)
+    if source is not None:
+        clauses.append("source = %s")
+        params.append(source)
+    if search is not None:
+        clauses.append("place ILIKE %s")
+        params.append(f"%{search}%")
     where = " WHERE " + " AND ".join(clauses)
     params.append(limit)
     with conn.cursor(row_factory=dict_row) as cur:

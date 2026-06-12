@@ -259,10 +259,16 @@ def ingest_events():
 
 
 @app.get("/events")
-def get_events(since: datetime | None = None, min_magnitude: float | None = None,
+def get_events(since: datetime | None = None,
+               min_magnitude: float | None = None,
+               max_magnitude: float | None = None,
+               source: str | None = None,
+               search: str | None = None,
                limit: int = 100):
     with db.get_conn() as conn:
-        return list_events(conn, since=since, min_magnitude=min_magnitude, limit=limit)
+        return list_events(conn, since=since, min_magnitude=min_magnitude,
+                           max_magnitude=max_magnitude, source=source,
+                           search=search, limit=limit)
 
 
 @app.get("/events/{event_id}")

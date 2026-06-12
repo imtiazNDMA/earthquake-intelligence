@@ -144,6 +144,16 @@
 
     .legend { line-height: 18px; color: #333; }
     .legend i { width: 16px; height: 16px; float: left; margin-right: 6px; opacity: .8; }
+
+    /* Catalog search/filter bar */
+    .filter-row { display: flex; gap: 4px; margin-bottom: 6px; }
+    .filter-row input, .filter-row select {
+      font-size: 11px; padding: 3px 5px; border: 1px solid #ddd; border-radius: 3px;
+      background: #fafafa;
+    }
+    .filter-search { flex: 1; min-width: 0; }
+    .filter-mag { width: 42px; }
+    .filter-source { width: 68px; }
   </style>
 </head>
 <body>
@@ -176,6 +186,15 @@
       </section>
       <section id="sec-catalog">
         <h4>Catalog</h4>
+        <div class="filter-row">
+          <input id="filter-search" class="filter-search" type="text" placeholder="Search place…" />
+          <input id="filter-minmag" class="filter-mag" type="number" min="0" step="0.5" placeholder="M≥" />
+          <select id="filter-source" class="filter-source">
+            <option value="">All</option>
+            <option value="USGS">USGS</option>
+            <option value="MANUAL">Manual</option>
+          </select>
+        </div>
         <div id="events"></div>
         <div id="detail"></div>
         <div id="impact"></div>

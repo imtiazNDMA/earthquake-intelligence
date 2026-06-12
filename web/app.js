@@ -185,7 +185,14 @@ const eventsEl = document.getElementById("events");
 const impactEl = document.getElementById("impact");
 
 async function refreshEvents() {
-  const resp = await fetch("/events?limit=20");
+  const search = document.getElementById("filter-search").value.trim();
+  const minmag = document.getElementById("filter-minmag").value;
+  const source = document.getElementById("filter-source").value;
+  let url = "/events?limit=20";
+  if (search) url += "&search=" + encodeURIComponent(search);
+  if (minmag) url += "&min_magnitude=" + encodeURIComponent(minmag);
+  if (source) url += "&source=" + encodeURIComponent(source);
+  const resp = await fetch(url);
   if (!resp.ok) return;
   const events = await resp.json();
   eventsEl.innerHTML = "<strong>Catalog</strong>" + (
@@ -388,6 +395,10 @@ document.getElementById("ingest").addEventListener("click", async () => {
 });
 
 refreshEvents();
+
+// Catalog filter auto-refresh on change
+["filter-search", "filter-minmag", "filter-source"].forEach(id =>
+  document.getElementById(id).addEventListener("input", refreshEvents));
 
 // --- Sidebar rail: section switching + collapse ---
 const SECTIONS = { event: "sec-event", catalog: "sec-catalog", config: "sec-config" };
