@@ -17,7 +17,7 @@ T0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 class _FakeSource:
     name = "USGS"
     def __init__(self, events): self._events = events
-    def fetch(self, since=None): return list(self._events)
+    def fetch(self, since=None, updatedafter=None): return list(self._events)
 
 
 def test_ingest_inserts_and_is_idempotent(db_conn):

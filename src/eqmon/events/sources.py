@@ -48,7 +48,8 @@ class RawEvent:
 
 class SeismicSource(Protocol):
     name: str
-    def fetch(self, since: datetime | None = None) -> list[RawEvent]: ...
+    def fetch(self, since: datetime | None = None,
+              updatedafter: datetime | None = None) -> list[RawEvent]: ...
 
 
 def _in_region(lon: float, lat: float) -> bool:
@@ -103,25 +104,26 @@ def parse_usgs(geojson: dict) -> list[RawEvent]:
     return out
 
 
-def fdsn_query_params(*, starttime: datetime,
+def fdsn_query_params(*, starttime: datetime | None = None,
                       bbox: tuple[float, float, float, float],
                       endtime: datetime | None = None,
+                      updatedafter: datetime | None = None,
                       minmagnitude: float | None = None,
                       limit: int = 20000,
                       eventtype: str | None = "earthquake") -> dict:
     """Build FDSN `event/query` parameters for a region + time window.
 
     `bbox` is (min lon, min lat, max lon, max lat) — matches config.COVERAGE_BBOX.
-    `starttime` must be a UTC datetime; formatted without a tz suffix (FDSN
-    assumes UTC). `endtime` is optional — without it the API defaults to the
-    present time. `limit` is capped at FDSN's hard max (20000); `orderby=time`
-    keeps the most recent events if the window ever saturates. `eventtype`
-    defaults to "earthquake" to filter out quarry blasts / explosions.
+    `starttime` is optional (incremental sync uses `updatedafter` instead);
+    formatted without a tz suffix (FDSN assumes UTC). `endtime` is optional —
+    without it the API defaults to the present time. `limit` is capped at
+    FDSN's hard max (20000); `orderby=time` keeps the most recent events if
+    the window ever saturates. `eventtype` defaults to "earthquake" to filter
+    out quarry blasts / explosions.
     """
     minx, miny, maxx, maxy = bbox
     params: dict = {
         "format": "geojson",
-        "starttime": starttime.strftime("%Y-%m-%dT%H:%M:%S"),
         "minlatitude": miny,
         "maxlatitude": maxy,
         "minlongitude": minx,
@@ -129,8 +131,12 @@ def fdsn_query_params(*, starttime: datetime,
         "orderby": "time",
         "limit": limit,
     }
+    if starttime is not None:
+        params["starttime"] = starttime.strftime("%Y-%m-%dT%H:%M:%S")
     if endtime is not None:
         params["endtime"] = endtime.strftime("%Y-%m-%dT%H:%M:%S")
+    if updatedafter is not None:
+        params["updatedafter"] = updatedafter.strftime("%Y-%m-%dT%H:%M:%S")
     if minmagnitude is not None:
         params["minmagnitude"] = minmagnitude
     if eventtype is not None:
@@ -152,10 +158,37 @@ class USGSSource:
         self.window_days = window_days
         self.timeout = timeout
 
-    def fetch(self, since: datetime | None = None) -> list[RawEvent]:
-        """Query FDSN with 1-day time-window chunking to stay under the 20k
-        event-per-query limit. Falls back to the all-day feed on HTTP error.
-        `since` (if given) sets the earliest time and post-filters results."""
+    def fetch(self, since: datetime | None = None,
+              updatedafter: datetime | None = None) -> list[RawEvent]:
+        """Fetch events from USGS FDSN.
+
+        When `updatedafter` is given (incremental sync), performs a single query
+        — the time range is expected to be small (minutes to hours since last
+        sync). Falls back to time-window chunking on HTTP error.
+
+        When `updatedafter` is *not* given, splits the time window into 1-day
+        chunks to stay under the 20k event-per-query limit. Falls back to the
+        24h summary feed on HTTP error.
+        """
+        if updatedafter is not None:
+            try:
+                params = fdsn_query_params(
+                    bbox=COVERAGE_BBOX,
+                    updatedafter=updatedafter,
+                    minmagnitude=self.min_magnitude,
+                )
+                resp = httpx.get(self.query_url, params=params,
+                                 timeout=self.timeout)
+                resp.raise_for_status()
+                events = parse_usgs(resp.json())
+            except httpx.HTTPError:
+                return self._fetch_chunked(since)
+            if since is not None:
+                events = [e for e in events if e.occurred_at >= since]
+            return events
+        return self._fetch_chunked(since)
+
+    def _fetch_chunked(self, since: datetime | None = None) -> list[RawEvent]:
         now = datetime.now(timezone.utc)
         start = since or (now - timedelta(days=self.window_days))
         chunks = max(1, math.ceil((now - start).total_seconds()
@@ -197,5 +230,6 @@ class METSource:
     """
     name = "MET"
 
-    def fetch(self, since: datetime | None = None) -> list[RawEvent]:
+    def fetch(self, since: datetime | None = None,
+              updatedafter: datetime | None = None) -> list[RawEvent]:
         raise NotImplementedError("MET feed format not yet defined")

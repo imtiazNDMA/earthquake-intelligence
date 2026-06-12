@@ -118,7 +118,20 @@ def create_event(ev: ManualEvent):
 @app.post("/events/ingest")
 def ingest_events():
     with db.get_conn() as conn:
-        result = ingest(conn, USGSSource())
+        updatedafter = None
+        row = conn.execute(
+            "SELECT value FROM _sync_state WHERE key = 'usgs_last_sync'"
+        ).fetchone()
+        if row is not None:
+            updatedafter = datetime.fromisoformat(row[0])
+        result = ingest(conn, USGSSource(), updatedafter=updatedafter)
+        conn.commit()
+        now_iso = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "INSERT INTO _sync_state (key, value) VALUES ('usgs_last_sync', %s) "
+            "ON CONFLICT (key) DO UPDATE SET value = %s, updated_at = now()",
+            (now_iso, now_iso),
+        )
         conn.commit()
     return result.__dict__
 

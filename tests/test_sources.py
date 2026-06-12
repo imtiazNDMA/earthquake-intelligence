@@ -117,6 +117,57 @@ def test_fetch_uses_fdsn_query(monkeypatch):
     assert events[0].source_event_id == "us1000abcd"
 
 
+def test_fdsn_query_params_updatedafter():
+    st = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    ua = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    p = fdsn_query_params(starttime=st, bbox=COVERAGE_BBOX, updatedafter=ua)
+    assert "starttime" in p
+    assert p["updatedafter"] == "2026-06-01T00:00:00"
+    p2 = fdsn_query_params(bbox=COVERAGE_BBOX, updatedafter=ua, eventtype=None)
+    assert "starttime" not in p2
+    assert p2["updatedafter"] == "2026-06-01T00:00:00"
+
+
+def test_fetch_uses_updatedafter_when_provided(monkeypatch):
+    payload = json.loads(FIXTURE.read_text())
+    calls = []
+
+    def fake_get(url, params=None, timeout=None):
+        calls.append((url, params))
+        return _FakeResp(payload)
+
+    monkeypatch.setattr("eqmon.events.sources.httpx.get", fake_get)
+    ua = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    events = USGSSource().fetch(updatedafter=ua)
+    # Single query, no chunking
+    assert len(calls) == 1
+    url, params = calls[0]
+    assert url == FDSN_QUERY_URL
+    assert "updatedafter" in params
+    assert params["updatedafter"] == "2026-06-01T00:00:00"
+    assert "starttime" not in params
+    assert len(events) == 1
+    assert events[0].source_event_id == "us1000abcd"
+
+
+def test_fetch_updatedafter_falls_back_on_http_error(monkeypatch):
+    payload = json.loads(FIXTURE.read_text())
+    used = []
+
+    def fake_get(url, params=None, timeout=None):
+        used.append(url)
+        if "updatedafter" in (params or {}):
+            raise httpx.ConnectError("boom")
+        return _FakeResp(payload)
+
+    monkeypatch.setattr("eqmon.events.sources.httpx.get", fake_get)
+    ua = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    events = USGSSource().fetch(updatedafter=ua)
+    # updatedafter query fails → falls back to chunking (FDSN_QUERY_URL with starttime)
+    assert FDSN_QUERY_URL in used
+    assert len(events) == 1
+
+
 def test_fetch_falls_back_to_feed_on_http_error(monkeypatch):
     payload = json.loads(FIXTURE.read_text())
     used = []

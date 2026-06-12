@@ -80,10 +80,11 @@ def _recluster(conn: psycopg.Connection) -> None:
 
 
 def ingest(conn: psycopg.Connection, source: SeismicSource,
-           since: datetime | None = None) -> IngestResult:
+           since: datetime | None = None,
+           updatedafter: datetime | None = None) -> IngestResult:
     errors: list[str] = []
     try:
-        raw = source.fetch(since)
+        raw = source.fetch(since, updatedafter=updatedafter)
     except Exception as exc:  # network/parse failure is non-fatal
         return IngestResult(source.name, 0, 0, [f"fetch failed: {exc!r}"])
     inserted = 0
