@@ -1,76 +1,85 @@
-# USGS FDSN Integration — Phased Plan
+# eqMonitoring2 — Roadmap
 
-## Phase 1 ✅ Foundation — Schema + parser + eventtype filter
+## ✅ Complete — USGS FDSN Integration (Phases 1-4)
 
-**Value:** Richer data in DB, non-earthquake noise filtered out.
+Full pipeline: fetch → ingest → dedup → incremental sync → detail cache → catalog UI with impact rollups and USGS metadata card.
 
-**Backend only — no UI changes.**
-
-| Step | File | What |
-|------|------|------|
-| ✅ 1 | `migrations/002_add_usgs_fields.sql` | ALTER TABLE ADD COLUMN for place, mag_type, event_type, alert, tsunami, sig, review_status, felt, cdi, mmi_report, gap, nst, url, detail_url, updated_at |
-| ✅ 2 | `sources.py` | Extend `RawEvent` dataclass with 15 optional fields |
-| ✅ 3 | `sources.py` | Extend `parse_usgs()` to extract all new fields from GeoJSON properties |
-| ✅ 4 | `sources.py` | Add `eventtype=earthquake` default to `fdsn_query_params()` — filters out quarry blasts |
-| ✅ 5 | `ingest.py` | Extend `_upsert()` INSERT to include all new columns |
-| ✅ 6 | `repo.py` | Extend `_SELECT` to return new columns |
-| ✅ 7 | `fixtures/usgs_sample.json`, `tests/test_sources.py` | Richer fixture + assertions for all new fields, eventtype test |
+See git log for details: `git log --oneline --author-date-order HEAD~4..HEAD`
 
 ---
 
-## Phase 2 ✅ Richer catalog UI
+## 🔲 Phase 5 — METSource (Primary)
 
-**Value:** Catalog goes from `M5.4 · USGS · 1/1/2026` to showing place, magType, alert badge, tsunami flag.
+**Value:** Pakistan MET Department feed becomes the primary source, winning dedup priority over USGS.
 
-### Frontend
 | File | What |
 |------|------|
-| ✅ `app.js:191-206` | Richer event card: magnitude + magType, alert badge (colored by level), tsunami flag, sig score, place name, source + timestamp |
-| ✅ `index.html` | CSS for alert badges (green/yellow/orange/red), tsunami pill, mag-type label, text truncation |
+| `sources.py` | Implement `METSource.fetch()` once feed format is known |
+| `config.py` | Add MET feed URL, polling interval, etc. |
+| `sources.py` | Add source priority constant (MET=1, USGS=2) |
+| `ingest.py` | _recluster already prefers MET over USGS |
 
-### Backend
-- No changes needed — `/events` endpoint already returns all new fields via `_SELECT`.
+**Blocked by:** MET feed format unknown.
 
 ---
 
-## Phase 3 ✅ Incremental sync
+## 🔲 Phase 6 — Boundary data pipeline
 
-**Value:** Each `/events/ingest` call after the first fetches *only* events updated since the last sync (1 API call) instead of re-fetching the full 30-day window (~30 API calls).
+**Value:** Fresh developer can run `uv run python scripts/load_boundaries.py && uv run python scripts/build_tiles.py` and get admin overlays working.
 
 | File | What |
 |------|------|
-| ✅ `migrations/003_sync_state.sql` | `_sync_state` key-value table for `usgs_last_sync` |
-| ✅ `sources.py` | `fdsn_query_params` accepts `updatedafter`; `USGSSource.fetch()` has fast incremental path (single query, falls back to chunking on error) |
-| ✅ `ingest.py` | `ingest()` forwards `updatedafter` to `source.fetch()` |
-| ✅ `api.py` | `/events/ingest` reads `usgs_last_sync`, writes current timestamp on success |
-
-**Behavior:** First run → full chunking; subsequent → single `updatedafter` query; HTTP error on `updatedafter` → falls back to chunking.
+| `scripts/load_boundaries.py` | Review/update; add idempotency |
+| `scripts/build_tiles.py` | Review/update; add `--force` or check for existing tiles |
+| `scripts/` | Add README or docstring with prerequisites (Docker, PostGIS) |
+| `AGENTS.md` | Add build pipeline section |
 
 ---
 
-## Phase 4 ✅ Event detail + USGS metadata
+## 🔲 Phase 7 — Edit/delete events
 
-**Value:** Click a catalog event → fetch full USGS detail (moment tensor, focal mechanism, ShakeMap products). Shows USGS metadata card alongside the impact rollup.
+**Value:** Clean up test data, delete/update imported events without raw DB access.
 
-### Backend
 | File | What |
 |------|------|
-| ✅ `migrations/004_usgs_detail.sql` | `ALTER TABLE seismic_event ADD COLUMN usgs_detail JSONB` |
-| ✅ `sources.py` | `USGSSource.fetch_event(event_id)` using `?eventid=<id>&format=geojson` |
-| ✅ `repo.py` | `_SELECT_DETAIL` includes usgs_detail for `get_event`; `update_usgs_detail()` |
-| ✅ `api.py` | `POST /events/{id}/refresh-from-usgs` endpoint |
+| `repo.py` | `delete_event(conn, event_id)`, `update_event(...)` |
+| `api.py` | `DELETE /events/{id}`, `PUT /events/{id}` |
+| `app.js` | Delete button on event cards or detail panel, confirmation dialog |
 
-### Frontend
+---
+
+## 🔲 Phase 8 — Automated ingest scheduler
+
+**Value:** Catalog stays current without manual "Pull USGS feed" button clicks.
+
 | File | What |
 |------|------|
-| ✅ `app.js:211-289` | `showImpact` fetches both event+impact in parallel; `renderDetail()` displays USGS card with place, mag+type, depth, alert badge, tsunami flag, felt, sig, product badges (ShakeMap/Moment Tensor/DYFI/Focal Mechanism), USGS link; `refreshFromUsgs()` button triggers detail fetch |
-| ✅ `index.html` | `#detail` div in catalog section; CSS for detail card, product badges, refresh button, detail info, USGS link |
+| `api.py` | Add `@app.on_event("startup")` or background task with apscheduler |
+| `config.py` | Add `INGEST_INTERVAL_MINUTES = 15` |
+| `api.py` | One-shot ingest on startup + periodic timer |
 
-### Behavior
-- Clicking an event: fetches `/events/{id}` + impact in parallel, renders USGS card (if cached) + rollup table
-- No USGS data cached yet: shows "No USGS detail cached" + Refresh button
-- "Refresh from USGS" → calls detail fetch → stores to DB → re-renders card
-- Manual events (no source_event_id): no USGS section shown
+---
+
+## 🔲 Phase 9 — Auto schema on startup
+
+**Value:** No manual `init_schema()` invocation — migrations run automatically when the server starts.
+
+| File | What |
+|------|------|
+| `api.py` | Call `db.init_schema()` in a startup event |
+| `db.py` | Ensure `init_schema()` is safe to call multiple times (it already is) |
+
+---
+
+## 🔲 Phase 10 — Event filtering & search
+
+**Value:** Filter catalog by magnitude range, date range, source; search by place name.
+
+| File | What |
+|------|------|
+| `repo.py` | Add `search_events()`, `count_events()` |
+| `api.py` | Add query params to `GET /events` |
+| `app.js` | Filter inputs in catalog section |
 
 ---
 
@@ -78,6 +87,7 @@
 
 | Command | Description |
 |---------|-------------|
-| `uv run python -c "from eqmon.db import init_schema; init_schema()"` | Apply all pending migrations |
+| `uv sync --group dev` | Install all deps (dev included) |
 | `uv run pytest -q` | Run full test suite |
-| `uv run pytest tests/test_sources.py -v` | Run source tests (Phase 1 coverage) |
+| `uv run python -c "from eqmon.db import init_schema; init_schema()"` | Apply pending migrations |
+| `uv run uvicorn eqmon.api:app --port 8000` | Start dev server |
