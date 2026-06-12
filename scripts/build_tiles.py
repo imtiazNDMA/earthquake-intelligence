@@ -1,13 +1,22 @@
-"""One-time: build vector tiles (.pmtiles) for the map overlays.
+"""Build vector tiles (.pmtiles) for the map overlays.
 
 Runs tippecanoe inside Docker (no native Windows build needed) and writes one
-archive per layer into web/tiles/. Admin layers tile directly from their GeoJSON;
-faults and plates are first converted shp->GeoJSON (forced 2D) into a temp dir.
-Each archive's internal tile layer is named with `-l <id>` so the frontend can
-reference it. Tiles are gitignored derived artifacts — regenerate any time.
+archive per layer into web/tiles/. Admin layers tile directly from pre-built
+GeoJSON; faults and plates are first converted shp->GeoJSON (forced 2D) into a
+temp dir. Each archive's internal tile layer is named with ``-l <id>`` so the
+frontend can reference it.
 
-Usage: uv run python scripts/build_tiles.py   (requires Docker Desktop running)"""
+Idempotent: skips layers whose .pmtiles already exist. Use ``--force`` to
+rebuild all. Tiles are gitignored derived artifacts.
+
+Prerequisites:
+  - Docker Desktop (running) — tested with indigoag/tippecanoe image
+
+Usage:
+  uv run python scripts/build_tiles.py          # build missing tiles
+  uv run python scripts/build_tiles.py --force   # rebuild all"""
 from __future__ import annotations
+import argparse
 import json
 import os
 import subprocess
@@ -56,6 +65,15 @@ def _require_docker() -> None:
                          f"docker --version failed: {e}")
 
 
+def _check_source(path_rel: str) -> None:
+    full = ROOT / path_rel
+    if not full.exists():
+        raise SystemExit(
+            f"Source not found: {full}\n"
+            "Obtain the required boundary/geological data and place it at the "
+            "expected path.")
+
+
 def _shp_to_geojson(shp_rel: str, layer_id: str) -> str:
     """Convert a shapefile to a 2D GeoJSON FeatureCollection under TMP.
     Returns the new path relative to ROOT (for the Docker mount)."""
@@ -72,6 +90,16 @@ def _shp_to_geojson(shp_rel: str, layer_id: str) -> str:
     return str(out.relative_to(ROOT)).replace("\\", "/")
 
 
+def _needs_rebuild(layer_id: str, force: bool) -> bool:
+    if force:
+        return True
+    out = TILES / f"{layer_id}.pmtiles"
+    if out.exists():
+        print(f"  {layer_id}.pmtiles exists; skipping (use --force to rebuild)")
+        return False
+    return True
+
+
 def _tippecanoe(layer_id: str, src_rel: str, extra: list[str]) -> None:
     """Run tippecanoe in Docker. Paths are relative to ROOT, mounted at /data."""
     out_rel = f"web/tiles/{layer_id}.pmtiles"
@@ -85,15 +113,28 @@ def _tippecanoe(layer_id: str, src_rel: str, extra: list[str]) -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Build .pmtiles vector tiles for map overlays (requires Docker)")
+    parser.add_argument("--force", action="store_true",
+                        help="Rebuild all tiles even if they already exist")
+    parser.add_argument("--docker-image", default=DOCKER_IMAGE,
+                        help=f"Tippecanoe Docker image (default: {DOCKER_IMAGE})")
+    args = parser.parse_args()
+
+    image = args.docker_image
     _require_docker()
     TILES.mkdir(parents=True, exist_ok=True)
     TMP.mkdir(parents=True, exist_ok=True)
 
     for layer_id, src_rel, extra in ADMIN_LAYERS:
-        _tippecanoe(layer_id, src_rel, extra)
+        _check_source(src_rel)
+        if _needs_rebuild(layer_id, args.force):
+            _tippecanoe(layer_id, src_rel, extra)
     for layer_id, shp_rel, extra in SHP_LAYERS:
-        gj_rel = _shp_to_geojson(shp_rel, layer_id)
-        _tippecanoe(layer_id, gj_rel, extra)
+        _check_source(shp_rel)
+        if _needs_rebuild(layer_id, args.force):
+            gj_rel = _shp_to_geojson(shp_rel, layer_id)
+            _tippecanoe(layer_id, gj_rel, extra)
 
     built = sorted(p.name for p in TILES.glob("*.pmtiles"))
     print(f"built {len(built)} tile archives: {built}")

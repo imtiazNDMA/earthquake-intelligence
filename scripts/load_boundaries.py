@@ -1,13 +1,21 @@
-"""One-time: load Pakistan admin boundaries (national/province/district/tehsil)
-from shapefiles into the PostGIS admin_boundary table.
+"""Load Pakistan admin boundaries from shapefiles into the PostGIS
+admin_boundary table.
 
-Geometry is simplified with ST_SimplifyPreserveTopology (~0.001 deg ~= 100 m) on
-insert so the impact spatial join stays fast. Full-resolution *display* geometry
-is produced separately as vector tiles by scripts/build_tiles.py.
+Prerequisites:
+  - PostGIS-enabled database reachable via DATABASE_URL
+  - Source shapefiles under data/Boundaries_Data/ (from the boundary-data source)
 
-Usage: uv run python scripts/load_boundaries.py
-Requires DATABASE_URL and applies the schema itself."""
+Idempotent: skips load if admin_boundary already has the expected row count.
+Use ``--force`` to truncate and reload. Geometry is simplified with
+ST_SimplifyPreserveTopology (~0.001 deg ~= 100 m) on insert so the impact
+spatial join stays fast. Full-resolution *display* geometry is produced
+separately as vector tiles by scripts/build_tiles.py.
+
+Usage:
+  uv run python scripts/load_boundaries.py          # load if empty
+  uv run python scripts/load_boundaries.py --force   # reload regardless"""
 from __future__ import annotations
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -42,9 +50,36 @@ INSERT = (
 )
 
 
+def _already_loaded(conn: psycopg.Connection) -> bool:
+    total = conn.execute("SELECT count(*) FROM admin_boundary").fetchone()[0]
+    if total == 0:
+        return False
+    print(f"admin_boundary already has {total} rows; skipping (use --force to reload)")
+    return True
+
+
+def _check_sources() -> None:
+    missing = [str(p) for p in SOURCES.values() if not p.exists()]
+    if missing:
+        raise SystemExit(
+            "Source shapefile(s) not found:\n  " + "\n  ".join(missing) + "\n"
+            "Expected them under data/Boundaries_Data/. "
+            "Obtain the boundary data and place it there.")
+
+
 def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Load Pakistan admin boundaries into PostGIS")
+    parser.add_argument("--force", action="store_true",
+                        help="Truncate and reload even if data exists")
+    args = parser.parse_args()
+
+    _check_sources()
+
     with psycopg.connect(_database_url(), autocommit=True) as conn:
         apply_schema(conn)
+        if not args.force and _already_loaded(conn):
+            return
         conn.execute("TRUNCATE admin_boundary RESTART IDENTITY")
         with conn.cursor() as cur:
             for level, path in SOURCES.items():

@@ -13,9 +13,9 @@
 ## Build pipeline — order matters
 One-time data prep, must run in this sequence:
 
-1. `python scripts/rasterize_vs30.py` — produces `data/Vs30.tif` (tens-of-MB GeoTIFF). **Vs30 is never in the database**; kept as COG on disk, loaded by NumPy at runtime.
-2. `python scripts/load_boundaries.py` — loads simplified admin polygons (~100 m) into PostGIS. Requires `CREATE EXTENSION postgis` in the target DB first (done outside this repo).
-3. `python scripts/build_tiles.py` — bakes boundary layers into `.pmtiles` vector tiles (needs Docker for tippecanoe). Only needed for frontend rendering.
+1. `uv run python scripts/rasterize_vs30.py` — produces `data/Vs30.tif` (tens-of-MB GeoTIFF). **Vs30 is never in the database**; kept as COG on disk, loaded by NumPy at runtime.
+2. `uv run python scripts/load_boundaries.py` — loads simplified admin polygons (~100 m) into PostGIS. Requires PostGIS extension in the target DB (done via `init_schema()` now). Idempotent: skips if data exists; `--force` to reload.
+3. `uv run python scripts/build_tiles.py` — bakes boundary layers into `.pmtiles` vector tiles. Needs **Docker Desktop** (running) for tippecanoe. Idempotent: skips existing tiles; `--force` to rebuild.
 
 **DB schema** is managed via the migration runner in `db.py`. Migrations live in `migrations/NNN_name.sql` (filename order = apply order). Run `uv run python -c "from eqmon.db import init_schema; init_schema()"` to apply pending migrations. The tracking table `_schema_migrations` records what's been applied.
 
@@ -40,6 +40,7 @@ One-time data prep, must run in this sequence:
 - **No CI/CD workflows** in this repo (no `.github/`). No codegen, no pre-commit hooks.
 - **Dedup rule:** events within 60 s / 50 km cluster; higher-priority source (MET > USGS) wins.
 - **Default site condition:** Vs30 = 760 m/s when grid has no value.
+- **Boundary source data** lives under `data/Boundaries_Data/` (gitignored). Obtain from boundary-data source; scripts error with a clear message if missing.
 
 ## Existing instruction files
 - `CLAUDE.md` — architecture overview and dev workflow (stale on dependency install — ignore its `requirements*.txt` references, use `uv sync`).
@@ -55,5 +56,5 @@ One-time data prep, must run in this sequence:
 | Apply DB schema + pending migrations | `uv run python -c "from eqmon.db import init_schema; init_schema()"` |
 | Add a new migration | create `migrations/NNN_name.sql` (filename order = apply order) |
 | Build Vs30 raster | `uv run python scripts/rasterize_vs30.py` |
-| Load admin boundaries | `uv run python scripts/load_boundaries.py` |
-| Build vector tiles | `uv run python scripts/build_tiles.py` |
+| Load admin boundaries | `uv run python scripts/load_boundaries.py` (add `--force` to reload) |
+| Build vector tiles | `uv run python scripts/build_tiles.py` (add `--force` to rebuild; needs Docker) |
