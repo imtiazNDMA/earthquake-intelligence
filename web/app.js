@@ -184,18 +184,36 @@ document.getElementById("calc").addEventListener("click", calculate);
 const eventsEl = document.getElementById("events");
 const impactEl = document.getElementById("impact");
 
-async function refreshEvents() {
+async function refreshEvents(append = false) {
   const search = document.getElementById("filter-search").value.trim();
   const minmag = document.getElementById("filter-minmag").value;
+  const maxmag = document.getElementById("filter-maxmag").value;
   const source = document.getElementById("filter-source").value;
+  const sort = document.getElementById("filter-sort").value;
   let url = "/events?limit=20";
   if (search) url += "&search=" + encodeURIComponent(search);
   if (minmag) url += "&min_magnitude=" + encodeURIComponent(minmag);
+  if (maxmag) url += "&max_magnitude=" + encodeURIComponent(maxmag);
   if (source) url += "&source=" + encodeURIComponent(source);
+  if (sort) url += "&orderby=" + encodeURIComponent(sort);
+  if (append) url += "&offset=" + eventsEl._offset;
   const resp = await fetch(url);
   if (!resp.ok) return;
-  const events = await resp.json();
-  eventsEl.innerHTML = "<strong>Catalog</strong>" + (
+  const data = await resp.json();
+  let events = data.events || data;
+  const total = data.total;
+  if (append) {
+    events = (eventsEl._allEvents || []).concat(events);
+  }
+  eventsEl._allEvents = events;
+  eventsEl._offset = events.length;
+  eventsEl._total = total;
+  eventsEl._filter = `?limit=20${search ? "&search=" + encodeURIComponent(search) : ""}${minmag ? "&min_magnitude=" + encodeURIComponent(minmag) : ""}${maxmag ? "&max_magnitude=" + encodeURIComponent(maxmag) : ""}${source ? "&source=" + encodeURIComponent(source) : ""}${sort ? "&orderby=" + encodeURIComponent(sort) : ""}`;
+  renderEventList(events, total);
+}
+
+function renderEventList(events, total) {
+  eventsEl.innerHTML = `<strong>Catalog</strong> <span style="color:#999;font-weight:400;font-size:11px">${total != null ? "(" + events.length + " of " + total + ")" : ""}</span>` + (
     events.length === 0 ? '<div style="color:#999;padding:8px 0;font-size:12px">No events yet — pull the USGS feed or calculate intensity</div>'
     : events.map(ev => {
     const alertClass = ev.alert ? `evt-alert ${ev.alert}` : "";
@@ -211,7 +229,9 @@ async function refreshEvents() {
       ${ev.place ? `<div class="evt-place">${escapeHtml(ev.place)}</div>` : ""}
       <div class="evt-meta">${ev.source} · ${new Date(ev.occurred_at).toLocaleString()}</div>
     </div>`;
-  }).join("");
+  }).join("") + (total != null && events.length < total
+    ? `<button id="load-more" style="width:100%;padding:4px;margin-top:6px;cursor:pointer;font-size:11px;background:transparent;color:#0366d6;border:1px solid #c0d8f0;border-radius:4px">Load ${Math.min(20, total - events.length)} more…</button>`
+    : ""));
   document.querySelectorAll(".evt").forEach(el =>
     el.addEventListener("click", (e) => {
       if (e.target.closest(".evt-del")) return;  // ignore delete button clicks
@@ -222,6 +242,8 @@ async function refreshEvents() {
       e.stopPropagation();
       confirmDelete(parseInt(btn.dataset.delId));
     }));
+  const loadMore = document.getElementById("load-more");
+  if (loadMore) loadMore.addEventListener("click", () => refreshEvents(true));
 }
 
 // --- Confirmation dialog for delete ---
@@ -280,6 +302,10 @@ async function showImpact(id) {
   // Render intensity bands on map
   if (intensityLayer) map.removeLayer(intensityLayer);
   intensityLayer = L.geoJSON(data.bands, { style }).addTo(map);
+  if (epicenterMarker) map.removeLayer(epicenterMarker);
+  epicenterMarker = L.circleMarker([evt.lat, evt.lon], {
+    radius: 6, color: "#000", fillColor: "#fff", fillOpacity: 1,
+  }).addTo(map).bindPopup(`Epicenter — M${evt.magnitude.toFixed(1)}`);
   if (intensityLayer.getBounds().isValid()) map.fitBounds(intensityLayer.getBounds());
   // Render USGS detail card
   renderDetail(evt);
@@ -431,8 +457,11 @@ function escapeHtml(s) {
 
 document.getElementById("ingest").addEventListener("click", async () => {
   statusEl.textContent = "Pulling USGS feed…";
+  const minmag = document.getElementById("ingest-minmag").value;
+  let url = "/events/ingest";
+  if (minmag) url += "?min_magnitude=" + encodeURIComponent(minmag);
   try {
-    const r = await fetch("/events/ingest", { method: "POST" });
+    const r = await fetch(url, { method: "POST" });
     const res = await r.json();
     statusEl.textContent = `Ingest: ${res.inserted} new of ${res.fetched}`;
   } catch (e) {
@@ -455,8 +484,11 @@ setInterval(updateIngestStatus, 30000);
 refreshEvents();
 
 // Catalog filter auto-refresh on change
-["filter-search", "filter-minmag", "filter-source"].forEach(id =>
-  document.getElementById(id).addEventListener("input", refreshEvents));
+["filter-search", "filter-minmag", "filter-maxmag", "filter-source", "filter-sort"].forEach(id => {
+  const el = document.getElementById(id);
+  const ev = el.tagName === "SELECT" ? "change" : "input";
+  el.addEventListener(ev, refreshEvents);
+});
 
 // --- Sidebar rail: section switching + collapse ---
 const SECTIONS = { event: "sec-event", catalog: "sec-catalog", config: "sec-config" };

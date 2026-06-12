@@ -101,7 +101,9 @@ def list_events(conn: psycopg.Connection, *, since: datetime | None = None,
                 max_magnitude: float | None = None,
                 source: str | None = None,
                 search: str | None = None,
-                limit: int = 100) -> list[dict]:
+                limit: int = 100,
+                offset: int = 0,
+                orderby: str = "time") -> list[dict]:
     clauses = ["is_canonical = TRUE"]
     params: list = []
     if since is not None:
@@ -120,7 +122,42 @@ def list_events(conn: psycopg.Connection, *, since: datetime | None = None,
         clauses.append("place ILIKE %s")
         params.append(f"%{search}%")
     where = " WHERE " + " AND ".join(clauses)
+    order_map = {
+        "time": "occurred_at DESC",
+        "time-asc": "occurred_at ASC",
+        "magnitude": "magnitude DESC",
+    }
+    order_sql = order_map.get(orderby, "occurred_at DESC")
     params.append(limit)
+    params.append(offset)
     with conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(_SELECT + where + " ORDER BY occurred_at DESC LIMIT %s", params)
+        cur.execute(
+            _SELECT + where + f" ORDER BY {order_sql} LIMIT %s OFFSET %s",
+            params,
+        )
         return cur.fetchall()
+
+
+def count_events(conn: psycopg.Connection, *,
+                 min_magnitude: float | None = None,
+                 max_magnitude: float | None = None,
+                 source: str | None = None,
+                 search: str | None = None) -> int:
+    clauses = ["is_canonical = TRUE"]
+    params: list = []
+    if min_magnitude is not None:
+        clauses.append("magnitude >= %s")
+        params.append(min_magnitude)
+    if max_magnitude is not None:
+        clauses.append("magnitude <= %s")
+        params.append(max_magnitude)
+    if source is not None:
+        clauses.append("source = %s")
+        params.append(source)
+    if search is not None:
+        clauses.append("place ILIKE %s")
+        params.append(f"%{search}%")
+    where = " WHERE " + " AND ".join(clauses)
+    with conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM seismic_event" + where, params)
+        return cur.fetchone()[0]

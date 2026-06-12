@@ -16,8 +16,9 @@ from pydantic import BaseModel, Field, field_validator
 from . import config, db
 from .contours import mmi_to_geojson
 from .events.ingest import ingest
-from .events.repo import (create_manual_event, delete_event, get_event,
-                           list_events, update_event, update_usgs_detail)
+from .events.repo import (count_events, create_manual_event, delete_event,
+                           get_event, list_events, update_event,
+                           update_usgs_detail)
 from .events.sources import USGSSource
 from .impact import compute_event_impact
 from .intensity import compute_mmi_grid
@@ -238,7 +239,7 @@ def create_event(ev: ManualEvent):
 
 
 @app.post("/events/ingest")
-def ingest_events():
+def ingest_events(min_magnitude: float | None = None):
     with db.get_conn() as conn:
         updatedafter = None
         row = conn.execute(
@@ -246,7 +247,8 @@ def ingest_events():
         ).fetchone()
         if row is not None:
             updatedafter = datetime.fromisoformat(row[0])
-        result = ingest(conn, USGSSource(), updatedafter=updatedafter)
+        result = ingest(conn, USGSSource(min_magnitude=min_magnitude),
+                        updatedafter=updatedafter)
         conn.commit()
         now_iso = datetime.now(timezone.utc).isoformat()
         conn.execute(
@@ -272,11 +274,18 @@ def get_events(since: datetime | None = None,
                max_magnitude: float | None = None,
                source: str | None = None,
                search: str | None = None,
-               limit: int = 100):
+               limit: int = 20,
+               offset: int = 0,
+               orderby: str = "time"):
     with db.get_conn() as conn:
-        return list_events(conn, since=since, min_magnitude=min_magnitude,
-                           max_magnitude=max_magnitude, source=source,
-                           search=search, limit=limit)
+        events = list_events(conn, since=since, min_magnitude=min_magnitude,
+                             max_magnitude=max_magnitude, source=source,
+                             search=search, limit=limit, offset=offset,
+                             orderby=orderby)
+        total = count_events(conn, min_magnitude=min_magnitude,
+                             max_magnitude=max_magnitude, source=source,
+                             search=search)
+        return {"total": total, "events": events}
 
 
 @app.get("/events/{event_id}")

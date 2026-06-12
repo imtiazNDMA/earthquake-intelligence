@@ -167,6 +167,8 @@
     .filter-search { flex: 1; min-width: 0; }
     .filter-mag { width: 42px; }
     .filter-source { width: 68px; }
+    .filter-sort { width: 90px; }
+    .filter-sep { color: #ddd; line-height: 26px; }
   </style>
 </head>
 <body>
@@ -195,6 +197,8 @@
         </div>
         <button id="calc" class="btn-primary">Calculate intensity</button>
         <button id="ingest" class="btn-secondary">Pull USGS feed</button>
+        <div><span class="field-label">Min mag for ingest</span>
+          <input id="ingest-minmag" type="number" value="2.5" step="0.5" min="0" style="width:100%;box-sizing:border-box;padding:4px;border:1px solid #e2e2e2;background:#fafafa;border-radius:4px;font-size:12px" /></div>
         <div id="ingest-status"></div>
         <div id="status"></div>
       </section>
@@ -203,10 +207,16 @@
         <div class="filter-row">
           <input id="filter-search" class="filter-search" type="text" placeholder="Search place…" />
           <input id="filter-minmag" class="filter-mag" type="number" min="0" step="0.5" placeholder="M≥" />
+          <input id="filter-maxmag" class="filter-mag" type="number" min="0" step="0.5" placeholder="M≤" />
           <select id="filter-source" class="filter-source">
             <option value="">All</option>
             <option value="USGS">USGS</option>
             <option value="MANUAL">Manual</option>
+          </select>
+          <select id="filter-sort" class="filter-sort">
+            <option value="time">Newest</option>
+            <option value="time-asc">Oldest</option>
+            <option value="magnitude">Largest</option>
           </select>
         </div>
         <div id="events"></div>
