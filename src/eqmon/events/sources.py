@@ -2,6 +2,7 @@
 (Primary) is a stub until the Pakistan MET feed format is known. parse_usgs is
 pure (no network) for testability."""
 from __future__ import annotations
+import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Protocol
@@ -16,6 +17,7 @@ USGS_FEED_URL = (
 
 FDSN_QUERY_URL = "https://earthquake.usgs.gov/fdsnws/event/1/query"
 DEFAULT_WINDOW_DAYS = 30
+_CHUNK_DAYS = 1  # split large time windows into 1-day chunks to stay under 20k limit
 
 
 @dataclass(frozen=True)
@@ -27,6 +29,21 @@ class RawEvent:
     depth_km: float
     lon: float
     lat: float
+    place: str | None = None
+    mag_type: str | None = None
+    event_type: str | None = None
+    alert: str | None = None
+    tsunami: int = 0
+    sig: int | None = None
+    review_status: str | None = None
+    felt: int | None = None
+    cdi: float | None = None
+    mmi_report: float | None = None
+    gap: float | None = None
+    nst: int | None = None
+    url: str | None = None
+    detail_url: str | None = None
+    updated_at: datetime | None = None
 
 
 class SeismicSource(Protocol):
@@ -55,6 +72,7 @@ def parse_usgs(geojson: dict) -> list[RawEvent]:
             continue
         if not _in_region(lon, lat):
             continue
+        updated_ms = props.get("updated")
         out.append(RawEvent(
             source="USGS",
             source_event_id=str(eid),
@@ -63,21 +81,42 @@ def parse_usgs(geojson: dict) -> list[RawEvent]:
             depth_km=float(depth),
             lon=float(lon),
             lat=float(lat),
+            place=props.get("place"),
+            mag_type=props.get("magType"),
+            event_type=props.get("type"),
+            alert=props.get("alert"),
+            tsunami=props.get("tsunami", 0),
+            sig=props.get("sig"),
+            review_status=props.get("status"),
+            felt=props.get("felt"),
+            cdi=props.get("cdi"),
+            mmi_report=props.get("mmi"),
+            gap=props.get("gap"),
+            nst=props.get("nst"),
+            url=props.get("url"),
+            detail_url=props.get("detail"),
+            updated_at=(
+                datetime.fromtimestamp(updated_ms / 1000.0, tz=timezone.utc)
+                if updated_ms is not None else None
+            ),
         ))
     return out
 
 
 def fdsn_query_params(*, starttime: datetime,
                       bbox: tuple[float, float, float, float],
+                      endtime: datetime | None = None,
                       minmagnitude: float | None = None,
-                      limit: int = 20000) -> dict:
+                      limit: int = 20000,
+                      eventtype: str | None = "earthquake") -> dict:
     """Build FDSN `event/query` parameters for a region + time window.
 
     `bbox` is (min lon, min lat, max lon, max lat) — matches config.COVERAGE_BBOX.
     `starttime` must be a UTC datetime; formatted without a tz suffix (FDSN
-    assumes UTC). `limit` is capped at FDSN's hard max (20000); `orderby=time`
-    keeps the most recent events if the window ever saturates. Proper time
-    windowing for large historical pulls is Phase 1.
+    assumes UTC). `endtime` is optional — without it the API defaults to the
+    present time. `limit` is capped at FDSN's hard max (20000); `orderby=time`
+    keeps the most recent events if the window ever saturates. `eventtype`
+    defaults to "earthquake" to filter out quarry blasts / explosions.
     """
     minx, miny, maxx, maxy = bbox
     params: dict = {
@@ -90,8 +129,12 @@ def fdsn_query_params(*, starttime: datetime,
         "orderby": "time",
         "limit": limit,
     }
+    if endtime is not None:
+        params["endtime"] = endtime.strftime("%Y-%m-%dT%H:%M:%S")
     if minmagnitude is not None:
         params["minmagnitude"] = minmagnitude
+    if eventtype is not None:
+        params["eventtype"] = eventtype
     return params
 
 
@@ -110,25 +153,40 @@ class USGSSource:
         self.timeout = timeout
 
     def fetch(self, since: datetime | None = None) -> list[RawEvent]:
-        """Query FDSN for the region window; fall back to the all-day feed on
-        HTTP error. `since` (if given) sets `starttime` and post-filters."""
-        starttime = since or (datetime.now(timezone.utc)
-                              - timedelta(days=self.window_days))
-        try:
-            params = fdsn_query_params(starttime=starttime, bbox=COVERAGE_BBOX,
-                                       minmagnitude=self.min_magnitude)
-            resp = httpx.get(self.query_url, params=params, timeout=self.timeout)
-            resp.raise_for_status()
-            events = parse_usgs(resp.json())
-        except httpx.HTTPError:
-            # FDSN unreachable or returned an error status: fall back to the
-            # real-time feed (24h, global; parse_usgs filters to the region).
-            resp = httpx.get(self.feed_url, timeout=self.timeout)
-            resp.raise_for_status()
-            events = parse_usgs(resp.json())
+        """Query FDSN with 1-day time-window chunking to stay under the 20k
+        event-per-query limit. Falls back to the all-day feed on HTTP error.
+        `since` (if given) sets the earliest time and post-filters results."""
+        now = datetime.now(timezone.utc)
+        start = since or (now - timedelta(days=self.window_days))
+        chunks = max(1, math.ceil((now - start).total_seconds()
+                                   / (_CHUNK_DAYS * 86400)))
+        chunk_size = timedelta(days=_CHUNK_DAYS)
+        all_events: list[RawEvent] = []
+        seen: set[str] = set()
+        cursor = start
+        for _ in range(chunks):
+            chunk_end = min(cursor + chunk_size, now)
+            try:
+                params = fdsn_query_params(starttime=cursor, bbox=COVERAGE_BBOX,
+                                           endtime=chunk_end,
+                                           minmagnitude=self.min_magnitude)
+                resp = httpx.get(self.query_url, params=params,
+                                 timeout=self.timeout)
+                resp.raise_for_status()
+                chunk_events = parse_usgs(resp.json())
+            except httpx.HTTPError:
+                # Any chunk failure: fall back to the 24h feed for the whole fetch.
+                resp = httpx.get(self.feed_url, timeout=self.timeout)
+                resp.raise_for_status()
+                return parse_usgs(resp.json())
+            for e in chunk_events:
+                if e.source_event_id not in seen:
+                    seen.add(e.source_event_id)
+                    all_events.append(e)
+            cursor = chunk_end
         if since is not None:
-            events = [e for e in events if e.occurred_at >= since]
-        return events
+            all_events = [e for e in all_events if e.occurred_at >= since]
+        return all_events
 
 
 class METSource:

@@ -1,0 +1,15 @@
+ALTER TABLE seismic_event ADD COLUMN IF NOT EXISTS place         TEXT;
+ALTER TABLE seismic_event ADD COLUMN IF NOT EXISTS mag_type      TEXT;
+ALTER TABLE seismic_event ADD COLUMN IF NOT EXISTS event_type    TEXT DEFAULT 'earthquake';
+ALTER TABLE seismic_event ADD COLUMN IF NOT EXISTS alert         TEXT;
+ALTER TABLE seismic_event ADD COLUMN IF NOT EXISTS tsunami       SMALLINT DEFAULT 0;
+ALTER TABLE seismic_event ADD COLUMN IF NOT EXISTS sig           INTEGER;
+ALTER TABLE seismic_event ADD COLUMN IF NOT EXISTS review_status TEXT;
+ALTER TABLE seismic_event ADD COLUMN IF NOT EXISTS felt          INTEGER;
+ALTER TABLE seismic_event ADD COLUMN IF NOT EXISTS cdi           DOUBLE PRECISION;
+ALTER TABLE seismic_event ADD COLUMN IF NOT EXISTS mmi_report    DOUBLE PRECISION;
+ALTER TABLE seismic_event ADD COLUMN IF NOT EXISTS gap           DOUBLE PRECISION;
+ALTER TABLE seismic_event ADD COLUMN IF NOT EXISTS nst           INTEGER;
+ALTER TABLE seismic_event ADD COLUMN IF NOT EXISTS url           TEXT;
+ALTER TABLE seismic_event ADD COLUMN IF NOT EXISTS detail_url    TEXT;
+ALTER TABLE seismic_event ADD COLUMN IF NOT EXISTS updated_at    TIMESTAMPTZ;

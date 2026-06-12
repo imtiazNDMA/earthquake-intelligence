@@ -28,12 +28,18 @@ class IngestResult:
 def _upsert(conn: psycopg.Connection, e: RawEvent) -> bool:
     cur = conn.execute(
         "INSERT INTO seismic_event "
-        "(source, source_event_id, occurred_at, magnitude, depth_km, geom) "
-        "VALUES (%s, %s, %s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326)) "
+        "(source, source_event_id, occurred_at, magnitude, depth_km, geom, "
+        " place, mag_type, event_type, alert, tsunami, sig, review_status, "
+        " felt, cdi, mmi_report, gap, nst, url, detail_url, updated_at) "
+        "VALUES (%s, %s, %s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), "
+        " %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
         "ON CONFLICT (source, source_event_id) WHERE source_event_id IS NOT NULL "
         "DO NOTHING RETURNING id",
         (e.source, e.source_event_id, e.occurred_at, e.magnitude, e.depth_km,
-         e.lon, e.lat),
+         e.lon, e.lat,
+         e.place, e.mag_type, e.event_type, e.alert, e.tsunami, e.sig,
+         e.review_status, e.felt, e.cdi, e.mmi_report, e.gap, e.nst,
+         e.url, e.detail_url, e.updated_at),
     )
     return cur.fetchone() is not None
 

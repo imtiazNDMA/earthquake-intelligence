@@ -69,6 +69,16 @@ def intensity(req: EventRequest) -> JSONResponse:
         epi_lon=req.lon, epi_lat=req.lat,
     )
     fc = mmi_to_geojson(mmi, grid.transform, levels=config.MMI_BAND_LEVELS)
+    # Persist to catalog silently so the event appears in the catalog /
+    # impact endpoints. Best-effort — intensity bands render either way.
+    try:
+        with db.get_conn() as conn:
+            row = create_manual_event(conn, magnitude=req.magnitude,
+                                      depth_km=req.depth_km, lon=req.lon, lat=req.lat)
+            conn.commit()
+            fc["event_id"] = row["id"]
+    except Exception:
+        pass
     return JSONResponse(fc)
 
 

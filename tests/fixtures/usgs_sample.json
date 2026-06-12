@@ -3,7 +3,25 @@
   "features": [
     {
       "id": "us1000abcd",
-      "properties": {"mag": 5.4, "time": 1767225600000, "place": "near Pakistan"},
+      "properties": {
+        "mag": 5.4,
+        "time": 1767225600000,
+        "updated": 1767225900000,
+        "place": "near Pakistan",
+        "magType": "mww",
+        "type": "earthquake",
+        "alert": "yellow",
+        "tsunami": 0,
+        "sig": 450,
+        "status": "reviewed",
+        "felt": 120,
+        "cdi": 5.2,
+        "mmi": 4.8,
+        "gap": 45.0,
+        "nst": 80,
+        "url": "https://earthquake.usgs.gov/earthquakes/eventpage/us1000abcd",
+        "detail": "https://earthquake.usgs.gov/fdsnws/event/1/query?eventid=us1000abcd&format=geojson"
+      },
       "geometry": {"type": "Point", "coordinates": [72.5, 34.0, 15.0]}
     },
     {

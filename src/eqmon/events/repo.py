@@ -7,7 +7,9 @@ from psycopg.rows import dict_row
 
 _SELECT = (
     "SELECT id, source, source_event_id, occurred_at, magnitude, depth_km, "
-    "ST_X(geom) AS lon, ST_Y(geom) AS lat, cluster_id, is_canonical, created_at "
+    "ST_X(geom) AS lon, ST_Y(geom) AS lat, cluster_id, is_canonical, created_at, "
+    "place, mag_type, event_type, alert, tsunami, sig, review_status, "
+    "felt, cdi, mmi_report, gap, nst, url, detail_url, updated_at "
     "FROM seismic_event"
 )
 
