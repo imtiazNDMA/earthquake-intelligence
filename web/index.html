@@ -193,15 +193,94 @@
     .filter-mag { width: 38px; }
     .filter-source { width: 66px; }
     .filter-sort { width: 83px; }
-    .filter-sep { color: #ddd; line-height: 26px; }
+    .filter-date { width: 88px; font-size: 11px; padding: 3px 5px; border: 1px solid #ddd; border-radius: 3px; background: #fafafa; }
+    .filter-row .filter-sep { color: #ccc; line-height: 26px; }
+    .export-wrap { position: relative; }
+    .export-btn {
+      padding: 2px 6px; font-size: 12px; border: 1px solid #ccc;
+      border-radius: 4px; background: transparent; color: #666; cursor: pointer;
+      line-height: 1.4;
+    }
+    .export-btn:hover { border-color: #0366d6; color: #0366d6; }
+    .export-menu {
+      display: none; position: absolute; top: 100%; right: 0; z-index: 10;
+      background: #fff; border: 1px solid #e0e0e0; border-radius: 4px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.12); min-width: 90px;
+    }
+    .export-menu.open { display: block; }
+    .export-opt {
+      display: block; padding: 5px 10px; font-size: 11px; color: #333;
+      cursor: pointer; text-decoration: none;
+    }
+    .export-opt:hover { background: #f0f0f0; }
+    /* Timeline chart */
+    #tl-wrap { margin: 4px 0; }
+    .tl-header { display: flex; align-items: center; margin-bottom: 2px; }
+    .tl-title { font-size: 10px; color: #aaa; text-transform: uppercase; letter-spacing: .4px; font-weight: 600; }
+    .tl-toggle { margin-left: auto; background: none; border: none; cursor: pointer; color: #aaa; font-size: 14px; padding: 0 2px; line-height: 1; }
+    .tl-toggle:hover { color: #333; }
+    #tl-canvas { width: 100%; border-radius: 4px; display: block; }
+    /* Compare mode */
+    #compare-bar { display: none; align-items: center; gap: 4px; padding: 4px 0; font-size: 11px; }
+    .cmp-count { color: #666; flex: 1; }
+    #compare-bar button { padding: 3px 8px; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; font-size: 11px; background: #f5f5f5; }
+    #compare-bar button:disabled { opacity: .5; cursor: default; }
+    #compare-bar .cmp-show { background: #2563eb; color: #fff; border-color: #2563eb; }
+    #compare-bar .cmp-show:disabled { background: #aaa; border-color: #aaa; }
+    #compare-bar .cmp-exit { background: transparent; color: #c00; border-color: #f0c0c0; }
+    .cmp-toggle { margin-left: auto; padding: 2px 6px; font-size: 10px; border: 1px solid #ccc; border-radius: 4px; background: transparent; color: #666; cursor: pointer; flex: none; }
+    .cmp-toggle:hover { border-color: #2563eb; color: #2563eb; }
+    .cmp-toggle.active { border-color: #2563eb; background: #2563eb; color: #fff; }
+    .evt-comp { cursor: default; }
+    .cmp-radio { display: inline-flex; width: 16px; height: 16px; align-items: center; justify-content: center; border: 2px solid #ccc; border-radius: 50%; margin-right: 5px; margin-top: 1px; font-size: 9px; font-weight: 700; color: #fff; flex: none; }
+    .cmp-radio.selected1 { border-color: #2563eb; background: #2563eb; }
+    .cmp-radio.selected2 { border-color: #ea580c; background: #ea580c; }
+    /* Dashboard — full view replacing map */
+    #dashboard-view {
+      display: none; position: absolute; inset: 0; overflow-y: auto;
+      background: #f8f9fa; z-index: 500; font-family: system-ui, sans-serif;
+    }
+    #dashboard-view.open { display: block; }
+    #dash-inner { max-width: 1100px; margin: 0 auto; padding: 20px 24px; }
+    #dash-title {
+      margin: 0 0 16px; padding: 16px 20px; border-radius: 12px;
+      background: linear-gradient(135deg, #047857, #16a34a); color: #fff;
+      box-shadow: 0 8px 20px rgba(4,120,87,.18);
+    }
+    #dash-title-main { display: block; font-size: 22px; font-weight: 800; letter-spacing: .2px; }
+    #dash-title-sub { display: block; font-size: 12px; font-weight: 500; opacity: .9; margin-top: 4px; }
+    .dash-row { display: flex; gap: 12px; margin-bottom: 16px; }
+    .dash-card {
+      flex: 1; background: #fff; border-radius: 8px; padding: 16px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.06); height: 200px;
+    }
+    .dash-card canvas { width: 100% !important; height: 100% !important; }
+    .dash-stat-grid { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+    .dash-stat-box {
+      flex: 1 0 140px; background: #fff; border-radius: 8px; padding: 14px 10px; text-align: center;
+      box-shadow: 0 1px 4px rgba(0,0,0,.06);
+    }
+    .dash-stat-val { font-size: 26px; font-weight: 700; color: #1a1a1a; line-height: 1.1; }
+    .dash-stat-lbl { font-size: 9px; color: #999; text-transform: uppercase; letter-spacing: .5px; margin-top: 4px; }
+    .dash-foot { margin-top: 8px; font-size: 11px; color: #999; text-align: center; }
   </style>
 </head>
 <body>
   <div id="map"></div>
+  <div id="dashboard-view">
+    <div id="dash-inner">
+      <h2 id="dash-title">
+        <span id="dash-title-main">National Seismic Intelligence Platform</span>
+        <span id="dash-title-sub">Plain-language earthquake overview for disaster management decisions</span>
+      </h2>
+      <div id="dash-main"></div>
+    </div>
+  </div>
   <div id="sidebar">
     <div class="rail">
       <button class="rail-ic active" data-section="event" title="Event input">✚</button>
       <button class="rail-ic" data-section="catalog" title="Catalog">≣</button>
+      <button class="rail-ic" data-section="dashboard" title="Analytics">◰</button>
       <button class="rail-ic" data-section="config" title="Map config">⚙</button>
       <button id="rail-collapse" class="rail-ic rail-collapse" title="Collapse">‹</button>
     </div>
@@ -246,9 +325,18 @@
             <option value="magnitude">Largest</option>
           </select>
         </div>
+        <div class="filter-row">
+          <input id="filter-after" type="date" class="filter-date" title="From date" />
+          <span class="filter-sep">–</span>
+          <input id="filter-before" type="date" class="filter-date" title="To date" />
+        </div>
         <div id="events"></div>
         <div id="detail"></div>
         <div id="impact"></div>
+      </section>
+      <section id="sec-dashboard">
+        <h4>Dashboard</h4>
+        <div id="dash-sidebar"><div style="font-size:11px;color:#999">Open national overview in main view</div></div>
       </section>
       <section id="sec-config">
         <h4>Map configuration</h4>
@@ -274,6 +362,7 @@
   <script src="https://unpkg.com/protomaps-leaflet@5.1.0/dist/protomaps-leaflet.js"
           integrity="sha384-pAKrddYWxjFAIJwatOtmmtq9ebz3ZwluHCEg3pqOMpOporUofLqz/l5hs+0LAWaH"
           crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" crossorigin="anonymous"></script>
   <script src="app.js"></script>
 </body>
 </html>

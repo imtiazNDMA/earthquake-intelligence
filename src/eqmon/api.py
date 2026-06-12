@@ -1,6 +1,8 @@
 """FastAPI service. Loads the Vs30 grid once (cached) and serves filled MMI
 contour bands per submitted event."""
 from __future__ import annotations
+import csv
+import io
 import os
 import threading
 from contextlib import asynccontextmanager
@@ -9,7 +11,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
@@ -17,8 +19,8 @@ from . import config, db
 from .contours import mmi_to_geojson
 from .events.ingest import ingest
 from .events.repo import (count_events, create_manual_event, delete_event,
-                           get_event, list_events, update_event,
-                           update_usgs_detail)
+                           get_event, get_event_stats, list_events,
+                           update_event, update_usgs_detail)
 from .events.sources import USGSSource
 from .impact import compute_event_impact
 from .intensity import compute_mmi_grid
@@ -274,19 +276,86 @@ def get_events(since: datetime | None = None,
                max_magnitude: float | None = None,
                source: str | None = None,
                search: str | None = None,
+               occurred_after: datetime | None = None,
+               occurred_before: datetime | None = None,
                limit: int = 20,
                offset: int = 0,
                orderby: str = "time"):
     with db.get_conn() as conn:
         events = list_events(conn, since=since, min_magnitude=min_magnitude,
                              max_magnitude=max_magnitude, source=source,
-                             search=search, limit=limit, offset=offset,
+                             search=search,
+                             occurred_after=occurred_after,
+                             occurred_before=occurred_before,
+                             limit=limit, offset=offset,
                              orderby=orderby)
         total = count_events(conn, min_magnitude=min_magnitude,
                              max_magnitude=max_magnitude, source=source,
-                             search=search)
+                             search=search,
+                             occurred_after=occurred_after,
+                             occurred_before=occurred_before)
         return {"total": total, "events": events}
 
+
+@app.get("/events/export")
+def export_events(format: str = "csv",
+                  min_magnitude: float | None = None,
+                  max_magnitude: float | None = None,
+                  source: str | None = None,
+                  search: str | None = None,
+                  occurred_after: datetime | None = None,
+                  occurred_before: datetime | None = None):
+    with db.get_conn() as conn:
+        evs = list_events(conn, min_magnitude=min_magnitude,
+                          max_magnitude=max_magnitude, source=source,
+                          search=search,
+                          occurred_after=occurred_after,
+                          occurred_before=occurred_before,
+                          limit=None, orderby="time")
+    if format == "geojson":
+        features = []
+        for e in evs:
+            lon, lat = e.get("lon"), e.get("lat")
+            if lon is None or lat is None:
+                continue
+            props = {k: v for k, v in e.items() if k not in ("lon", "lat") and v is not None}
+            props["lon"] = lon
+            props["lat"] = lat
+            features.append({
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [lon, lat]},
+                "properties": props,
+            })
+        return JSONResponse(
+            {"type": "FeatureCollection", "features": features},
+            media_type="application/geo+json",
+            headers={"Content-Disposition": "attachment; filename=events.geojson"},
+        )
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["id", "source", "source_event_id", "occurred_at", "magnitude",
+                "depth_km", "lon", "lat", "place", "mag_type", "alert",
+                "tsunami", "sig", "review_status", "felt", "cdi", "mmi_report",
+                "gap", "nst", "url", "detail_url"])
+    for e in evs:
+        w.writerow([e.get("id"), e.get("source"), e.get("source_event_id"),
+                    e.get("occurred_at"), e.get("magnitude"), e.get("depth_km"),
+                    e.get("lon"), e.get("lat"), e.get("place"), e.get("mag_type"),
+                    e.get("alert"), e.get("tsunami"), e.get("sig"),
+                    e.get("review_status"), e.get("felt"), e.get("cdi"),
+                    e.get("mmi_report"), e.get("gap"), e.get("nst"),
+                    e.get("url"), e.get("detail_url")])
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=events.csv"},
+    )
+
+
+@app.get("/events/stats")
+def event_stats():
+    with db.get_conn() as conn:
+        return get_event_stats(conn)
 
 @app.get("/events/{event_id}")
 def event_detail(event_id: int):

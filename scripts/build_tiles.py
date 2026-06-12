@@ -45,9 +45,12 @@ ADMIN_LAYERS = [
 ]
 # id, source shapefile (relative to ROOT), extra args — converted to GeoJSON first
 SHP_LAYERS = [
-    ("faults",           "data/Global_Active_Earthquake_Faults-shp/Global_Active_Earthquake_Faults.shp", ["-z10", "--drop-densest-as-needed"]),
-    ("plate_boundaries", "data/Tectonic Plate Boundaries/Tectonic_Plate_Boundaries.shp",                  ["-z8"]),
-    ("plates",           "data/Tectonic Plates/Tectonic_Plates.shp",                                      ["-z6"]),
+    ("faults",              "data/Global_Active_Earthquake_Faults-shp/Global_Active_Earthquake_Faults.shp", ["-z10", "--drop-densest-as-needed"]),
+    ("plate_boundaries",    "data/Tectonic Plate Boundaries/Tectonic_Plate_Boundaries.shp",                  ["-z8"]),
+    ("plates",              "data/Tectonic Plates/Tectonic_Plates.shp",                                      ["-z6"]),
+    ("pak_faults_major",    "data/PAK_Faults/Major_Faults.shp",                                              ["-z12", "--drop-densest-as-needed"]),
+    ("pak_faults_minor",    "data/PAK_Faults/Minor_Faults.shp",                                              ["-z12"]),
+    ("pak_tectonic_zones",  "data/PAK_Tectoniz_Zones/PAK_Tectonic_Zones.shp",                                ["-z10"]),
 ]
 
 
@@ -138,7 +141,7 @@ def main() -> None:
 
     built = sorted(p.name for p in TILES.glob("*.pmtiles"))
     print(f"built {len(built)} tile archives: {built}")
-    assert len(built) == 7, "expected 7 .pmtiles archives"
+    assert len(built) == 10, "expected 10 .pmtiles archives"
 
 
 if __name__ == "__main__":
