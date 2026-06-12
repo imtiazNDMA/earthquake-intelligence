@@ -160,15 +160,52 @@ const MMI_PALETTE = [
   [2, "#bfccff"], [3, "#a0e6ff"], [4, "#80ffff"], [5, "#7aff93"],
   [6, "#ffff00"], [7, "#ffc800"], [8, "#ff9100"], [9, "#ff0000"], [10, "#c80000"],
 ];
+
+let _legendItems = {};
+let _mmiLayers = {};
+
+function highlightByLevel(level) {
+  Object.keys(_legendItems).forEach(k => {
+    _legendItems[k].classList.toggle("active", parseInt(k) === level);
+  });
+  Object.entries(_mmiLayers).forEach(([k, layers]) => {
+    const on = parseInt(k) === level;
+    layers.forEach(l => l.setStyle({ weight: on ? 2.5 : 1, fillOpacity: on ? 0.7 : 0.45 }));
+  });
+}
+
+function unhighlightAll() {
+  Object.values(_legendItems).forEach(el => el.classList.remove("active"));
+  Object.values(_mmiLayers).forEach(group => {
+    group.forEach(l => l.setStyle({ weight: 1, fillOpacity: 0.45 }));
+  });
+}
+
 const legend = L.control({ position: "bottomright" });
 legend.onAdd = function () {
   const div = L.DomUtil.create("div", "legend");
-  div.style.cssText = "background:#fff;padding:8px 10px;border-radius:6px;box-shadow:0 1px 6px rgba(0,0,0,.3)";
-  div.innerHTML = "<strong>MMI</strong><br>" +
-    MMI_PALETTE.map(([m, c]) => `<i style="background:${c}"></i>${m}`).join("<br>");
+  div.innerHTML = "<div class='legend-title'>MMI</div>" +
+    MMI_PALETTE.map(([m, c]) =>
+      `<div class="legend-item" data-level="${m}"><span class="legend-swatch" style="background:${c}"></span><span class="legend-label">${m}</span></div>`
+    ).join("");
+  div.querySelectorAll(".legend-item").forEach(el => {
+    const level = parseInt(el.dataset.level);
+    el.addEventListener("mouseenter", () => highlightByLevel(level));
+    el.addEventListener("mouseleave", () => unhighlightAll());
+    _legendItems[level] = el;
+  });
   return div;
 };
 legend.addTo(map);
+
+function onMmiFeature(f, l) {
+  const level = f.properties.mmi_lower;
+  if (!_mmiLayers[level]) _mmiLayers[level] = [];
+  _mmiLayers[level].push(l);
+  l.bindPopup(`MMI ${f.properties.mmi_lower}–${f.properties.mmi_upper}`);
+  l.on("mouseover", () => highlightByLevel(level));
+  l.on("mouseout", () => unhighlightAll());
+}
 
 let intensityLayer = null;
 let epicenterMarker = null;
@@ -198,11 +235,11 @@ async function calculate() {
       return;
     }
     const fc = await resp.json();
+    _mmiLayers = {};
     if (intensityLayer) map.removeLayer(intensityLayer);
     intensityLayer = L.geoJSON(fc, {
       style,
-      onEachFeature: (f, l) =>
-        l.bindPopup(`MMI ${f.properties.mmi_lower}–${f.properties.mmi_upper}`),
+      onEachFeature: onMmiFeature,
     }).addTo(map);
 
     if (epicenterMarker) map.removeLayer(epicenterMarker);
@@ -339,8 +376,9 @@ async function showImpact(id) {
   const evt = evtResp.ok ? await evtResp.json() : null;
   const data = await impactResp.json();
   // Render intensity bands on map
+  _mmiLayers = {};
   if (intensityLayer) map.removeLayer(intensityLayer);
-  intensityLayer = L.geoJSON(data.bands, { style }).addTo(map);
+  intensityLayer = L.geoJSON(data.bands, { style, onEachFeature: onMmiFeature }).addTo(map);
   if (evt && (evt.lat != null || evt.lon != null)) {
     if (epicenterMarker) map.removeLayer(epicenterMarker);
     epicenterMarker = L.circleMarker([evt.lat, evt.lon], {
