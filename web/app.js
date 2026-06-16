@@ -1,3 +1,105 @@
+// ============================================================
+//  Icon system — one coherent visual language.
+//  • Base: crisp inline SVGs (Lucide-style, inherit currentColor) — always work.
+//  • Upgrade: set a Lordicon "Copy CDN link" url as `src` below and that icon
+//    renders as an animated <lord-icon> instead. Until then the SVG shows, so
+//    nothing is ever broken.  Browse the `page` url, click "Copy CDN link".
+// ============================================================
+const LORD_ICONS = {
+  //  key        page (browse → "Copy CDN link" → paste into src)                          src (paste here)
+  event:     { page: "https://lordicon.com/icons/system/regular/12-plus",        src: "" },
+  catalog:   { page: "https://lordicon.com/icons/system/regular/2-line-list",     src: "" },
+  dashboard: { page: "https://lordicon.com/icons/system/regular/10-analytics",    src: "" },
+  config:    { page: "https://lordicon.com/icons/system/regular/53-settings",     src: "" },
+  refresh:   { page: "https://lordicon.com/icons/system/regular/103-refresh",     src: "" },
+  edit:      { page: "https://lordicon.com/icons/system/regular/18-edit",         src: "" },
+  trash:     { page: "https://lordicon.com/icons/system/regular/39-trash",        src: "" },
+};
+
+const SVG_PATHS = {
+  plus:     '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+  list:     '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
+  chart:    '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+  "chevron-left":  '<polyline points="15 18 9 12 15 6"/>',
+  "chevron-right": '<polyline points="9 18 15 12 9 6"/>',
+  refresh:  '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
+  edit:     '<path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>',
+  save:     '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>',
+  trash:    '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>',
+  x:        '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+  download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
+  check:    '<polyline points="20 6 9 17 4 12"/>',
+  info:     '<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>',
+  alert:    '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+  pin:      '<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>',
+  user:     '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  zap:      '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+  building: '<path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/>',
+  waves:    '<path d="M2 6c.6.5 1.2 1 2.5 1C7 7 7 5 9.5 5c2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/><path d="M2 12c.6.5 1.2 1 2.5 1C7 13 7 11 9.5 11c2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/><path d="M2 18c.6.5 1.2 1 2.5 1C7 19 7 17 9.5 17c2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/>',
+  target:   '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+  moon:     '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
+  sun:      '<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>',
+};
+
+// Inline-SVG markup for a named icon (inherits text color via currentColor).
+function svgIcon(name, size = 16) {
+  const p = SVG_PATHS[name];
+  if (!p) return "";
+  return `<svg class="ic ic-${name}" viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
+}
+
+// Rail icon: animated Lordicon if a CDN url is configured, else the SVG fallback.
+function railIconMarkup(key, glyph, active) {
+  const L = LORD_ICONS[key];
+  if (L && L.src) {
+    const primary = active ? "#ffffff" : "#5B6675";
+    return `<lord-icon src="${L.src}" trigger="loop-on-hover" colors="primary:${primary}" style="width:20px;height:20px"></lord-icon>`;
+  }
+  return svgIcon(glyph, 20);
+}
+
+// ---- Toasts, spinner, skeletons (feedback states) ----
+function _toastHost() {
+  let h = document.getElementById("toast-host");
+  if (!h) {
+    h = document.createElement("div");
+    h.id = "toast-host";
+    h.setAttribute("aria-live", "polite");
+    document.body.appendChild(h);
+  }
+  return h;
+}
+const _TOAST_IC = { success: "check", error: "alert", warn: "alert", info: "info" };
+// Transient notification. type: success | error | warn | info.
+function toast(message, type = "info", duration = 3800) {
+  const t = document.createElement("div");
+  t.className = "toast " + type;
+  t.setAttribute("role", type === "error" ? "alert" : "status");
+  t.innerHTML = `${svgIcon(_TOAST_IC[type] || "info", 15)}<div class="toast-msg"></div><button class="toast-close" aria-label="Dismiss">${svgIcon("x", 13)}</button>`;
+  t.querySelector(".toast-msg").textContent = message;
+  _toastHost().appendChild(t);
+  requestAnimationFrame(() => t.classList.add("show"));
+  let timer = setTimeout(close, duration);
+  function close() { clearTimeout(timer); t.classList.remove("show"); setTimeout(() => t.remove(), 280); }
+  t.querySelector(".toast-close").addEventListener("click", close);
+  t.addEventListener("mouseenter", () => clearTimeout(timer));
+  t.addEventListener("mouseleave", () => { timer = setTimeout(close, 1500); });
+  return close;
+}
+
+function spinnerHTML() { return '<span class="spinner" aria-hidden="true"></span>'; }
+
+// Placeholder rows shown while the catalog is loading.
+function catalogSkeleton(n = 5) {
+  let s = '<div style="display:flex;align-items:center;gap:4px"><strong>Catalog</strong></div>';
+  for (let i = 0; i < n; i++) {
+    s += `<div class="skel-card"><div class="skeleton skel-line" style="width:${42 + (i * 11) % 40}%"></div>` +
+         `<div class="skeleton skel-line" style="width:${62 + (i * 7) % 28}%"></div></div>`;
+  }
+  return s;
+}
+
 const map = L.map("map").setView([30.4, 69.3], 5); // Primary Focus Country: Pakistan
 
 // --- Basemaps (all free + keyless; tile servers reachable without a token) ---
@@ -171,6 +273,8 @@ map.zoomControl.setPosition("topright");
 // --- Map config panel: overlay checklist + basemap radios ---
 const BASEMAP_NAMES = Object.keys(BASEMAPS);
 let currentBasemap = "OpenStreetMap";
+let _userPickedBasemap = false;   // once true, theme no longer auto-switches the basemap
+const _basemapRadios = {};        // name -> radio input, for keeping the config panel in sync
 function setBasemap(name) {
   if (name === currentBasemap) return;
   map.removeLayer(BASEMAPS[currentBasemap]);
@@ -243,7 +347,8 @@ function buildConfigPanel() {
     rb.type = "radio";
     rb.name = "basemap";
     rb.checked = (name === currentBasemap);
-    rb.addEventListener("change", () => { if (rb.checked) setBasemap(name); });
+    _basemapRadios[name] = rb;
+    rb.addEventListener("change", () => { if (rb.checked) { _userPickedBasemap = true; setBasemap(name); } });
     const txt = document.createElement("span");
     txt.textContent = name;
     row.append(rb, txt);
@@ -326,15 +431,16 @@ async function calculate() {
     lat:       parseFloat(document.getElementById("lat").value),
     lon:       parseFloat(document.getElementById("lon").value),
   };
-  statusEl.textContent = "Calculating…";
+  statusEl.innerHTML = spinnerHTML() + " Calculating…";
   try {
     const resp = await fetch("/intensity", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
     if (!resp.ok) {
-      const err = await resp.json();
-      statusEl.textContent = "Error: " + JSON.stringify(err.detail ?? err);
+      const err = await resp.json().catch(() => ({}));
+      statusEl.textContent = "";
+      toast("Intensity calc failed: " + JSON.stringify(err.detail ?? err), "error");
       return;
     }
     const fc = await resp.json();
@@ -353,7 +459,8 @@ async function calculate() {
     statusEl.textContent = `${fc.features.length} intensity bands`;
     if (intensityLayer.getBounds().isValid()) map.fitBounds(intensityLayer.getBounds());
   } catch (e) {
-    statusEl.textContent = "Request failed: " + e.message;
+    statusEl.textContent = "";
+    toast("Request failed: " + e.message, "error");
   }
 }
 
@@ -380,8 +487,20 @@ async function refreshEvents(append = false) {
   if (after) url += "&occurred_after=" + encodeURIComponent(after);
   if (before) url += "&occurred_before=" + encodeURIComponent(before);
   if (append && eventsEl._offset != null) url += "&offset=" + eventsEl._offset;
-  const resp = await fetch(url);
-  if (!resp.ok) return;
+  if (!append) eventsEl.innerHTML = catalogSkeleton();
+  let resp;
+  try {
+    resp = await fetch(url);
+  } catch (e) {
+    if (!append) eventsEl.innerHTML = "";
+    toast("Couldn't load catalog: " + e.message, "error");
+    return;
+  }
+  if (!resp.ok) {
+    if (!append) eventsEl.innerHTML = "";
+    toast("Couldn't load catalog (HTTP " + resp.status + ")", "error");
+    return;
+  }
   const data = await resp.json();
   let events = data.events || data;
   const total = data.total;
@@ -397,34 +516,39 @@ async function refreshEvents(append = false) {
 }
 
 function renderEventList(events, total) {
-  eventsEl.innerHTML = `<div style="display:flex;align-items:center;gap:4px"><strong>Catalog</strong> <span style="color:#999;font-weight:400;font-size:11px">${total != null ? "(" + events.length + " of " + total + ")" : ""}</span><button id="cmp-toggle" class="cmp-toggle${_compareMode ? " active" : ""}">${_compareMode ? "✕" : "Compare"}</button><span class="export-wrap"><button id="export-btn" class="export-btn" title="Download">↓</button><div id="export-menu" class="export-menu"><a class="export-opt" data-format="csv">CSV</a><a class="export-opt" data-format="geojson">GeoJSON</a></div></span></div>` + (
+  eventsEl.innerHTML = `<div style="display:flex;align-items:center;gap:4px"><strong>Catalog</strong> <span style="color:#999;font-weight:400;font-size:11px">${total != null ? "(" + events.length + " of " + total + ")" : ""}</span><button id="cmp-toggle" class="cmp-toggle${_compareMode ? " active" : ""}">${_compareMode ? svgIcon("x", 12) + " Exit" : "Compare"}</button><span class="export-wrap"><button id="export-btn" class="export-btn" title="Download" aria-label="Download">${svgIcon("download", 13)}</button><div id="export-menu" class="export-menu"><a class="export-opt" data-format="csv">CSV</a><a class="export-opt" data-format="geojson">GeoJSON</a></div></span></div>` + (
     events.length === 0 ? '<div style="color:#999;padding:8px 0;font-size:12px">No events yet — pull the USGS feed or calculate intensity</div>'
     : events.map(ev => {
     const alertClass = ev.alert ? `evt-alert ${ev.alert}` : "";
     const alertText = ev.alert ? ev.alert.toUpperCase() : "";
     const cmpIdx = _compareIds.indexOf(ev.id);
     const cmpClass = cmpIdx === 0 ? " selected1" : cmpIdx === 1 ? " selected2" : "";
-    return `<div class="evt${_compareMode ? " evt-comp" : ""}" data-id="${ev.id}">
-      <button class="evt-del" data-del-id="${ev.id}" title="Delete event">✕</button>
+    return `<div class="evt${_compareMode ? " evt-comp" : ""}${ev.alert ? " alert-" + ev.alert : ""}" data-id="${ev.id}" tabindex="0">
+      <button class="evt-del" data-del-id="${ev.id}" title="Delete event" aria-label="Delete event">${svgIcon("x", 12)}</button>
       ${_compareMode ? `<div class="cmp-radio${cmpClass}">${cmpIdx >= 0 ? cmpIdx + 1 : ""}</div>` : ""}
       <div class="evt-head">
         <span class="evt-mag">M${ev.magnitude.toFixed(1)}${ev.mag_type ? ` <span class="evt-magtype">${escapeHtml(ev.mag_type)}</span>` : ""}</span>
         ${ev.alert ? `<span class="${alertClass}">${alertText}</span>` : ""}
-        ${ev.tsunami ? `<span class="evt-tsunami" title="Tsunami warning">🌊</span>` : ""}
+        ${ev.tsunami ? `<span class="evt-tsunami" title="Tsunami warning">${svgIcon("waves", 14)}</span>` : ""}
         ${ev.sig ? `<span class="evt-sig">${ev.sig}</span>` : ""}
       </div>
       ${ev.place ? `<div class="evt-place">${escapeHtml(ev.place)}</div>` : ""}
       <div class="evt-meta">${ev.source} · ${new Date(ev.occurred_at).toLocaleString()}</div>
     </div>`;
   }).join("") + (total != null && events.length < total
-    ? `<button id="load-more" style="width:100%;padding:4px;margin-top:6px;cursor:pointer;font-size:11px;background:transparent;color:#0366d6;border:1px solid #c0d8f0;border-radius:4px">Load ${Math.min(20, total - events.length)} more…</button>`
+    ? `<button id="load-more" style="width:100%;padding:4px;margin-top:6px;cursor:pointer;font-size:11px;background:transparent;color:#0F4C81;border:1px solid #Bcd2e6;border-radius:4px">Load ${Math.min(20, total - events.length)} more…</button>`
     : ""));
-  document.querySelectorAll(".evt").forEach(el =>
+  document.querySelectorAll(".evt").forEach(el => {
+    const activate = () => _compareMode ? selectForComparison(el.dataset.id) : showImpact(el.dataset.id);
     el.addEventListener("click", (e) => {
       if (e.target.closest(".evt-del")) return;
-      if (_compareMode) { selectForComparison(el.dataset.id); return; }
-      showImpact(el.dataset.id);
-    }));
+      activate();
+    });
+    el.addEventListener("keydown", (e) => {
+      if (e.target !== el) return; // ignore keys aimed at the inner delete button
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); activate(); }
+    });
+  });
   const cmpToggle = document.getElementById("cmp-toggle");
   if (cmpToggle) cmpToggle.addEventListener("click", (e) => { e.stopPropagation(); toggleCompareMode(); });
   document.querySelectorAll(".evt-del").forEach(btn =>
@@ -437,44 +561,62 @@ function renderEventList(events, total) {
   renderTimelineChart(events);
 }
 
-// --- Confirmation dialog for delete ---
+// --- Confirmation dialog for delete (accessible: focus-trap, Esc, focus restore) ---
 const confirmOverlay = document.getElementById("confirm-overlay");
 const confirmMsg = document.getElementById("confirm-msg");
 const confirmOk = document.getElementById("confirm-ok");
+const confirmCancel = document.getElementById("confirm-cancel");
 let _pendingDeleteId = null;
+let _confirmLastFocus = null;
 
 function confirmDelete(eventId) {
   _pendingDeleteId = eventId;
+  _confirmLastFocus = document.activeElement;       // restore here on close
   confirmMsg.textContent = "Delete this event and all its data?";
   confirmOverlay.classList.add("open");
+  void confirmOverlay.offsetWidth;  // flush style so the dialog is focusable now
+  confirmCancel.focus();            // focus the safe default (Cancel), not Delete
+}
+
+function closeConfirm() {
+  confirmOverlay.classList.remove("open");
+  _pendingDeleteId = null;
+  const back = _confirmLastFocus;
+  _confirmLastFocus = null;
+  if (back && back.isConnected && back.focus) back.focus();
 }
 
 confirmOk.addEventListener("click", async () => {
   if (_pendingDeleteId === null) return;
   const id = _pendingDeleteId;
-  _pendingDeleteId = null;
-  confirmOverlay.classList.remove("open");
+  closeConfirm();
   try {
     const r = await fetch(`/events/${id}`, { method: "DELETE" });
     if (r.ok) {
       document.getElementById("detail").innerHTML = "";
       impactEl.innerHTML = "";
       refreshEvents();
+      toast("Event deleted", "success");
+    } else {
+      toast("Delete failed (HTTP " + r.status + ")", "error");
     }
   } catch (e) {
-    // ignore
+    toast("Delete failed: " + e.message, "error");
   }
 });
 
-document.getElementById("confirm-cancel").addEventListener("click", () => {
-  _pendingDeleteId = null;
-  confirmOverlay.classList.remove("open");
-});
+confirmCancel.addEventListener("click", closeConfirm);
 
 confirmOverlay.addEventListener("click", (e) => {
-  if (e.target === confirmOverlay) {
-    _pendingDeleteId = null;
-    confirmOverlay.classList.remove("open");
+  if (e.target === confirmOverlay) closeConfirm();
+});
+
+// Esc closes; Tab cycles between the two buttons (modal focus-trap).
+confirmOverlay.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { e.preventDefault(); closeConfirm(); return; }
+  if (e.key === "Tab") {
+    if (e.shiftKey && document.activeElement === confirmCancel) { e.preventDefault(); confirmOk.focus(); }
+    else if (!e.shiftKey && document.activeElement === confirmOk) { e.preventDefault(); confirmCancel.focus(); }
   }
 });
 
@@ -484,13 +626,20 @@ async function showImpact(id) {
   if (_cmpLegendCtrl) { map.removeControl(_cmpLegendCtrl); _cmpLegendCtrl = null; }
   if (_compareMode) toggleCompareMode();
   const detailEl = document.getElementById("detail");
-  impactEl.textContent = "Computing impact…";
+  impactEl.innerHTML = spinnerHTML() + " Computing impact…";
   detailEl.innerHTML = "";
-  const [evtResp, impactResp] = await Promise.all([
-    fetch(`/events/${id}`),
-    fetch(`/events/${id}/impact`, { method: "POST" }),
-  ]);
-  if (!impactResp.ok) { impactEl.textContent = "Impact failed"; return; }
+  let evtResp, impactResp;
+  try {
+    [evtResp, impactResp] = await Promise.all([
+      fetch(`/events/${id}`),
+      fetch(`/events/${id}/impact`, { method: "POST" }),
+    ]);
+  } catch (e) {
+    impactEl.textContent = "";
+    toast("Impact request failed: " + e.message, "error");
+    return;
+  }
+  if (!impactResp.ok) { impactEl.textContent = ""; toast("Impact computation failed", "error"); return; }
   const evt = evtResp.ok ? await evtResp.json() : null;
   const data = await impactResp.json();
   // Render intensity bands on map
@@ -521,8 +670,8 @@ function renderDetail(evt) {
     // Manual event — show edit + delete buttons
     el.innerHTML = `<div class="evt-detail">
       <div class="detail-info">Manual event — no USGS data.</div>
-      <button class="btn-edit" data-edit-id="${evt.id}">✏️ Edit</button>
-      <button class="btn-del-detail" data-del-id="${evt.id}">✕ Delete event</button>
+      <button class="btn-edit" data-edit-id="${evt.id}">${svgIcon("edit")} Edit</button>
+      <button class="btn-del-detail" data-del-id="${evt.id}">${svgIcon("trash")} Delete event</button>
     </div>`;
     el.querySelector(".btn-edit").addEventListener("click", () => showEditForm(evt));
     el.querySelector(".btn-del-detail").addEventListener("click", () => confirmDelete(evt.id));
@@ -532,9 +681,9 @@ function renderDetail(evt) {
     // Have source_event_id but no cached detail
     el.innerHTML = `<div class="evt-detail">
       <div class="detail-info">No USGS detail cached.</div>
-      <button class="btn-refresh" style="margin-bottom:4px">🔄 Refresh from USGS</button>
-      <button class="btn-edit" data-edit-id="${evt.id}">✏️ Edit</button>
-      <button class="btn-del-detail" data-del-id="${evt.id}">✕ Delete event</button>
+      <button class="btn-refresh" style="margin-bottom:4px">${svgIcon("refresh")} Refresh from USGS</button>
+      <button class="btn-edit" data-edit-id="${evt.id}">${svgIcon("edit")} Edit</button>
+      <button class="btn-del-detail" data-del-id="${evt.id}">${svgIcon("trash")} Delete event</button>
     </div>`;
     el.querySelector(".btn-refresh").addEventListener("click", () => refreshFromUsgs(evt.id));
     el.querySelector(".btn-edit").addEventListener("click", () => showEditForm(evt));
@@ -543,28 +692,28 @@ function renderDetail(evt) {
   }
   const prods = props.products || {};
   const badges = [];
-  if (prods.shakemap?.length) badges.push("🏛 ShakeMap");
-  if (prods["moment-tensor"]?.length) badges.push("🌀 Moment Tensor");
-  if (prods.dyfi?.length) badges.push("📊 DYFI");
-  if (prods["focal-mechanism"]?.length) badges.push("⚙ Focal Mechanism");
+  if (prods.shakemap?.length) badges.push(svgIcon("building", 12) + " ShakeMap");
+  if (prods["moment-tensor"]?.length) badges.push(svgIcon("target", 12) + " Moment Tensor");
+  if (prods.dyfi?.length) badges.push(svgIcon("chart", 12) + " DYFI");
+  if (prods["focal-mechanism"]?.length) badges.push(svgIcon("settings", 12) + " Focal Mechanism");
   const alertBadge = props.alert
     ? `<span class="evt-alert ${props.alert}">${props.alert.toUpperCase()}</span>` : "";
   el.innerHTML = `<div class="evt-detail">
     <div class="detail-head">
       <span class="detail-title">USGS Detail</span>
       ${alertBadge}
-      ${props.tsunami ? '<span class="evt-tsunami" title="Tsunami warning">🌊</span>' : ""}
+      ${props.tsunami ? `<span class="evt-tsunami" title="Tsunami warning">${svgIcon("waves", 14)}</span>` : ""}
     </div>
     <div class="detail-info">
-      ${props.place ? `<div>📍 ${escapeHtml(props.place)}</div>` : ""}
+      ${props.place ? `<div>${svgIcon("pin", 12)} ${escapeHtml(props.place)}</div>` : ""}
       <div>M${props.mag} ${props.magType || ""} · depth ${props.depth} km</div>
-      <div>${props.felt ? `👤 ${props.felt} felt · ` : ""}${props.sig ? `⚡ sig ${props.sig}` : ""}</div>
+      <div>${props.felt ? `${svgIcon("user", 12)} ${props.felt} felt · ` : ""}${props.sig ? `${svgIcon("zap", 12)} sig ${props.sig}` : ""}</div>
       ${badges.length ? `<div class="detail-prods">${badges.join(" · ")}</div>` : ""}
       ${props.url ? `<a href="${escapeHtml(props.url)}" target="_blank" class="detail-link">View on USGS ↗</a>` : ""}
     </div>
-    <button class="btn-refresh" style="margin-bottom:4px">🔄 Refresh from USGS</button>
-    <button class="btn-edit" data-edit-id="${evt.id}">✏️ Edit</button>
-    <button class="btn-del-detail" data-del-id="${evt.id}">✕ Delete event</button>
+    <button class="btn-refresh" style="margin-bottom:4px">${svgIcon("refresh")} Refresh from USGS</button>
+    <button class="btn-edit" data-edit-id="${evt.id}">${svgIcon("edit")} Edit</button>
+    <button class="btn-del-detail" data-del-id="${evt.id}">${svgIcon("trash")} Delete event</button>
   </div>`;
   el.querySelector(".btn-refresh").addEventListener("click", () => refreshFromUsgs(evt.id));
   el.querySelector(".btn-edit").addEventListener("click", () => showEditForm(evt));
@@ -573,17 +722,20 @@ function renderDetail(evt) {
 
 async function refreshFromUsgs(eventId) {
   const btn = document.querySelector(".btn-refresh");
-  if (btn) { btn.disabled = true; btn.textContent = "Refreshing…"; }
+  if (btn) { btn.disabled = true; btn.innerHTML = svgIcon("refresh") + " Refreshing…"; }
   try {
     const r = await fetch(`/events/${eventId}/refresh-from-usgs`, { method: "POST" });
     if (r.ok) {
       const evt = await r.json();
       renderDetail(evt);
+      toast("USGS detail refreshed", "success");
     } else {
-      document.getElementById("detail").innerHTML = `<div class="evt-detail">USGS refresh failed.</div>`;
+      if (btn) { btn.disabled = false; btn.innerHTML = svgIcon("refresh") + " Refresh from USGS"; }
+      toast("USGS refresh failed (HTTP " + r.status + ")", "error");
     }
   } catch (e) {
-    document.getElementById("detail").innerHTML = `<div class="evt-detail">USGS refresh failed: ${e.message}</div>`;
+    if (btn) { btn.disabled = false; btn.innerHTML = svgIcon("refresh") + " Refresh from USGS"; }
+    toast("USGS refresh failed: " + e.message, "error");
   }
 }
 
@@ -598,10 +750,10 @@ function showEditForm(evt) {
       <div class="edit-row"><label>Place</label><input id="edit-place" type="text" value="${escapeHtml(evt.place || "")}"></div>
     </div>
     <div class="btn-group">
-      <button id="edit-save" class="btn-refresh" style="margin:0">💾 Save</button>
+      <button id="edit-save" class="btn-refresh" style="margin:0">${svgIcon("save")} Save</button>
       <button id="edit-cancel" class="btn-edit" style="margin:0">Cancel</button>
     </div>
-    <button class="btn-del-detail" data-del-id="${evt.id}">✕ Delete event</button>
+    <button class="btn-del-detail" data-del-id="${evt.id}">${svgIcon("trash")} Delete event</button>
   </div>`;
   document.getElementById("edit-cancel").addEventListener("click", () => renderDetail(evt));
   document.getElementById("edit-save").addEventListener("click", async () => {
@@ -622,8 +774,11 @@ function showEditForm(evt) {
         const updated = await r.json();
         renderDetail(updated);
         refreshEvents();
+        toast("Event updated", "success");
+      } else {
+        toast("Update failed (HTTP " + r.status + ")", "error");
       }
-    } catch (e) { /* ignore */ }
+    } catch (e) { toast("Update failed: " + e.message, "error"); }
   });
   el.querySelector(".btn-del-detail").addEventListener("click", () => confirmDelete(evt.id));
 }
@@ -676,6 +831,10 @@ function drawTimeline(events) {
   const w = canvas.width = canvas.parentElement.clientWidth - 4 || 228;
   const h = canvas.height = 120;
   const ctx = canvas.getContext("2d");
+  const _cs = getComputedStyle(document.documentElement);
+  const gridC = _cs.getPropertyValue("--border").trim() || "#eee";
+  const axisC = _cs.getPropertyValue("--text-muted").trim() || "#ccc";
+  const ringC = _cs.getPropertyValue("--surface").trim() || "#fff";
   const pad = { top: 6, right: 6, bottom: 18, left: 30 };
   const pw = w - pad.left - pad.right, ph = h - pad.top - pad.bottom;
   const t0 = new Date(sorted[0].occurred_at).getTime(), t1 = new Date(sorted[sorted.length - 1].occurred_at).getTime(), ts = t1 - t0 || 1;
@@ -683,22 +842,22 @@ function drawTimeline(events) {
   const x = e => pad.left + ((new Date(e.occurred_at).getTime() - t0) / ts) * pw;
   const y = e => pad.top + ph - ((e.magnitude - mm0) / ms) * ph;
   ctx.clearRect(0, 0, w, h);
-  ctx.strokeStyle = "#eee"; ctx.lineWidth = 1; ctx.font = "9px sans-serif";
+  ctx.strokeStyle = gridC; ctx.lineWidth = 1; ctx.font = "9px sans-serif";
   for (let m = Math.ceil(mm0); m <= Math.floor(mm1); m++) {
     const yy = pad.top + ph - ((m - mm0) / ms) * ph;
     ctx.beginPath(); ctx.moveTo(pad.left, yy); ctx.lineTo(w - pad.right, yy); ctx.stroke();
-    ctx.fillStyle = "#ccc"; ctx.textAlign = "right"; ctx.fillText(m + ".0", pad.left - 4, yy + 3);
+    ctx.fillStyle = axisC; ctx.textAlign = "right"; ctx.fillText(m + ".0", pad.left - 4, yy + 3);
   }
-  ctx.textAlign = "center"; ctx.fillStyle = "#ccc";
+  ctx.textAlign = "center"; ctx.fillStyle = axisC;
   for (let i = 0; i < Math.min(4, sorted.length); i++) {
     const idx = Math.floor((i / (Math.min(4, sorted.length) - 1)) * (sorted.length - 1));
     ctx.fillText(new Date(sorted[idx].occurred_at).toLocaleDateString(), x(sorted[idx]), h - 4);
   }
-  const AC = { green: "#28a745", yellow: "#ffc107", orange: "#fd7e14", red: "#dc3545" };
+  const AC = { green: "#2E7D32", yellow: "#F9A825", orange: "#EF6C00", red: "#C62828" };
   sorted.forEach(e => {
     ctx.beginPath(); ctx.arc(x(e), y(e), 4, 0, Math.PI * 2);
     ctx.fillStyle = AC[e.alert] || "#666";
-    ctx.fill(); ctx.strokeStyle = "#fff"; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fill(); ctx.strokeStyle = ringC; ctx.lineWidth = 1; ctx.stroke();
   });
   canvas.onmousemove = function(ev) {
     const r = canvas.getBoundingClientRect();
@@ -771,15 +930,15 @@ async function showComparison() {
   const l1 = L.geoJSON(d1.bands, { style: mkStyle(BLUE), onEachFeature: (f, l) => l.bindPopup(`Event 1: MMI ${f.properties.mmi_lower}–${f.properties.mmi_upper}`) }).addTo(map);
   const l2 = L.geoJSON(d2.bands, { style: mkStyle(ORANGE), onEachFeature: (f, l) => l.bindPopup(`Event 2: MMI ${f.properties.mmi_lower}–${f.properties.mmi_upper}`) }).addTo(map);
   _compLayers = [l1, l2];
-  if (ev1 && ev1.lat != null) _compLayers.push(L.circleMarker([ev1.lat, ev1.lon], { radius: 6, color: "#2563eb", fillColor: "#fff", fillOpacity: 1 }).addTo(map).bindPopup(`Event 1 — M${ev1.magnitude.toFixed(1)}`));
-  if (ev2 && ev2.lat != null) _compLayers.push(L.circleMarker([ev2.lat, ev2.lon], { radius: 6, color: "#ea580c", fillColor: "#fff", fillOpacity: 1 }).addTo(map).bindPopup(`Event 2 — M${ev2.magnitude.toFixed(1)}`));
+  if (ev1 && ev1.lat != null) _compLayers.push(L.circleMarker([ev1.lat, ev1.lon], { radius: 6, color: "#0F4C81", fillColor: "#fff", fillOpacity: 1 }).addTo(map).bindPopup(`Event 1 — M${ev1.magnitude.toFixed(1)}`));
+  if (ev2 && ev2.lat != null) _compLayers.push(L.circleMarker([ev2.lat, ev2.lon], { radius: 6, color: "#C97A24", fillColor: "#fff", fillOpacity: 1 }).addTo(map).bindPopup(`Event 2 — M${ev2.magnitude.toFixed(1)}`));
   const b = l1.getBounds().extend(l2.getBounds());
   if (b.isValid()) map.fitBounds(b);
   if (_cmpLegendCtrl) map.removeControl(_cmpLegendCtrl);
   _cmpLegendCtrl = L.control({ position: "bottomright" });
   _cmpLegendCtrl.onAdd = function() {
     const div = L.DomUtil.create("div", "legend");
-    div.innerHTML = `<div class="legend-title">Comparison</div><div style="display:flex;align-items:center;gap:6px;font-size:12px;padding:2px 0"><span style="display:inline-block;width:20px;height:14px;border-radius:3px;background:#2563eb"></span>Event 1${ev1 ? " M" + ev1.magnitude.toFixed(1) : ""}</div><div style="display:flex;align-items:center;gap:6px;font-size:12px;padding:2px 0"><span style="display:inline-block;width:20px;height:14px;border-radius:3px;background:#ea580c"></span>Event 2${ev2 ? " M" + ev2.magnitude.toFixed(1) : ""}</div>`;
+    div.innerHTML = `<div class="legend-title">Comparison</div><div style="display:flex;align-items:center;gap:6px;font-size:12px;padding:2px 0"><span style="display:inline-block;width:20px;height:14px;border-radius:3px;background:#0F4C81"></span>Event 1${ev1 ? " M" + ev1.magnitude.toFixed(1) : ""}</div><div style="display:flex;align-items:center;gap:6px;font-size:12px;padding:2px 0"><span style="display:inline-block;width:20px;height:14px;border-radius:3px;background:#C97A24"></span>Event 2${ev2 ? " M" + ev2.magnitude.toFixed(1) : ""}</div>`;
     return div;
   };
   _cmpLegendCtrl.addTo(map);
@@ -791,17 +950,27 @@ function exitComparison() {
   if (_cmpLegendCtrl) { map.removeControl(_cmpLegendCtrl); _cmpLegendCtrl = null; }
   updateCompareBar();
 }
-document.getElementById("ingest").addEventListener("click", async () => {
-  statusEl.textContent = "Pulling USGS feed…";
+document.getElementById("ingest").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = spinnerHTML() + " Pulling…";
+  statusEl.innerHTML = spinnerHTML() + " Pulling USGS feed…";
   const minmag = document.getElementById("ingest-minmag").value;
   let url = "/events/ingest";
   if (minmag) url += "?min_magnitude=" + encodeURIComponent(minmag);
   try {
     const r = await fetch(url, { method: "POST" });
     const res = await r.json();
-    statusEl.textContent = `Ingest: ${res.inserted} new of ${res.fetched}`;
-  } catch (e) {
-    statusEl.textContent = "Ingest failed: " + e.message;
+    statusEl.textContent = "";
+    toast(`Ingested ${res.inserted} new event${res.inserted === 1 ? "" : "s"} of ${res.fetched} fetched`,
+          res.inserted > 0 ? "success" : "info");
+  } catch (err) {
+    statusEl.textContent = "";
+    toast("Ingest failed: " + err.message, "error");
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = orig;
   }
   refreshEvents();
 });
@@ -836,7 +1005,19 @@ let sidebarCollapsed = false;
 function setCollapsed(value) {
   sidebarCollapsed = value;
   document.getElementById("sidebar").classList.toggle("collapsed", value);
-  document.getElementById("rail-collapse").textContent = value ? "›" : "‹";
+  const c = document.getElementById("rail-collapse");
+  c.innerHTML = svgIcon(value ? "chevron-right" : "chevron-left", 18);
+  c.setAttribute("aria-label", value ? "Expand panel" : "Collapse panel");
+}
+
+// (Re)render the rail icons, reflecting which section is active (for Lordicon coloring).
+const RAIL_GLYPH = { event: "plus", catalog: "list", dashboard: "chart", config: "settings" };
+function renderRailIcons() {
+  document.querySelectorAll(".rail-ic[data-section]").forEach((b) => {
+    const key = b.dataset.section;
+    b.innerHTML = railIconMarkup(key, RAIL_GLYPH[key], b.classList.contains("active"));
+    if (!b.getAttribute("aria-label")) b.setAttribute("aria-label", b.title || key);
+  });
 }
 
 function showSection(key) {
@@ -854,6 +1035,7 @@ function showSection(key) {
   }
   document.querySelectorAll(".rail-ic[data-section]").forEach((b) =>
     b.classList.toggle("active", b.dataset.section === key));
+  renderRailIcons();
 }
 
 // --- Export button ---
@@ -877,6 +1059,7 @@ document.addEventListener("click", (e) => {
   const filter = (eventsEl._filter || "").replace(/^\?limit=\d+/, "");
   window.open("/events/export?format=" + fmt + filter, "_blank");
   document.getElementById("export-menu").classList.remove("open");
+  toast("Exporting catalog as " + fmt.toUpperCase() + "…", "info");
 });
 
 // --- Dashboard ---
@@ -912,9 +1095,11 @@ function mk(id, conf) {
   return ch;
 }
 
+// Chart palette — mirrors the "Seismic Slate" tokens in styles.css.
+// Cool/neutral = interface; the alert ramp (alertColors) stays domain-locked.
 const C_ = {
-  blue: "#2563eb", orange: "#ea580c", teal: "#0d9488", red: "#dc2626",
-  purple: "#7c3aed", amber: "#d97706", green: "#16a34a", gray: "#94a3b8",
+  blue: "#0F4C81", orange: "#C97A24", teal: "#0D9488", red: "#C62828",
+  purple: "#7C3AED", amber: "#F9A825", green: "#2E7D32", gray: "#94A3B8",
 };
 
 function barDelay(ctx) {
@@ -923,22 +1108,29 @@ function barDelay(ctx) {
 }
 
 async function renderDashboard() {
+  const dashMain = document.getElementById("dash-main");
+  dashMain.innerHTML = `<div style="padding:48px;text-align:center;color:var(--text-muted)">${spinnerHTML()} Loading national overview…</div>`;
   let resp;
   try { resp = await fetch("/events/stats"); } catch (e) {
-    document.getElementById("dash-main").innerHTML = `<div style="color:#999;padding:20px">Network error: ${e.message}</div>`;
+    dashMain.innerHTML = `<div style="color:var(--text-muted);padding:20px">Network error: ${e.message}</div>`;
+    toast("Couldn't load overview: " + e.message, "error");
     return;
   }
   if (!resp.ok) {
     const txt = await resp.text().catch(() => "unknown");
-    document.getElementById("dash-main").innerHTML = `<div style="color:#999;padding:20px">Failed to load stats (HTTP ${resp.status}: ${txt.substring(0, 200)})</div>`;
+    dashMain.innerHTML = `<div style="color:var(--text-muted);padding:20px">Failed to load stats (HTTP ${resp.status}: ${txt.substring(0, 200)})</div>`;
+    toast("Couldn't load overview (HTTP " + resp.status + ")", "error");
     return;
   }
   let s;
   try { s = await resp.json(); } catch (e) {
-    document.getElementById("dash-main").innerHTML = `<div style="color:#999;padding:20px">Stats response not JSON (${e.message})</div>`;
+    dashMain.innerHTML = `<div style="color:var(--text-muted);padding:20px">Stats response not JSON (${e.message})</div>`;
+    toast("Overview data was invalid", "error");
     return;
   }
   destroyCharts();
+  syncChartTheme();
+  const surfaceC = getComputedStyle(document.documentElement).getPropertyValue("--surface").trim() || "#fff";
 
   const el = document.getElementById("dash-main");
   const top1 = s.top_significant?.[0];
@@ -990,7 +1182,7 @@ async function renderDashboard() {
           label: "At least this strong",
           data: s.gr_data.map(r => r.cumulative),
           borderColor: C_.orange,
-          backgroundColor: "rgba(234,88,12,0.06)",
+          backgroundColor: "rgba(201,122,36,0.08)",
           fill: true, tension: 0,
           pointRadius: s.gr_data.map(r => r.cumulative > 0 ? 3 : 0),
           pointBackgroundColor: C_.orange,
@@ -1000,8 +1192,8 @@ async function renderDashboard() {
         {
           label: "Number in range",
           data: s.gr_data.map(r => r.count),
-          backgroundColor: "rgba(234,88,12,0.25)",
-          borderColor: "rgba(234,88,12,0.4)",
+          backgroundColor: "rgba(201,122,36,0.25)",
+          borderColor: "rgba(201,122,36,0.45)",
           borderWidth: 1,
           type: "bar", order: 2, yAxisID: "y1", borderRadius: 2,
         },
@@ -1075,7 +1267,7 @@ async function renderDashboard() {
         backgroundColor: ctx => {
           if (!ctx.chart.chartArea) return "transparent";
           const g = ctx.chart.ctx.createLinearGradient(0, ctx.chart.chartArea.top, 0, ctx.chart.chartArea.bottom);
-          g.addColorStop(0, "rgba(37,99,235,0.2)"); g.addColorStop(1, "rgba(37,99,235,0.01)");
+          g.addColorStop(0, "rgba(15,76,129,0.20)"); g.addColorStop(1, "rgba(15,76,129,0.02)");
           return g;
         },
         fill: true, tension: 0.1, pointRadius: 0, pointHoverRadius: 4, borderWidth: 2,
@@ -1117,7 +1309,7 @@ async function renderDashboard() {
           {
             label: "Daily earthquakes",
             data: s.daily_cumulative.map(d => d.count),
-            backgroundColor: "rgba(37,99,235,0.25)",
+            backgroundColor: "rgba(15,76,129,0.22)",
             borderWidth: 0, order: 2, borderRadius: 2,
           },
           {
@@ -1149,7 +1341,7 @@ async function renderDashboard() {
   const hrLbl = s.hour_dist.map(h => h.hour.toString().padStart(2, "0") + ":00");
   const hrCnt = s.hour_dist.map(h => h.count);
   const hrMax = Math.max(...hrCnt, 1);
-  const hrColors = hrCnt.map(v => `rgba(124,58,237,${0.2 + (v / hrMax) * 0.65})`);
+  const hrColors = hrCnt.map(v => `rgba(15,76,129,${0.2 + (v / hrMax) * 0.65})`);
   mk("ch-hour", {
     type: "bar",
     data: {
@@ -1174,7 +1366,8 @@ async function renderDashboard() {
   });
 
   // --- 6. Most Significant Events (animated horizontal bars) ---
-  const alertColors = { green: C_.green, yellow: C_.amber, orange: C_.orange, red: C_.red, none: C_.gray };
+  // PAGER alert ramp — hazard semantics, kept distinct from the copper accent.
+  const alertColors = { green: "#2E7D32", yellow: "#F9A825", orange: "#EF6C00", red: "#C62828", none: C_.gray };
   mk("ch-top", {
     type: "bar",
     data: {
@@ -1218,7 +1411,7 @@ async function renderDashboard() {
       datasets: [{
         data: s.alert_dist.map(a => a.count),
         backgroundColor: s.alert_dist.map(a => alertColors[a.alert] || alertColors.none),
-        borderWidth: 2, borderColor: "#fff",
+        borderWidth: 2, borderColor: surfaceC,
       }],
     },
     options: {
@@ -1236,5 +1429,71 @@ document.querySelectorAll(".rail-ic[data-section]").forEach((b) =>
   b.addEventListener("click", () => showSection(b.dataset.section)));
 document.getElementById("rail-collapse")
   .addEventListener("click", () => setCollapsed(!sidebarCollapsed));
+
+// Rail is a vertical toolbar; arrow keys (and Home/End) move focus between buttons.
+const railEl = document.querySelector("#sidebar .rail");
+railEl.setAttribute("role", "toolbar");
+railEl.setAttribute("aria-orientation", "vertical");
+railEl.setAttribute("aria-label", "Panel sections");
+railEl.addEventListener("keydown", (e) => {
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
+  const btns = Array.from(railEl.querySelectorAll("button"));
+  const i = btns.indexOf(document.activeElement);
+  if (i < 0) return;
+  e.preventDefault();
+  let n;
+  if (e.key === "Home") n = 0;
+  else if (e.key === "End") n = btns.length - 1;
+  else n = (i + (e.key === "ArrowDown" ? 1 : -1) + btns.length) % btns.length;
+  btns[n].focus();
+});
+
+// --- Theme (light/dark) ---
+// Tokens live in styles.css; JS only flips data-theme and re-paints the
+// canvas-drawn views (Chart.js + timeline) that can't read CSS variables.
+function currentTheme() { return document.documentElement.dataset.theme === "dark" ? "dark" : "light"; }
+
+function syncChartTheme() {
+  if (!window.Chart) return;
+  const cs = getComputedStyle(document.documentElement);
+  Chart.defaults.color = cs.getPropertyValue("--text-muted").trim();
+  Chart.defaults.borderColor = cs.getPropertyValue("--border").trim();
+  Chart.defaults.font.family = cs.getPropertyValue("--font-sans").trim() || "system-ui, sans-serif";
+}
+
+function applyTheme(mode) {
+  document.documentElement.dataset.theme = mode;
+  try { localStorage.setItem("eqmon-theme", mode); } catch (e) { /* private mode */ }
+  const btn = document.getElementById("theme-toggle");
+  if (btn) {
+    btn.innerHTML = svgIcon(mode === "dark" ? "sun" : "moon", 18);
+    btn.setAttribute("aria-label", mode === "dark" ? "Switch to light mode" : "Switch to dark mode");
+  }
+  syncChartTheme();
+  syncBasemapToTheme(mode);
+  // Re-paint canvas views that derive colors from the theme.
+  if (activeSection === "dashboard" &&
+      document.getElementById("dashboard-view").classList.contains("open")) renderDashboard();
+  if (eventsEl._allEvents) drawTimeline(eventsEl._allEvents);
+}
+
+// Match the basemap to the theme (Dark Matter for dark, OSM for light) — but only
+// until the user picks a basemap themselves, then we never override their choice.
+function syncBasemapToTheme(mode) {
+  if (_userPickedBasemap) return;
+  const want = mode === "dark" ? "Dark (Dark Matter)" : "OpenStreetMap";
+  setBasemap(want);
+  if (_basemapRadios[want]) _basemapRadios[want].checked = true;
+}
+
+document.getElementById("theme-toggle").addEventListener("click", () =>
+  applyTheme(currentTheme() === "dark" ? "light" : "dark"));
+
+(function initTheme() {
+  let mode = null;
+  try { mode = localStorage.getItem("eqmon-theme"); } catch (e) { /* ignore */ }
+  if (!mode) mode = (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light";
+  applyTheme(mode);
+})();
 
 showSection("event"); // default panel on load

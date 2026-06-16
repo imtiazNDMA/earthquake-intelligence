@@ -8,262 +8,12 @@
         href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
         integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
         crossorigin="anonymous" />
-  <style>
-    html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; }
-    #map { position: absolute; inset: 0; }
-
-    /* --- Sidebar shell: icon rail + panel --- */
-    #sidebar {
-      position: absolute; z-index: 1000; top: 0; left: 0; bottom: 0;
-      display: flex; align-items: stretch;
-      box-shadow: 0 0 14px rgba(0,0,0,.12);
-    }
-    #sidebar .rail {
-      width: 46px; background: #fafafa; border-right: 1px solid #eee;
-      display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 0;
-    }
-    .rail-ic {
-      width: 32px; height: 32px; border: none; background: transparent; cursor: pointer;
-      border-radius: 7px; font-size: 17px; line-height: 1; color: #888;
-      display: flex; align-items: center; justify-content: center;
-    }
-    .rail-ic:hover { background: #eee; color: #333; }
-    .rail-ic.active { background: #111; color: #fff; }
-    .rail-collapse { margin-top: auto; font-size: 20px; }
-
-    #panel-body {
-      width: 260px; background: #fff; padding: 14px; box-sizing: border-box;
-      overflow-y: auto;
-    }
-    #sidebar.collapsed #panel-body { display: none; }
-
-    #panel-body h4 { margin: 0 0 8px; font-size: 13px; font-weight: 700; color: #1a1a1a; }
-    #panel-body section + section { display: none; } /* JS controls visibility from a later task */
-
-    .field-label {
-      display: block; font-size: 10px; margin: 9px 0 2px; color: #999;
-      text-transform: uppercase; letter-spacing: .4px;
-    }
-    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-    #panel-body input[type="number"] {
-      width: 100%; box-sizing: border-box; padding: 6px;
-      border: 1px solid #e2e2e2; background: #fafafa; border-radius: 5px; font-size: 13px;
-    }
-    .btn-primary {
-      margin-top: 12px; width: 100%; padding: 9px; cursor: pointer; font-weight: 600;
-      background: #111; color: #fff; border: none; border-radius: 6px;
-    }
-    .btn-secondary {
-      margin-top: 8px; width: 100%; padding: 8px; cursor: pointer; font-size: 12px;
-      background: #f0f0f0; color: #333; border: 1px solid #e2e2e2; border-radius: 6px;
-    }
-    #status { font-size: 12px; margin-top: 8px; color: #777; min-height: 16px; }
-
-    /* Event catalog cards */
-    #events { font-size: 12px; }
-    .evt { cursor: pointer; padding: 6px 8px; border-bottom: 1px solid #eee; border-radius: 4px; }
-    .evt:hover { background: #f5f5f5; }
-    .evt-head { display: flex; align-items: center; gap: 5px; font-size: 13px; }
-    .evt-mag { font-weight: 700; color: #1a1a1a; }
-    .evt-magtype { font-weight: 400; color: #999; font-size: 10px; }
-    .evt-alert { font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 3px; text-transform: uppercase; }
-    .evt-alert.green { background: #d4edda; color: #155724; }
-    .evt-alert.yellow { background: #fff3cd; color: #856404; }
-    .evt-alert.orange { background: #ffe0b2; color: #e65100; }
-    .evt-alert.red { background: #f8d7da; color: #721c24; }
-    .evt-tsunami { font-size: 13px; line-height: 1; }
-    .evt-sig { font-size: 10px; color: #bbb; margin-left: auto; }
-    .evt-place { font-size: 12px; color: #555; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .evt-meta { font-size: 10px; color: #aaa; margin-top: 1px; }
-    #impact { margin-top: 10px; font-size: 12px; }
-
-    /* USGS event detail card */
-    #detail { margin-top: 10px; font-size: 12px; }
-    .evt-detail { background: #f8f9fa; padding: 8px; border-radius: 6px; }
-    .detail-head { display: flex; align-items: center; gap: 5px; margin-bottom: 4px; }
-    .detail-title { font-weight: 700; font-size: 12px; color: #333; }
-    .detail-info { color: #555; line-height: 1.5; }
-    .detail-info div { margin: 2px 0; }
-    .detail-link { display: inline-block; margin-top: 4px; font-size: 11px; color: #0366d6; }
-    .detail-prods { font-size: 11px; color: #888; margin: 3px 0; }
-
-    /* Edit mode inside detail card */
-    .edit-row { display: flex; gap: 4px; margin: 3px 0; align-items: center; }
-    .edit-row label { font-size: 10px; color: #999; width: 38px; flex: none; }
-    .edit-row input { flex: 1; font-size: 11px; padding: 2px 4px; border: 1px solid #ddd; border-radius: 3px; }
-    .btn-edit { margin-top: 4px; width: 100%; padding: 4px; cursor: pointer; font-size: 11px;
-                background: #e8e8e8; color: #333; border: 1px solid #ccc; border-radius: 4px; }
-    .btn-edit:hover { background: #ddd; }
-    .btn-group { display: flex; gap: 4px; margin-top: 4px; }
-    .btn-group button { flex: 1; }
-
-    /* Ingest status indicator */
-    #ingest-status { font-size: 10px; color: #aaa; margin-top: 4px; min-height: 14px; }
-    .btn-refresh {
-      margin-top: 6px; width: 100%; padding: 5px; cursor: pointer; font-size: 11px;
-      background: #e8e8e8; color: #333; border: 1px solid #ccc; border-radius: 4px;
-    }
-    .btn-refresh:hover { background: #ddd; }
-    .btn-refresh:disabled { opacity: .5; cursor: not-allowed; }
-    .btn-del-detail {
-      width: 100%; padding: 4px; cursor: pointer; font-size: 11px;
-      background: transparent; color: #c00; border: 1px solid #f0c0c0; border-radius: 4px;
-    }
-    .btn-del-detail:hover { background: #ffe0e0; }
-
-    /* Delete button on event cards */
-    .evt { position: relative; }
-    .evt-del {
-      position: absolute; top: 2px; right: 2px;
-      width: 18px; height: 18px; border: none; background: transparent;
-      cursor: pointer; font-size: 13px; line-height: 1; color: #ccc; padding: 0;
-      display: none; border-radius: 3px;
-    }
-    .evt:hover .evt-del { display: block; }
-    .evt-del:hover { color: #c00; background: #ffe0e0; }
-
-    /* Confirmation overlay */
-    #confirm-overlay {
-      position: fixed; inset: 0; z-index: 9999;
-      background: rgba(0,0,0,.3); display: none;
-      align-items: center; justify-content: center;
-    }
-    #confirm-overlay.open { display: flex; }
-    #confirm-box {
-      background: #fff; padding: 20px 24px; border-radius: 8px;
-      box-shadow: 0 4px 20px rgba(0,0,0,.2); text-align: center; min-width: 240px;
-    }
-    #confirm-box p { margin: 0 0 14px; font-size: 14px; color: #333; }
-    #confirm-box .btn-row { display: flex; gap: 8px; justify-content: center; }
-    #confirm-box button {
-      padding: 6px 16px; border: none; border-radius: 5px; cursor: pointer;
-      font-size: 13px; font-weight: 600;
-    }
-    #confirm-cancel { background: #f0f0f0; color: #333; }
-    #confirm-ok { background: #c00; color: #fff; }
-    #confirm-cancel:hover { background: #e0e0e0; }
-    #confirm-ok:hover { background: #a00; }
-
-    /* Map config rows (overlays checklist + basemap radios) */
-    .cfg-row {
-      display: flex; align-items: center; gap: 4px;
-      font-size: 12px; padding: 3px 0; cursor: pointer;
-    }
-    .cfg-row input[type="checkbox"] { margin: 0; }
-    .cfg-row .swatch {
-      width: 14px; height: 14px; border-radius: 3px; flex: none;
-      border: 1px solid rgba(0,0,0,.15); cursor: pointer;
-    }
-    .cfg-row .ov-name { flex: 0 0 auto; min-width: 0; }
-    .ov-controls { display: flex; align-items: center; gap: 3px; margin-left: auto; }
-    .ov-width { width: 28px; font-size: 10px; padding: 1px 2px; border: 1px solid #ddd; border-radius: 2px; text-align: center; }
-    .ov-color { width: 14px; height: 14px; padding: 0; border: none; border-radius: 2px; cursor: pointer; flex: none; }
-    .ov-opacity { width: 36px; height: 12px; margin: 0; flex: none; }
-    .cfg-group + .cfg-group { margin-top: 14px; }
-
-    .legend {
-      background: #fff; padding: 10px 12px; border-radius: 8px;
-      box-shadow: 0 2px 10px rgba(0,0,0,.25); min-width: 56px;
-    }
-    .legend-title { font-weight: 700; font-size: 13px; margin-bottom: 5px; color: #1a1a1a; }
-    .legend-item {
-      display: flex; align-items: center; gap: 6px;
-      padding: 2px 4px; border-radius: 4px;
-      cursor: default; transition: all .15s ease;
-    }
-    .legend-item.active {
-      transform: scale(1.18);
-      box-shadow: 0 2px 10px rgba(0,0,0,.25);
-      background: rgba(0,0,0,.04);
-    }
-    .legend-swatch {
-      display: inline-block; width: 24px; height: 18px;
-      border-radius: 3px; border: 1px solid rgba(0,0,0,.1); flex: none;
-    }
-    .legend-label { font-size: 13px; font-weight: 600; line-height: 1; }
-
-    /* Catalog search/filter bar */
-    .filter-row { display: flex; gap: 4px; }
-    .filter-row + .filter-row { margin-top: 4px; }
-    .filter-row input, .filter-row select {
-      font-size: 11px; padding: 3px 5px; border: 1px solid #ddd; border-radius: 3px;
-      background: #fafafa;
-    }
-    .filter-search { flex: 1; min-width: 0; }
-    .filter-mag { width: 38px; }
-    .filter-source { width: 66px; }
-    .filter-sort { width: 83px; }
-    .filter-date { width: 88px; font-size: 11px; padding: 3px 5px; border: 1px solid #ddd; border-radius: 3px; background: #fafafa; }
-    .filter-row .filter-sep { color: #ccc; line-height: 26px; }
-    .export-wrap { position: relative; }
-    .export-btn {
-      padding: 2px 6px; font-size: 12px; border: 1px solid #ccc;
-      border-radius: 4px; background: transparent; color: #666; cursor: pointer;
-      line-height: 1.4;
-    }
-    .export-btn:hover { border-color: #0366d6; color: #0366d6; }
-    .export-menu {
-      display: none; position: absolute; top: 100%; right: 0; z-index: 10;
-      background: #fff; border: 1px solid #e0e0e0; border-radius: 4px;
-      box-shadow: 0 2px 8px rgba(0,0,0,.12); min-width: 90px;
-    }
-    .export-menu.open { display: block; }
-    .export-opt {
-      display: block; padding: 5px 10px; font-size: 11px; color: #333;
-      cursor: pointer; text-decoration: none;
-    }
-    .export-opt:hover { background: #f0f0f0; }
-    /* Timeline chart */
-    #tl-wrap { margin: 4px 0; }
-    .tl-header { display: flex; align-items: center; margin-bottom: 2px; }
-    .tl-title { font-size: 10px; color: #aaa; text-transform: uppercase; letter-spacing: .4px; font-weight: 600; }
-    .tl-toggle { margin-left: auto; background: none; border: none; cursor: pointer; color: #aaa; font-size: 14px; padding: 0 2px; line-height: 1; }
-    .tl-toggle:hover { color: #333; }
-    #tl-canvas { width: 100%; border-radius: 4px; display: block; }
-    /* Compare mode */
-    #compare-bar { display: none; align-items: center; gap: 4px; padding: 4px 0; font-size: 11px; }
-    .cmp-count { color: #666; flex: 1; }
-    #compare-bar button { padding: 3px 8px; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; font-size: 11px; background: #f5f5f5; }
-    #compare-bar button:disabled { opacity: .5; cursor: default; }
-    #compare-bar .cmp-show { background: #2563eb; color: #fff; border-color: #2563eb; }
-    #compare-bar .cmp-show:disabled { background: #aaa; border-color: #aaa; }
-    #compare-bar .cmp-exit { background: transparent; color: #c00; border-color: #f0c0c0; }
-    .cmp-toggle { margin-left: auto; padding: 2px 6px; font-size: 10px; border: 1px solid #ccc; border-radius: 4px; background: transparent; color: #666; cursor: pointer; flex: none; }
-    .cmp-toggle:hover { border-color: #2563eb; color: #2563eb; }
-    .cmp-toggle.active { border-color: #2563eb; background: #2563eb; color: #fff; }
-    .evt-comp { cursor: default; }
-    .cmp-radio { display: inline-flex; width: 16px; height: 16px; align-items: center; justify-content: center; border: 2px solid #ccc; border-radius: 50%; margin-right: 5px; margin-top: 1px; font-size: 9px; font-weight: 700; color: #fff; flex: none; }
-    .cmp-radio.selected1 { border-color: #2563eb; background: #2563eb; }
-    .cmp-radio.selected2 { border-color: #ea580c; background: #ea580c; }
-    /* Dashboard — full view replacing map */
-    #dashboard-view {
-      display: none; position: absolute; inset: 0; overflow-y: auto;
-      background: #f8f9fa; z-index: 500; font-family: system-ui, sans-serif;
-    }
-    #dashboard-view.open { display: block; }
-    #dash-inner { max-width: 1100px; margin: 0 auto; padding: 20px 24px; }
-    #dash-title {
-      margin: 0 0 16px; padding: 16px 20px; border-radius: 12px;
-      background: linear-gradient(135deg, #047857, #16a34a); color: #fff;
-      box-shadow: 0 8px 20px rgba(4,120,87,.18);
-    }
-    #dash-title-main { display: block; font-size: 22px; font-weight: 800; letter-spacing: .2px; }
-    #dash-title-sub { display: block; font-size: 12px; font-weight: 500; opacity: .9; margin-top: 4px; }
-    .dash-row { display: flex; gap: 12px; margin-bottom: 16px; }
-    .dash-card {
-      flex: 1; background: #fff; border-radius: 8px; padding: 16px;
-      box-shadow: 0 1px 4px rgba(0,0,0,.06); height: 200px;
-    }
-    .dash-card canvas { width: 100% !important; height: 100% !important; }
-    .dash-stat-grid { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
-    .dash-stat-box {
-      flex: 1 0 140px; background: #fff; border-radius: 8px; padding: 14px 10px; text-align: center;
-      box-shadow: 0 1px 4px rgba(0,0,0,.06);
-    }
-    .dash-stat-val { font-size: 26px; font-weight: 700; color: #1a1a1a; line-height: 1.1; }
-    .dash-stat-lbl { font-size: 9px; color: #999; text-transform: uppercase; letter-spacing: .5px; margin-top: 4px; }
-    .dash-foot { margin-top: 8px; font-size: 11px; color: #999; text-align: center; }
-  </style>
+  <meta name="theme-color" content="#0F4C81" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" />
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div id="map"></div>
@@ -282,6 +32,7 @@
       <button class="rail-ic" data-section="catalog" title="Catalog">≣</button>
       <button class="rail-ic" data-section="dashboard" title="Analytics">◰</button>
       <button class="rail-ic" data-section="config" title="Map config">⚙</button>
+      <button id="theme-toggle" class="rail-ic" style="margin-top:auto" title="Toggle dark mode"></button>
       <button id="rail-collapse" class="rail-ic rail-collapse" title="Collapse">‹</button>
     </div>
     <div id="panel-body">
@@ -302,33 +53,33 @@
         <button id="calc" class="btn-primary">Calculate intensity</button>
         <button id="ingest" class="btn-secondary">Pull USGS feed</button>
         <div><span class="field-label">Min mag for ingest</span>
-          <input id="ingest-minmag" type="number" value="2.5" step="0.5" min="0" style="width:100%;box-sizing:border-box;padding:4px;border:1px solid #e2e2e2;background:#fafafa;border-radius:4px;font-size:12px" /></div>
+          <input id="ingest-minmag" type="number" value="2.5" step="0.5" min="0" /></div>
         <div id="ingest-status"></div>
-        <div id="status"></div>
+        <div id="status" role="status" aria-live="polite"></div>
       </section>
       <section id="sec-catalog">
         <h4>Catalog</h4>
         <div class="filter-row">
-          <input id="filter-search" class="filter-search" type="text" placeholder="Search place…" />
+          <input id="filter-search" class="filter-search" type="text" placeholder="Search place…" aria-label="Search events by place" />
         </div>
         <div class="filter-row">
-          <input id="filter-minmag" class="filter-mag" type="number" min="0" step="0.5" placeholder="M≥" />
-          <input id="filter-maxmag" class="filter-mag" type="number" min="0" step="0.5" placeholder="M≤" />
-          <select id="filter-source" class="filter-source">
+          <input id="filter-minmag" class="filter-mag" type="number" min="0" step="0.5" placeholder="M≥" aria-label="Minimum magnitude" />
+          <input id="filter-maxmag" class="filter-mag" type="number" min="0" step="0.5" placeholder="M≤" aria-label="Maximum magnitude" />
+          <select id="filter-source" class="filter-source" aria-label="Filter by source">
             <option value="">All</option>
             <option value="USGS">USGS</option>
             <option value="MANUAL">Manual</option>
           </select>
-          <select id="filter-sort" class="filter-sort">
+          <select id="filter-sort" class="filter-sort" aria-label="Sort order">
             <option value="time">Newest</option>
             <option value="time-asc">Oldest</option>
             <option value="magnitude">Largest</option>
           </select>
         </div>
         <div class="filter-row">
-          <input id="filter-after" type="date" class="filter-date" title="From date" />
+          <input id="filter-after" type="date" class="filter-date" title="From date" aria-label="From date" />
           <span class="filter-sep">–</span>
-          <input id="filter-before" type="date" class="filter-date" title="To date" />
+          <input id="filter-before" type="date" class="filter-date" title="To date" aria-label="To date" />
         </div>
         <div id="events"></div>
         <div id="detail"></div>
@@ -348,7 +99,7 @@
     </div>
   </div>
   <div id="confirm-overlay">
-    <div id="confirm-box">
+    <div id="confirm-box" role="dialog" aria-modal="true" aria-labelledby="confirm-msg">
       <p id="confirm-msg">Delete this event?</p>
       <div class="btn-row">
         <button id="confirm-cancel">Cancel</button>
@@ -362,7 +113,19 @@
   <script src="https://unpkg.com/protomaps-leaflet@5.1.0/dist/protomaps-leaflet.js"
           integrity="sha384-pAKrddYWxjFAIJwatOtmmtq9ebz3ZwluHCEg3pqOMpOporUofLqz/l5hs+0LAWaH"
           crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"
+          integrity="sha384-vsrfeLOOY6KuIYKDlmVH5UiBmgIdB1oEf7p01YgWHuqmOHfZr374+odEv96n9tNC"
+          crossorigin="anonymous"></script>
+  <!-- Lordicon web component loader (animated icons). Icons render via <lord-icon>
+       once a CDN url is set in the ICONS registry in app.js; until then a crisp
+       inline SVG fallback is shown, so the UI is never broken.
+       NOTE: cdn.lordicon.com/lordicon.js is an evergreen loader. The SRI hash below
+       pins the known-good version; if Lordicon ships an update the browser will block
+       the script (icons then fall back to SVG). Refresh this hash to re-enable, or
+       self-host a pinned copy for stricter control. -->
+  <script src="https://cdn.lordicon.com/lordicon.js"
+          integrity="sha384-bf8L80dNwjBEi4FgXyW4kkgy4Xtjb/N7jrRuTHK5aE230r3JU+18czMr9VEtEc2F"
+          crossorigin="anonymous" defer></script>
   <script src="app.js"></script>
 </body>
 </html>
