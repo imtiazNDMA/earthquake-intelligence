@@ -505,6 +505,7 @@ async function calculate() {
     depth_km:  parseFloat(document.getElementById("depth_km").value),
     lat:       parseFloat(document.getElementById("lat").value),
     lon:       parseFloat(document.getElementById("lon").value),
+    save_to_catalog: document.getElementById("save-catalog").checked,
   };
   statusEl.innerHTML = spinnerHTML() + " Calculating…";
   try {
@@ -535,6 +536,7 @@ async function calculate() {
 
     statusEl.textContent = `${fc.features.length} intensity bands`;
     if (intensityLayer.getBounds().isValid()) map.fitBounds(intensityLayer.getBounds());
+    if (fc.event_id) { toast("Event saved to catalog", "success"); refreshEvents(); }
   } catch (e) {
     statusEl.textContent = "";
     toast("Request failed: " + e.message, "error");

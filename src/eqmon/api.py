@@ -131,6 +131,7 @@ class EventRequest(BaseModel):
     depth_km: float = Field(ge=0.0, le=700.0)
     lat: float
     lon: float
+    save_to_catalog: bool = False
 
     @field_validator("lat")
     @classmethod
@@ -158,16 +159,18 @@ def intensity(req: EventRequest) -> JSONResponse:
         epi_lon=req.lon, epi_lat=req.lat,
     )
     fc = mmi_to_geojson(mmi, grid.transform, levels=config.MMI_BAND_LEVELS)
-    # Persist to catalog silently so the event appears in the catalog /
-    # impact endpoints. Best-effort — intensity bands render either way.
-    try:
-        with db.get_conn() as conn:
-            row = create_manual_event(conn, magnitude=req.magnitude,
-                                      depth_km=req.depth_km, lon=req.lon, lat=req.lat)
-            conn.commit()
-            fc["event_id"] = row["id"]
-    except Exception:
-        pass
+    # Opt-in: only persist to the catalog when the caller asks. Keeps ad-hoc
+    # "what-if" calculations from cluttering the event catalog. Best-effort —
+    # intensity bands render either way.
+    if req.save_to_catalog:
+        try:
+            with db.get_conn() as conn:
+                row = create_manual_event(conn, magnitude=req.magnitude,
+                                          depth_km=req.depth_km, lon=req.lon, lat=req.lat)
+                conn.commit()
+                fc["event_id"] = row["id"]
+        except Exception:
+            pass
     return JSONResponse(fc)
 
 

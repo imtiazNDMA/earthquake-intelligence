@@ -33,6 +33,67 @@ def test_intensity_endpoint_returns_bands(tmp_path, monkeypatch):
     assert len(body["features"]) >= 1
 
 
+def test_intensity_does_not_persist_to_catalog_by_default(tmp_path, monkeypatch):
+    tif = tmp_path / "Vs30.tif"
+    _make_grid_tif(tif)
+    monkeypatch.setenv("EQMON_VS30_TIF", str(tif))
+    from eqmon import api
+    api.reset_grid_cache()
+
+    calls = []
+    monkeypatch.setattr(api, "create_manual_event",
+                        lambda *a, **k: calls.append(1) or {"id": 1})
+    # If the gate ever opened, this connection would be used:
+    import contextlib
+
+    class _FakeConn:
+        def commit(self):
+            pass
+
+    @contextlib.contextmanager
+    def _fake_get_conn():
+        yield _FakeConn()
+
+    monkeypatch.setattr(api.db, "get_conn", _fake_get_conn)
+
+    client = TestClient(api.app)
+    resp = client.post("/intensity", json={
+        "magnitude": 6.5, "depth_km": 10.0, "lat": 30.0, "lon": 70.0,
+    })
+    assert resp.status_code == 200
+    assert "event_id" not in resp.json()  # not saved
+    assert calls == []  # create_manual_event never called
+
+
+def test_intensity_persists_when_save_to_catalog_true(tmp_path, monkeypatch):
+    tif = tmp_path / "Vs30.tif"
+    _make_grid_tif(tif)
+    monkeypatch.setenv("EQMON_VS30_TIF", str(tif))
+    from eqmon import api
+    api.reset_grid_cache()
+
+    import contextlib
+
+    class _FakeConn:
+        def commit(self):
+            pass
+
+    @contextlib.contextmanager
+    def _fake_get_conn():
+        yield _FakeConn()
+
+    monkeypatch.setattr(api.db, "get_conn", _fake_get_conn)
+    monkeypatch.setattr(api, "create_manual_event", lambda conn, **k: {"id": 999})
+
+    client = TestClient(api.app)
+    resp = client.post("/intensity", json={
+        "magnitude": 6.5, "depth_km": 10.0, "lat": 30.0, "lon": 70.0,
+        "save_to_catalog": True,
+    })
+    assert resp.status_code == 200
+    assert resp.json().get("event_id") == 999  # saved
+
+
 def test_intensity_rejects_out_of_region(tmp_path, monkeypatch):
     tif = tmp_path / "Vs30.tif"
     _make_grid_tif(tif)
