@@ -12,15 +12,23 @@ REM src-layout: make the eqmon package importable by uvicorn.
 set "PYTHONPATH=src"
 
 REM Server settings (override by passing args, e.g.  start.bat 9000 )
-set "HOST=127.0.0.1"
+REM Bind to 0.0.0.0 so the app is reachable from other devices on the LAN.
+set "HOST=0.0.0.0"
 set "PORT=%~1"
 if "%PORT%"=="" set "PORT=8000"
+
+REM Detect this machine's LAN IPv4 so others know which address to open.
+set "LANIP="
+for /f "delims=" %%i in ('powershell -NoProfile -Command "(Get-NetIPAddress -AddressFamily IPv4 ^| Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.PrefixOrigin -ne 'WellKnown' } ^| Sort-Object -Property @{Expression={$_.InterfaceMetric}} ^| Select-Object -First 1 -ExpandProperty IPAddress)"') do set "LANIP=%%i"
+if not defined LANIP set "LANIP=<your-LAN-IP>"
 
 echo(
 echo ============================================================
 echo   SeismicWatch - Earthquake Intensity Platform
 echo ============================================================
-echo   URL:  http://%HOST%:%PORT%/
+echo   This machine:  http://localhost:%PORT%/
+echo   On the LAN:    http://%LANIP%:%PORT%/
+echo   (share the LAN address with others on the same network)
 echo   Stop: close this window or press Ctrl+C
 echo ============================================================
 echo(
@@ -44,7 +52,7 @@ if not exist "data\Vs30.tif" (
 )
 
 REM Open the browser a few seconds after the server boots (non-blocking).
-start "" /b powershell -NoProfile -Command "Start-Sleep -Seconds 3; Start-Process 'http://%HOST%:%PORT%/'"
+start "" /b powershell -NoProfile -Command "Start-Sleep -Seconds 3; Start-Process 'http://localhost:%PORT%/'"
 
 REM Launch the server in the foreground so logs show here and Ctrl+C stops it.
 REM 'uv run' brings the virtual environment up to date with the lockfile first.
