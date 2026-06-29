@@ -246,13 +246,36 @@ def ingest_events(min_magnitude: float | None = None):
     return result.__dict__
 
 
+@app.post("/events/ingest/met")
+def ingest_met_events():
+    """Manually pull the Pakistan MET Department (Primary) feed. PMD returns the
+    full catalog each call; ingest() upserts and re-clusters (MET wins as
+    canonical over USGS for shared quakes)."""
+    with db.get_conn() as conn:
+        result = ingest(conn, METSource())
+        conn.commit()
+        now_iso = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "INSERT INTO _sync_state (key, value) VALUES ('met_last_sync', %s) "
+            "ON CONFLICT (key) DO UPDATE SET value = %s, updated_at = now()",
+            (now_iso, now_iso),
+        )
+        conn.commit()
+    return result.__dict__
+
+
 @app.get("/events/ingest/status")
 def ingest_status():
     with db.get_conn() as conn:
-        row = conn.execute(
-            "SELECT value FROM _sync_state WHERE key = 'usgs_last_sync'"
-        ).fetchone()
-        return {"last_sync": row[0] if row else None}
+        rows = dict(conn.execute(
+            "SELECT key, value FROM _sync_state "
+            "WHERE key IN ('usgs_last_sync', 'met_last_sync')"
+        ).fetchall())
+        usgs = rows.get("usgs_last_sync")
+        met = rows.get("met_last_sync")
+        # last_sync = most recent across sources (kept for the existing UI label)
+        last = max([t for t in (usgs, met) if t], default=None)
+        return {"last_sync": last, "usgs_last_sync": usgs, "met_last_sync": met}
 
 @app.get("/events")
 def get_events(since: datetime | None = None,

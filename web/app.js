@@ -763,6 +763,17 @@ function renderDetail(evt) {
     el.querySelector(".btn-del-detail").addEventListener("click", () => confirmDelete(evt.id));
     return;
   }
+  if (evt.source !== "USGS") {
+    // Non-USGS feed event (e.g. Pakistan MET) — no USGS detail products.
+    el.innerHTML = `<div class="evt-detail">
+      <div class="detail-info">${escapeHtml(evt.source)} event${evt.place ? " — " + escapeHtml(evt.place) : ""}. No USGS detail available.</div>
+      <button class="btn-edit" data-edit-id="${evt.id}">${svgIcon("edit")} Edit</button>
+      <button class="btn-del-detail" data-del-id="${evt.id}">${svgIcon("trash")} Delete event</button>
+    </div>`;
+    el.querySelector(".btn-edit").addEventListener("click", () => showEditForm(evt));
+    el.querySelector(".btn-del-detail").addEventListener("click", () => confirmDelete(evt.id));
+    return;
+  }
   if (!props) {
     // Have source_event_id but no cached detail
     el.innerHTML = `<div class="evt-detail">
@@ -1058,6 +1069,30 @@ document.getElementById("ingest").addEventListener("click", async (e) => {
     btn.disabled = false;
     btn.innerHTML = orig;
   }
+  refreshEvents();
+});
+
+// Pull the Pakistan MET Department (PMD) feed — full catalog, no mag filter.
+document.getElementById("ingest-met").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = spinnerHTML() + " Pulling…";
+  statusEl.innerHTML = spinnerHTML() + " Pulling PMD feed…";
+  try {
+    const r = await fetch("/events/ingest/met", { method: "POST" });
+    const res = await r.json();
+    statusEl.textContent = "";
+    toast(`Ingested ${res.inserted} new event${res.inserted === 1 ? "" : "s"} of ${res.fetched} fetched`,
+          res.inserted > 0 ? "success" : "info");
+  } catch (err) {
+    statusEl.textContent = "";
+    toast("PMD ingest failed: " + err.message, "error");
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = orig;
+  }
+  updateIngestStatus();
   refreshEvents();
 });
 

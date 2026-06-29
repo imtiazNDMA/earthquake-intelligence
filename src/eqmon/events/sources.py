@@ -115,6 +115,10 @@ def parse_usgs(geojson: dict) -> list[RawEvent]:
 
 _NUM = re.compile(r"-?\d+(?:\.\d+)?")
 
+# Plausible bounds for sanity-checking PMD's dirty numeric fields.
+_MET_MAG_MIN, _MET_MAG_MAX = -1.0, 10.0
+_MET_DEPTH_MAX = 800.0  # km; deepest recorded earthquakes are ~700 km
+
 
 def _parse_coord(raw, is_lat: bool) -> float | None:
     """Parse a PMD coordinate string into a signed decimal degree.
@@ -194,18 +198,26 @@ def parse_met(payload: dict) -> list[RawEvent]:
             continue
         if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
             continue
+        # Plausible magnitude range. PMD occasionally swaps the magnitude and
+        # depth fields (e.g. magnitude="317", depth="4.4"); such rows are not
+        # trustworthy, so skip them rather than ingest a bogus magnitude.
+        if not (_MET_MAG_MIN <= mag <= _MET_MAG_MAX):
+            continue
         if not _in_region(lon, lat):
             continue
         occurred_at = _met_datetime(r.get("event_date"), r.get("event_time"))
         if occurred_at is None:
             continue
         depth = _parse_float(r.get("depth"))
+        # Implausible depth (also from swapped/garbled fields) → unknown (0.0).
+        if depth is None or not (0.0 <= depth <= _MET_DEPTH_MAX):
+            depth = 0.0
         out.append(RawEvent(
             source="MET",
             source_event_id=str(eid),
             occurred_at=occurred_at,
             magnitude=float(mag),
-            depth_km=float(depth) if depth is not None else 0.0,
+            depth_km=float(depth),
             lon=float(lon),
             lat=float(lat),
             place=r.get("region"),

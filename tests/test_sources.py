@@ -304,11 +304,12 @@ def test_parse_coord_handles_hemispheres_and_dirty_values():
 def test_parse_met_maps_fields_and_filters_region():
     data = json.loads(MET_FIXTURE.read_text())
     events = parse_met(data)
-    # Kept: in-region + parseable rows (17316, 1001, 1002, 1003, 1004).
+    # Kept: in-region + parseable rows (17316, 1001-1004, 1009).
     # Dropped: Alaska (W lon, out of region), Indonesia (S lat, out of region),
-    # lat=607 (out of range), magnitude="M" (unparseable).
+    # lat=607 (out of range), magnitude="M" (unparseable), magnitude=317 (out
+    # of plausible range — a swapped mag/depth row).
     assert sorted(e.source_event_id for e in events) == \
-        ["1001", "1002", "1003", "1004", "17316"]
+        ["1001", "1002", "1003", "1004", "1009", "17316"]
     ev = next(e for e in events if e.source_event_id == "17316")
     assert isinstance(ev, RawEvent)
     assert ev.source == "MET"
@@ -334,6 +335,16 @@ def test_parse_met_skips_unparseable_and_out_of_range_rows():
     ids = {e.source_event_id for e in parse_met(data)}
     assert "1006" not in ids  # latitude 607 out of range
     assert "1007" not in ids  # magnitude "M" unparseable
+    assert "1008" not in ids  # magnitude 317 (swapped mag/depth) out of range
+
+
+def test_parse_met_clamps_implausible_depth_to_zero():
+    data = json.loads(MET_FIXTURE.read_text())
+    events = {e.source_event_id for e in parse_met(data)}
+    assert "1009" in events  # kept: magnitude is valid
+    ev = next(e for e in parse_met(data) if e.source_event_id == "1009")
+    assert ev.magnitude == 4.5
+    assert ev.depth_km == 0.0  # depth 1010 km is implausible → treated as unknown
 
 
 def test_met_source_fetch_sends_bearer_and_parses(monkeypatch):
@@ -353,7 +364,7 @@ def test_met_source_fetch_sends_bearer_and_parses(monkeypatch):
     assert url == PMD_API_URL
     assert headers["Authorization"] == "Bearer tok123"
     assert headers["Accept"] == "application/json"
-    assert len(events) == 5
+    assert len(events) == 6
 
 
 def test_met_source_does_not_send_bearer_over_plaintext_http(monkeypatch):
@@ -389,4 +400,4 @@ def test_met_source_fetch_postfilters_since(monkeypatch):
     since = datetime(2026, 5, 1, tzinfo=timezone.utc)
     events = METSource(url=PMD_API_URL, token="tok").fetch(since=since)
     assert "17316" not in {e.source_event_id for e in events}
-    assert len(events) == 4
+    assert len(events) == 5

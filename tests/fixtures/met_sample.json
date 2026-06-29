@@ -102,6 +102,28 @@
       "depth": "10",
       "latitude": "31.00 N",
       "longitude": "71.00 E"
+    },
+    {
+      "id": 1008,
+      "mode": "Manual",
+      "region": "Hindu Kush Region, Afghanistan",
+      "event_date": "2026-06-08",
+      "event_time": "00:00:00",
+      "magnitude": "317",
+      "depth": "4.4",
+      "latitude": "36.50 N",
+      "longitude": "70.50 E"
+    },
+    {
+      "id": 1009,
+      "mode": "Automatic",
+      "region": "Pakistan",
+      "event_date": "2026-06-09",
+      "event_time": "00:00:00",
+      "magnitude": "4.5",
+      "depth": "1010",
+      "latitude": "32.00 N",
+      "longitude": "71.50 E"
     }
   ]
 }
