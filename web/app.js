@@ -9,6 +9,7 @@ const LORD_ICONS = {
   //  key        page (browse → "Copy CDN link" → paste into src)                          src (paste here)
   event:     { page: "https://lordicon.com/icons/system/regular/12-plus",        src: "" },
   catalog:   { page: "https://lordicon.com/icons/system/regular/2-line-list",     src: "" },
+  alerts:    { page: "https://lordicon.com/icons/system/regular/37-approve-checked", src: "" },
   dashboard: { page: "https://lordicon.com/icons/system/regular/10-analytics",    src: "" },
   config:    { page: "https://lordicon.com/icons/system/regular/53-settings",     src: "" },
   refresh:   { page: "https://lordicon.com/icons/system/regular/103-refresh",     src: "" },
@@ -19,6 +20,7 @@ const LORD_ICONS = {
 const SVG_PATHS = {
   plus:     '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
   list:     '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
+  bell:     '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
   chart:    '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
   settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
   "chevron-left":  '<polyline points="15 18 9 12 15 6"/>',
@@ -721,13 +723,22 @@ async function showImpact(id) {
   _mmiLayers = {};
   if (intensityLayer) map.removeLayer(intensityLayer);
   intensityLayer = L.geoJSON(data.bands, { style, onEachFeature: onMmiFeature }).addTo(map);
+  const hasBands = data.bands.features.length > 0;
   if (evt && (evt.lat != null || evt.lon != null)) {
     if (epicenterMarker) map.removeLayer(epicenterMarker);
     epicenterMarker = L.circleMarker([evt.lat, evt.lon], {
       radius: 6, color: "#000", fillColor: "#fff", fillOpacity: 1,
     }).addTo(map).bindPopup(`Epicenter — M${evt.magnitude.toFixed(1)}`);
   }
-  if (intensityLayer.getBounds().isValid()) map.fitBounds(intensityLayer.getBounds());
+  if (hasBands && intensityLayer.getBounds().isValid()) {
+    map.fitBounds(intensityLayer.getBounds());
+  } else {
+    // Deep and/or small events produce surface shaking below MMI 2, so there
+    // are no bands to draw. Center on the epicenter and explain the blank map
+    // rather than leaving the user to wonder if rendering failed.
+    if (evt && evt.lat != null && evt.lon != null) map.setView([evt.lat, evt.lon], 7);
+    toast("No mapped intensity — shaking stays below MMI 2 for this event.", "info");
+  }
   // Render USGS detail card
   renderDetail(evt);
   // Render impact table
@@ -1071,7 +1082,7 @@ refreshEvents();
 });
 
 // --- Sidebar rail: section switching + collapse ---
-const SECTIONS = { event: "sec-event", catalog: "sec-catalog", dashboard: "sec-dashboard", config: "sec-config" };
+const SECTIONS = { event: "sec-event", catalog: "sec-catalog", alerts: "sec-alerts", dashboard: "sec-dashboard", config: "sec-config" };
 // Start as null (not "event") so the initial showSection("event") renders the
 // section instead of matching the active-icon-toggle guard and collapsing.
 let activeSection = null;
@@ -1086,7 +1097,7 @@ function setCollapsed(value) {
 }
 
 // (Re)render the rail icons, reflecting which section is active (for Lordicon coloring).
-const RAIL_GLYPH = { event: "plus", catalog: "list", dashboard: "chart", config: "settings" };
+const RAIL_GLYPH = { event: "plus", catalog: "list", alerts: "bell", dashboard: "chart", config: "settings" };
 function renderRailIcons() {
   document.querySelectorAll(".rail-ic[data-section]").forEach((b) => {
     const key = b.dataset.section;
@@ -1105,6 +1116,7 @@ function showSection(key) {
   document.getElementById("dashboard-view").classList.toggle("open", nowDashboard);
   if (nowDashboard && !wasDashboard) renderDashboard();
   if (wasDashboard && !nowDashboard) setTimeout(() => map.invalidateSize(), 100);
+  if (key === "alerts") renderAlerts();
   for (const [k, id] of Object.entries(SECTIONS)) {
     document.getElementById(id).style.display = (k === key) ? "block" : "none";
   }
@@ -1136,6 +1148,66 @@ document.addEventListener("click", (e) => {
   document.getElementById("export-menu").classList.remove("open");
   toast("Exporting catalog as " + fmt.toUpperCase() + "…", "info");
 });
+
+// --- PAGER alerts section ---
+const PAGER_LEVELS = [
+  { key: "red",    label: "Red",    desc: "1,000+ estimated fatalities — extensive impact" },
+  { key: "orange", label: "Orange", desc: "100–999 fatalities — national response likely" },
+  { key: "yellow", label: "Yellow", desc: "1–99 fatalities — local impact possible" },
+  { key: "green",  label: "Green",  desc: "No significant impact expected" },
+];
+const PAGER_COLOR = { red: "var(--alert-red)", orange: "var(--alert-orange)", yellow: "var(--alert-yellow)", green: "var(--alert-green)" };
+const _ALERT_RANK = { red: 3, orange: 2, yellow: 1 };  // levels considered "active alerts"
+
+async function renderAlerts() {
+  const body = document.getElementById("alerts-body");
+  body.innerHTML = `<div style="padding:18px;text-align:center;color:var(--text-muted)">${spinnerHTML()} Loading alerts…</div>`;
+  let s;
+  try {
+    const r = await fetch("/events/stats");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    s = await r.json();
+  } catch (e) {
+    body.innerHTML = `<div style="color:var(--text-muted);font-size:12px;padding:8px 0">Couldn't load alerts.</div>`;
+    toast("Couldn't load PAGER alerts: " + e.message, "error");
+    return;
+  }
+
+  const counts = {};
+  (s.alert_dist || []).forEach(a => { counts[a.alert] = a.count; });
+  const chips = PAGER_LEVELS.map(l =>
+    `<span class="pager-chip" title="${l.label} alerts"><span class="pager-dot" style="background:${PAGER_COLOR[l.key]}"></span>${counts[l.key] || 0}</span>`
+  ).join("");
+
+  const active = (s.top_significant || [])
+    .filter(e => _ALERT_RANK[e.alert])
+    .sort((a, b) => (_ALERT_RANK[b.alert] - _ALERT_RANK[a.alert]) || ((b.sig || 0) - (a.sig || 0)));
+  const listHtml = active.length
+    ? active.map(e => `<div class="pager-row" data-id="${e.id}" tabindex="0" role="button" aria-label="M${(e.magnitude ?? 0).toFixed(1)} ${escapeHtml(e.place || "")}, ${e.alert} alert">
+        <span class="pager-dot" style="background:${PAGER_COLOR[e.alert]}"></span>
+        <span class="pager-mag">M${(e.magnitude ?? 0).toFixed(1)}</span>
+        <span class="pager-place">${escapeHtml(e.place || "—")}</span>
+        ${e.tsunami ? `<span class="evt-tsunami" title="Tsunami warning">${svgIcon("waves", 13)}</span>` : ""}
+        <span class="pager-sig">${e.sig ?? ""}</span>
+      </div>`).join("")
+    : `<div class="pager-empty">No active PAGER alerts.</div>`;
+
+  const legendHtml = PAGER_LEVELS.map(l =>
+    `<div class="pager-legend-row"><span class="pager-dot" style="background:${PAGER_COLOR[l.key]}"></span><span class="pager-legend-lbl">${l.label}</span><span class="pager-legend-desc">${l.desc}</span></div>`
+  ).join("");
+
+  body.innerHTML =
+    `<div class="pager-counts">${chips}</div>` +
+    `<div class="pager-list">${listHtml}</div>` +
+    `<div class="field-label" style="margin-top:12px">What the levels mean</div>` +
+    `<div class="pager-legend">${legendHtml}</div>`;
+
+  body.querySelectorAll(".pager-row").forEach(row => {
+    const go = () => showImpact(row.dataset.id);
+    row.addEventListener("click", go);
+    row.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
+  });
+}
 
 // --- Dashboard ---
 let _dashCharts = [];
