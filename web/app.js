@@ -1676,7 +1676,7 @@ document.getElementById("theme-toggle").addEventListener("click", () =>
 (function initTheme() {
   let mode = null;
   try { mode = localStorage.getItem("eqmon-theme"); } catch (e) { /* ignore */ }
-  if (!mode) mode = (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light";
+  if (!mode) mode = "dark";
   applyTheme(mode);
 })();
 
