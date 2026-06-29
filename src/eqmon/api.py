@@ -23,7 +23,7 @@ from .events.ingest import ingest
 from .events.repo import (count_events, create_manual_event, delete_event,
                            get_event, get_event_stats, list_events,
                            update_event, update_usgs_detail)
-from .events.sources import USGSSource
+from .events.sources import METSource, USGSSource
 from .impact import compute_event_impact
 from .intensity import compute_mmi_grid
 from .vs30 import Grid, load_grid
@@ -34,29 +34,41 @@ _ingest_scheduler_thread: threading.Thread | None = None
 _STOP_SCHEDULER = False
 
 
+def _ingest_sources() -> list[tuple[object, str]]:
+    """Sources ingested each tick, in priority order. MET (Primary) goes first
+    so it lands as the canonical row when it shares a quake with USGS."""
+    return [(METSource(), "met_last_sync"), (USGSSource(), "usgs_last_sync")]
+
+
+def _ingest_source(conn, source, sync_key: str) -> None:
+    """Read last-sync, ingest one source, persist the new sync timestamp."""
+    row = conn.execute(
+        "SELECT value FROM _sync_state WHERE key = %s", (sync_key,)
+    ).fetchone()
+    updatedafter = datetime.fromisoformat(row[0]) if row is not None else None
+    result = ingest(conn, source, updatedafter=updatedafter)
+    conn.commit()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        "INSERT INTO _sync_state (key, value) VALUES (%s, %s) "
+        "ON CONFLICT (key) DO UPDATE SET value = %s, updated_at = now()",
+        (sync_key, now_iso, now_iso),
+    )
+    conn.commit()
+    logger.info("[scheduler] %s ingest: %d new, %d fetched",
+                source.name, result.inserted, result.fetched)
+
+
 def _ingest_tick() -> None:
-    """One ingest cycle: read last sync, fetch, update timestamp."""
+    """One ingest cycle across all sources. A single source failing (network,
+    parse, or DB) is logged and skipped so it never starves the others."""
     try:
-        source = USGSSource()
         with db.get_conn() as conn:
-            row = conn.execute(
-                "SELECT value FROM _sync_state WHERE key = 'usgs_last_sync'"
-            ).fetchone()
-            updatedafter = (
-                datetime.fromisoformat(row[0]) if row is not None else None
-            )
-            result = ingest(conn, source, updatedafter=updatedafter)
-            conn.commit()
-            now_iso = datetime.now(timezone.utc).isoformat()
-            conn.execute(
-                "INSERT INTO _sync_state (key, value) "
-                "VALUES ('usgs_last_sync', %s) "
-                "ON CONFLICT (key) DO UPDATE SET value = %s, updated_at = now()",
-                (now_iso, now_iso),
-            )
-            conn.commit()
-            logger.info("[scheduler] ingest: %d new, %d fetched",
-                        result.inserted, result.fetched)
+            for source, sync_key in _ingest_sources():
+                try:
+                    _ingest_source(conn, source, sync_key)
+                except Exception:
+                    logger.exception("[scheduler] %s ingest failed", source.name)
     except Exception:
         logger.exception("[scheduler] ingest failed")
 
@@ -80,7 +92,8 @@ def start_ingest_scheduler(interval_minutes: int = config.INGEST_INTERVAL_MINUTE
         target=_scheduler_loop, args=(interval_minutes * 60,), daemon=True,
     )
     _ingest_scheduler_thread.start()
-    logger.info("[scheduler] started; ingesting USGS every %d min", interval_minutes)
+    logger.info("[scheduler] started; ingesting MET+USGS every %d min",
+                interval_minutes)
 
 
 def stop_ingest_scheduler() -> None:
@@ -118,6 +131,7 @@ class EventRequest(BaseModel):
     depth_km: float = Field(ge=0.0, le=700.0)
     lat: float
     lon: float
+    save_to_catalog: bool = False
 
     @field_validator("lat")
     @classmethod
@@ -145,16 +159,18 @@ def intensity(req: EventRequest) -> JSONResponse:
         epi_lon=req.lon, epi_lat=req.lat,
     )
     fc = mmi_to_geojson(mmi, grid.transform, levels=config.MMI_BAND_LEVELS)
-    # Persist to catalog silently so the event appears in the catalog /
-    # impact endpoints. Best-effort — intensity bands render either way.
-    try:
-        with db.get_conn() as conn:
-            row = create_manual_event(conn, magnitude=req.magnitude,
-                                      depth_km=req.depth_km, lon=req.lon, lat=req.lat)
-            conn.commit()
-            fc["event_id"] = row["id"]
-    except Exception:
-        pass
+    # Opt-in: only persist to the catalog when the caller asks. Keeps ad-hoc
+    # "what-if" calculations from cluttering the event catalog. Best-effort —
+    # intensity bands render either way.
+    if req.save_to_catalog:
+        try:
+            with db.get_conn() as conn:
+                row = create_manual_event(conn, magnitude=req.magnitude,
+                                          depth_km=req.depth_km, lon=req.lon, lat=req.lat)
+                conn.commit()
+                fc["event_id"] = row["id"]
+        except Exception:
+            pass
     return JSONResponse(fc)
 
 
@@ -174,7 +190,7 @@ def export_intensity_shapefile(fc: FeatureCollectionIn):
     return Response(
         content=data,
         media_type="application/zip",
-        headers={"Content-Disposition": "attachment; filename=mmi_bands.shp.zip"},
+        headers={"Content-Disposition": "attachment; filename=mmi_bands.zip"},
     )
 
 
@@ -233,13 +249,36 @@ def ingest_events(min_magnitude: float | None = None):
     return result.__dict__
 
 
+@app.post("/events/ingest/met")
+def ingest_met_events():
+    """Manually pull the Pakistan MET Department (Primary) feed. PMD returns the
+    full catalog each call; ingest() upserts and re-clusters (MET wins as
+    canonical over USGS for shared quakes)."""
+    with db.get_conn() as conn:
+        result = ingest(conn, METSource())
+        conn.commit()
+        now_iso = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "INSERT INTO _sync_state (key, value) VALUES ('met_last_sync', %s) "
+            "ON CONFLICT (key) DO UPDATE SET value = %s, updated_at = now()",
+            (now_iso, now_iso),
+        )
+        conn.commit()
+    return result.__dict__
+
+
 @app.get("/events/ingest/status")
 def ingest_status():
     with db.get_conn() as conn:
-        row = conn.execute(
-            "SELECT value FROM _sync_state WHERE key = 'usgs_last_sync'"
-        ).fetchone()
-        return {"last_sync": row[0] if row else None}
+        rows = dict(conn.execute(
+            "SELECT key, value FROM _sync_state "
+            "WHERE key IN ('usgs_last_sync', 'met_last_sync')"
+        ).fetchall())
+        usgs = rows.get("usgs_last_sync")
+        met = rows.get("met_last_sync")
+        # last_sync = most recent across sources (kept for the existing UI label)
+        last = max([t for t in (usgs, met) if t], default=None)
+        return {"last_sync": last, "usgs_last_sync": usgs, "met_last_sync": met}
 
 @app.get("/events")
 def get_events(since: datetime | None = None,

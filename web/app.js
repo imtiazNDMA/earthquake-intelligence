@@ -142,7 +142,7 @@ const OVERLAY_CONFIG = {
   "Plate boundaries": { id: "plate_boundaries", color: "#ff8800", width: 1.6, defaultOn: false, lineOnly: true },
   "Pakistan Major": { id: "pak_faults_major", color: "#111", width: 0.9, defaultOn: false, lineOnly: true, faultStyle: true },
   "Pakistan Minor": { id: "pak_faults_minor", color: "#111", width: 1.1, defaultOn: true, lineOnly: true, faultStyle: true },
-  "Tectonic Zones":{ id: "pak_tectonic_zones", color: "#444", width: 0.5, defaultOn: true,
+  "Tectonic Zones":{ id: "pak_tectonic_zones", color: "#444", width: 0.5, defaultOn: false,
                      fillColor: "#888", fillOpacity: 0.7 },
 };
 
@@ -456,7 +456,7 @@ async function exportShapefile() {
     const blob = await resp.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = "mmi_bands.shp.zip";
+    a.href = url; a.download = "mmi_bands.zip";
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
   } catch (e) {
@@ -505,6 +505,7 @@ async function calculate() {
     depth_km:  parseFloat(document.getElementById("depth_km").value),
     lat:       parseFloat(document.getElementById("lat").value),
     lon:       parseFloat(document.getElementById("lon").value),
+    save_to_catalog: document.getElementById("save-catalog").checked,
   };
   statusEl.innerHTML = spinnerHTML() + " Calculating…";
   try {
@@ -535,6 +536,7 @@ async function calculate() {
 
     statusEl.textContent = `${fc.features.length} intensity bands`;
     if (intensityLayer.getBounds().isValid()) map.fitBounds(intensityLayer.getBounds());
+    if (fc.event_id) { toast("Event saved to catalog", "success"); refreshEvents(); }
   } catch (e) {
     statusEl.textContent = "";
     toast("Request failed: " + e.message, "error");
@@ -756,6 +758,17 @@ function renderDetail(evt) {
     // Manual event — show edit + delete buttons
     el.innerHTML = `<div class="evt-detail">
       <div class="detail-info">Manual event — no USGS data.</div>
+      <button class="btn-edit" data-edit-id="${evt.id}">${svgIcon("edit")} Edit</button>
+      <button class="btn-del-detail" data-del-id="${evt.id}">${svgIcon("trash")} Delete event</button>
+    </div>`;
+    el.querySelector(".btn-edit").addEventListener("click", () => showEditForm(evt));
+    el.querySelector(".btn-del-detail").addEventListener("click", () => confirmDelete(evt.id));
+    return;
+  }
+  if (evt.source !== "USGS") {
+    // Non-USGS feed event (e.g. Pakistan MET) — no USGS detail products.
+    el.innerHTML = `<div class="evt-detail">
+      <div class="detail-info">${escapeHtml(evt.source)} event${evt.place ? " — " + escapeHtml(evt.place) : ""}. No USGS detail available.</div>
       <button class="btn-edit" data-edit-id="${evt.id}">${svgIcon("edit")} Edit</button>
       <button class="btn-del-detail" data-del-id="${evt.id}">${svgIcon("trash")} Delete event</button>
     </div>`;
@@ -1058,6 +1071,30 @@ document.getElementById("ingest").addEventListener("click", async (e) => {
     btn.disabled = false;
     btn.innerHTML = orig;
   }
+  refreshEvents();
+});
+
+// Pull the Pakistan MET Department (PMD) feed — full catalog, no mag filter.
+document.getElementById("ingest-met").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = spinnerHTML() + " Pulling…";
+  statusEl.innerHTML = spinnerHTML() + " Pulling PMD feed…";
+  try {
+    const r = await fetch("/events/ingest/met", { method: "POST" });
+    const res = await r.json();
+    statusEl.textContent = "";
+    toast(`Ingested ${res.inserted} new event${res.inserted === 1 ? "" : "s"} of ${res.fetched} fetched`,
+          res.inserted > 0 ? "success" : "info");
+  } catch (err) {
+    statusEl.textContent = "";
+    toast("PMD ingest failed: " + err.message, "error");
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = orig;
+  }
+  updateIngestStatus();
   refreshEvents();
 });
 
