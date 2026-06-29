@@ -93,7 +93,11 @@ def test_endpoint_returns_zip():
     ]))
     assert resp.status_code == 200
     assert resp.headers["content-type"] == "application/zip"
-    assert "mmi_bands.shp.zip" in resp.headers["content-disposition"]
+    # Plain .zip (not the .shp.zip double extension that GIS tools choke on
+    # when users open the archive directly instead of extracting it).
+    cd = resp.headers["content-disposition"]
+    assert "filename=mmi_bands.zip" in cd
+    assert ".shp.zip" not in cd
     with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
         assert any(n.endswith(".shp") for n in zf.namelist())
 

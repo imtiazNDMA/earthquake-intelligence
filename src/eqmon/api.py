@@ -187,7 +187,7 @@ def export_intensity_shapefile(fc: FeatureCollectionIn):
     return Response(
         content=data,
         media_type="application/zip",
-        headers={"Content-Disposition": "attachment; filename=mmi_bands.shp.zip"},
+        headers={"Content-Disposition": "attachment; filename=mmi_bands.zip"},
     )
 
 

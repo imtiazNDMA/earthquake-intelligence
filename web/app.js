@@ -142,7 +142,7 @@ const OVERLAY_CONFIG = {
   "Plate boundaries": { id: "plate_boundaries", color: "#ff8800", width: 1.6, defaultOn: false, lineOnly: true },
   "Pakistan Major": { id: "pak_faults_major", color: "#111", width: 0.9, defaultOn: false, lineOnly: true, faultStyle: true },
   "Pakistan Minor": { id: "pak_faults_minor", color: "#111", width: 1.1, defaultOn: true, lineOnly: true, faultStyle: true },
-  "Tectonic Zones":{ id: "pak_tectonic_zones", color: "#444", width: 0.5, defaultOn: true,
+  "Tectonic Zones":{ id: "pak_tectonic_zones", color: "#444", width: 0.5, defaultOn: false,
                      fillColor: "#888", fillOpacity: 0.7 },
 };
 
@@ -456,7 +456,7 @@ async function exportShapefile() {
     const blob = await resp.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = "mmi_bands.shp.zip";
+    a.href = url; a.download = "mmi_bands.zip";
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
   } catch (e) {
