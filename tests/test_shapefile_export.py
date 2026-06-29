@@ -81,3 +81,34 @@ def test_all_points_raises():
     }
     with pytest.raises(ValueError):
         featurecollection_to_shapefile_zip(_fc([point]))
+
+
+from fastapi.testclient import TestClient
+
+
+def test_endpoint_returns_zip():
+    from eqmon import api
+    client = TestClient(api.app)
+    resp = client.post("/intensity/export/shapefile", json=_fc([
+        _polygon_feature(6, 7, "#ffff00"), _polygon_feature(7, 8, "#ffc800", 71.0, 31.0),
+    ]))
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/zip"
+    assert "mmi_bands.shp.zip" in resp.headers["content-disposition"]
+    with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+        assert any(n.endswith(".shp") for n in zf.namelist())
+
+
+def test_endpoint_rejects_empty():
+    from eqmon import api
+    client = TestClient(api.app)
+    resp = client.post("/intensity/export/shapefile", json=_fc([]))
+    assert resp.status_code == 400
+
+
+def test_endpoint_rejects_wrong_type():
+    from eqmon import api
+    client = TestClient(api.app)
+    resp = client.post("/intensity/export/shapefile",
+                       json={"type": "Nonsense", "features": [_polygon_feature(6, 7, "#ffff00")]})
+    assert resp.status_code == 400

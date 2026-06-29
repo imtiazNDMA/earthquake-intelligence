@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from . import config, db
 from .contours import mmi_to_geojson
+from .export import featurecollection_to_shapefile_zip
 from .events.ingest import ingest
 from .events.repo import (count_events, create_manual_event, delete_event,
                            get_event, get_event_stats, list_events,
@@ -205,6 +206,26 @@ def intensity(req: EventRequest) -> JSONResponse:
     except Exception:
         pass
     return JSONResponse(fc)
+
+
+class FeatureCollectionIn(BaseModel):
+    type: str
+    features: list[dict]
+
+
+@app.post("/intensity/export/shapefile")
+def export_intensity_shapefile(fc: FeatureCollectionIn):
+    if fc.type != "FeatureCollection" or not fc.features:
+        raise HTTPException(status_code=400, detail="expected a non-empty FeatureCollection")
+    try:
+        data = featurecollection_to_shapefile_zip(fc.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={"Content-Disposition": "attachment; filename=mmi_bands.shp.zip"},
+    )
 
 
 class ManualEvent(BaseModel):
