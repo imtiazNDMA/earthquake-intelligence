@@ -23,7 +23,7 @@ from .events.ingest import ingest
 from .events.repo import (count_events, create_manual_event, delete_event,
                            get_event, get_event_stats, list_events,
                            update_event, update_usgs_detail)
-from .events.sources import USGSSource
+from .events.sources import METSource, USGSSource
 from .impact import compute_event_impact
 from .intensity import compute_mmi_grid
 from .vs30 import Grid, load_grid
@@ -34,29 +34,41 @@ _ingest_scheduler_thread: threading.Thread | None = None
 _STOP_SCHEDULER = False
 
 
+def _ingest_sources() -> list[tuple[object, str]]:
+    """Sources ingested each tick, in priority order. MET (Primary) goes first
+    so it lands as the canonical row when it shares a quake with USGS."""
+    return [(METSource(), "met_last_sync"), (USGSSource(), "usgs_last_sync")]
+
+
+def _ingest_source(conn, source, sync_key: str) -> None:
+    """Read last-sync, ingest one source, persist the new sync timestamp."""
+    row = conn.execute(
+        "SELECT value FROM _sync_state WHERE key = %s", (sync_key,)
+    ).fetchone()
+    updatedafter = datetime.fromisoformat(row[0]) if row is not None else None
+    result = ingest(conn, source, updatedafter=updatedafter)
+    conn.commit()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        "INSERT INTO _sync_state (key, value) VALUES (%s, %s) "
+        "ON CONFLICT (key) DO UPDATE SET value = %s, updated_at = now()",
+        (sync_key, now_iso, now_iso),
+    )
+    conn.commit()
+    logger.info("[scheduler] %s ingest: %d new, %d fetched",
+                source.name, result.inserted, result.fetched)
+
+
 def _ingest_tick() -> None:
-    """One ingest cycle: read last sync, fetch, update timestamp."""
+    """One ingest cycle across all sources. A single source failing (network,
+    parse, or DB) is logged and skipped so it never starves the others."""
     try:
-        source = USGSSource()
         with db.get_conn() as conn:
-            row = conn.execute(
-                "SELECT value FROM _sync_state WHERE key = 'usgs_last_sync'"
-            ).fetchone()
-            updatedafter = (
-                datetime.fromisoformat(row[0]) if row is not None else None
-            )
-            result = ingest(conn, source, updatedafter=updatedafter)
-            conn.commit()
-            now_iso = datetime.now(timezone.utc).isoformat()
-            conn.execute(
-                "INSERT INTO _sync_state (key, value) "
-                "VALUES ('usgs_last_sync', %s) "
-                "ON CONFLICT (key) DO UPDATE SET value = %s, updated_at = now()",
-                (now_iso, now_iso),
-            )
-            conn.commit()
-            logger.info("[scheduler] ingest: %d new, %d fetched",
-                        result.inserted, result.fetched)
+            for source, sync_key in _ingest_sources():
+                try:
+                    _ingest_source(conn, source, sync_key)
+                except Exception:
+                    logger.exception("[scheduler] %s ingest failed", source.name)
     except Exception:
         logger.exception("[scheduler] ingest failed")
 
@@ -80,7 +92,8 @@ def start_ingest_scheduler(interval_minutes: int = config.INGEST_INTERVAL_MINUTE
         target=_scheduler_loop, args=(interval_minutes * 60,), daemon=True,
     )
     _ingest_scheduler_thread.start()
-    logger.info("[scheduler] started; ingesting USGS every %d min", interval_minutes)
+    logger.info("[scheduler] started; ingesting MET+USGS every %d min",
+                interval_minutes)
 
 
 def stop_ingest_scheduler() -> None:

@@ -1,8 +1,11 @@
-"""Seismic event sources. USGSSource (Secondary) is fully implemented; METSource
-(Primary) is a stub until the Pakistan MET feed format is known. parse_usgs is
-pure (no network) for testability."""
+"""Seismic event sources. USGSSource (Secondary) and METSource (Primary, the
+Pakistan MET Department feed) are both implemented behind the SeismicSource
+protocol. parse_usgs and parse_met are pure (no network) for testability."""
 from __future__ import annotations
+import logging
 import math
+import os
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Protocol
@@ -11,9 +14,15 @@ import httpx
 
 from ..config import COVERAGE_BBOX
 
+logger = logging.getLogger("uvicorn.error")
+
 USGS_FEED_URL = (
     "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson"
 )
+
+# Pakistan MET Department seismic catalog (full catalog per call, bearer auth).
+# HTTPS so the bearer token is never sent in cleartext.
+PMD_API_URL = "https://weather.gov.pk/api/seismic-events"
 
 FDSN_QUERY_URL = "https://earthquake.usgs.gov/fdsnws/event/1/query"
 DEFAULT_WINDOW_DAYS = 30
@@ -100,6 +109,107 @@ def parse_usgs(geojson: dict) -> list[RawEvent]:
                 datetime.fromtimestamp(updated_ms / 1000.0, tz=timezone.utc)
                 if updated_ms is not None else None
             ),
+        ))
+    return out
+
+
+_NUM = re.compile(r"-?\d+(?:\.\d+)?")
+
+
+def _parse_coord(raw, is_lat: bool) -> float | None:
+    """Parse a PMD coordinate string into a signed decimal degree.
+
+    PMD coordinates are dirty: a number plus an optional hemisphere suffix
+    (``"24.87 N"``, ``"63.18 E"``) but also missing spaces (``"30.50N"``),
+    lowercase suffixes, comma decimals (``"73,20 E"``), and plain signed
+    decimals with no suffix at all (newer rows). Strategy: normalise the comma,
+    pull the first number out, then sign it by the hemisphere letter if present.
+    Returns None when no number can be extracted.
+    """
+    if raw is None:
+        return None
+    s = str(raw).strip().replace(",", ".")
+    if not s:
+        return None
+    m = _NUM.search(s)
+    if m is None:
+        return None
+    try:
+        v = float(m.group())
+    except ValueError:
+        return None
+    up = s.upper()
+    if any(c in up for c in ("N", "S", "E", "W")):
+        negative = ("S" in up) if is_lat else ("W" in up)
+        return -abs(v) if negative else abs(v)
+    return v  # plain signed decimal, no hemisphere suffix
+
+
+def _parse_float(raw) -> float | None:
+    """Pull the first number out of a possibly-dirty PMD numeric field."""
+    if raw is None:
+        return None
+    m = _NUM.search(str(raw).replace(",", "."))
+    if m is None:
+        return None
+    try:
+        return float(m.group())
+    except ValueError:
+        return None
+
+
+def _met_datetime(date_str, time_str) -> datetime | None:
+    """Combine PMD ``event_date`` + ``event_time`` into a UTC datetime.
+
+    PMD origin times carry no tz marker but are UTC (confirmed by cross-checking
+    a shared event against USGS — they matched within seconds). Returns None if
+    the date cannot be parsed.
+    """
+    if not date_str:
+        return None
+    combined = f"{date_str} {time_str or '00:00:00'}"
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.strptime(combined, fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    return None
+
+
+def parse_met(payload: dict) -> list[RawEvent]:
+    """Map the PMD ``{status, message, data: [...]}`` response into RawEvents.
+
+    Defensive by necessity (the feed has malformed coordinates, magnitudes, and
+    dates): a row is skipped when its id, magnitude, or coordinates are missing
+    or unparseable, when coordinates fall outside valid lat/lon ranges, or when
+    it falls outside the Coverage Region. Depth defaults to 0.0 when absent.
+    """
+    out: list[RawEvent] = []
+    for r in payload.get("data", []):
+        eid = r.get("id")
+        lat = _parse_coord(r.get("latitude"), is_lat=True)
+        lon = _parse_coord(r.get("longitude"), is_lat=False)
+        mag = _parse_float(r.get("magnitude"))
+        if eid is None or lat is None or lon is None or mag is None:
+            continue
+        if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+            continue
+        if not _in_region(lon, lat):
+            continue
+        occurred_at = _met_datetime(r.get("event_date"), r.get("event_time"))
+        if occurred_at is None:
+            continue
+        depth = _parse_float(r.get("depth"))
+        out.append(RawEvent(
+            source="MET",
+            source_event_id=str(eid),
+            occurred_at=occurred_at,
+            magnitude=float(mag),
+            depth_km=float(depth) if depth is not None else 0.0,
+            lon=float(lon),
+            lat=float(lat),
+            place=r.get("region"),
+            event_type=r.get("mode"),
         ))
     return out
 
@@ -240,11 +350,42 @@ class USGSSource:
 class METSource:
     """Primary Seismic Source (Pakistan MET Department).
 
-    Stub: the feed endpoint and format are not yet known. Implement `fetch` to
-    return RawEvent(source="MET", ...) once the format is provided.
+    Fetches the full PMD catalog (bearer-authenticated) each call and maps it via
+    parse_met. URL/token default to the PMD_API_URL/PMD_API_TOKEN environment
+    variables (loaded from .env) so credentials stay out of the codebase.
     """
     name = "MET"
 
+    def __init__(self, url: str | None = None, token: str | None = None,
+                 timeout: float = 15.0):
+        self.url = url or os.environ.get("PMD_API_URL", PMD_API_URL)
+        self.token = token or os.environ.get("PMD_API_TOKEN")
+        self.timeout = timeout
+
     def fetch(self, since: datetime | None = None,
               updatedafter: datetime | None = None) -> list[RawEvent]:
-        raise NotImplementedError("MET feed format not yet defined")
+        """Fetch the PMD catalog and map to RawEvents.
+
+        PMD returns the whole catalog every call — there is no server-side time
+        filter, and created_at/updated_at are largely null — so `updatedafter`
+        is unused; incremental dedup happens via upsert ON CONFLICT in ingest().
+        Returns [] on HTTP error (non-fatal, mirrors USGSSource behaviour).
+        When `since` is given, post-filters to events at or after it.
+        """
+        headers = {"Accept": "application/json"}
+        if self.token:
+            # Never transmit the bearer token over a non-HTTPS scheme.
+            if self.url.lower().startswith("https://"):
+                headers["Authorization"] = f"Bearer {self.token}"
+            else:
+                logger.warning(
+                    "MET token not sent: %s is not HTTPS", self.url)
+        try:
+            resp = httpx.get(self.url, headers=headers, timeout=self.timeout)
+            resp.raise_for_status()
+            events = parse_met(resp.json())
+        except httpx.HTTPError:
+            return []
+        if since is not None:
+            events = [e for e in events if e.occurred_at >= since]
+        return events
