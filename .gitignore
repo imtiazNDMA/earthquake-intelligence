@@ -41,3 +41,9 @@ web/tiles/
 
 # Visual-companion brainstorm scratch
 .superpowers/
+
+# Editor settings / auto-generated IDE files
+.vscode/
+
+# Local scratch / debug scripts
+tmp_check_plates.py
