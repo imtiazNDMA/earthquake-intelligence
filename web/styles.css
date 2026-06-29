@@ -299,13 +299,13 @@ input:focus-visible { border-color: var(--brand); }
 .cfg-group + .cfg-group { margin-top: 14px; }
 
 .legend {
-  background: var(--surface); padding: 10px 12px; border-radius: var(--r-lg);
-  box-shadow: var(--shadow-md); min-width: 56px;
+  background: var(--surface); padding: 12px 14px; border-radius: var(--r-lg);
+  box-shadow: var(--shadow-md); min-width: 64px;
 }
-.legend-title { font-weight: 700; font-size: var(--fs-base); margin-bottom: 5px; color: var(--slate); }
+.legend-title { font-weight: 700; font-size: 16px; margin-bottom: 7px; color: var(--slate); }
 .legend-item {
-  display: flex; align-items: center; gap: 6px;
-  padding: 2px 4px; border-radius: var(--r-sm);
+  display: flex; align-items: center; gap: 8px;
+  padding: 3px 6px; border-radius: var(--r-sm);
   cursor: default; transition: all .15s var(--ease);
 }
 .legend-item.active {
@@ -314,10 +314,10 @@ input:focus-visible { border-color: var(--brand); }
   background: rgba(15,76,129,.06);
 }
 .legend-swatch {
-  display: inline-block; width: 24px; height: 18px;
+  display: inline-block; width: 34px; height: 24px;
   border-radius: 3px; border: 1px solid rgba(0,0,0,.1); flex: none;
 }
-.legend-label { font-family: var(--font-mono); font-size: var(--fs-base); font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+.legend-label { font-family: var(--font-mono); font-size: 15px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
 
 /* Catalog search/filter bar */
 .filter-row { display: flex; gap: 4px; }
