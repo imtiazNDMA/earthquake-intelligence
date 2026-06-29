@@ -387,7 +387,7 @@ function unhighlightAll() {
 }
 
 function presentLevels(fc) {
-  const set = new Set((fc && fc.features ? fc.features : []).map(f => f.properties.mmi_lower));
+  const set = new Set((fc && fc.features ? fc.features : []).map(f => (f.properties || {}).mmi_lower));
   return MMI_PALETTE.map(([m]) => m).filter(m => set.has(m));
 }
 
@@ -436,11 +436,11 @@ function renderLegend(fc) {
 async function exportShapefile() {
   if (!_lastFc) return;
   const levels = new Set(
-    Object.values(_legendCheckboxes).filter(cb => cb.checked).map(cb => parseInt(cb.dataset.level))
+    Object.entries(_legendCheckboxes).filter(([, cb]) => cb.checked).map(([level]) => parseInt(level))
   );
-  const features = _lastFc.features.filter(f => levels.has(f.properties.mmi_lower));
+  const features = _lastFc.features.filter(f => levels.has((f.properties || {}).mmi_lower));
   if (!features.length) { toast("Select at least one MMI band to export", "error"); return; }
-  toast(`Exporting ${features.length} band(s) as shapefile…`, "info");
+  toast(`Exporting ${levels.size} MMI band(s) (${features.length} feature(s)) as shapefile…`, "info");
   try {
     const resp = await fetch("/intensity/export/shapefile", {
       method: "POST", headers: { "Content-Type": "application/json" },

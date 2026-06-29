@@ -32,8 +32,6 @@ def featurecollection_to_shapefile_zip(fc: dict) -> bytes:
         geom = shape(geom_obj)
         if isinstance(geom, Polygon):
             geom = MultiPolygon([geom])
-        elif not isinstance(geom, MultiPolygon):
-            continue
         props = (feat.get("properties") or {})
         records.append({
             "geometry": mapping(geom),

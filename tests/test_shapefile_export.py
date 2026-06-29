@@ -1,8 +1,11 @@
 import io
+import os
+import tempfile
 import zipfile
 
 import fiona
 import pytest
+from fastapi.testclient import TestClient
 
 from eqmon.export import featurecollection_to_shapefile_zip
 
@@ -64,7 +67,6 @@ def test_non_polygon_features_are_skipped():
          zf.open(next(n for n in zf.namelist() if n.endswith(".shp"))):
         pass  # zip is valid
     # exactly one polygon survived
-    import tempfile, os
     with tempfile.TemporaryDirectory() as td:
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
             zf.extractall(td)
@@ -81,9 +83,6 @@ def test_all_points_raises():
     }
     with pytest.raises(ValueError):
         featurecollection_to_shapefile_zip(_fc([point]))
-
-
-from fastapi.testclient import TestClient
 
 
 def test_endpoint_returns_zip():
