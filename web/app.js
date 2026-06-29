@@ -365,6 +365,9 @@ const MMI_PALETTE = [
 
 let _legendItems = {};
 let _mmiLayers = {};
+let _lastFc = null;
+let _legendDiv = null;
+const _legendCheckboxes = {};
 
 function highlightByLevel(level) {
   Object.keys(_legendItems).forEach(k => {
@@ -383,19 +386,89 @@ function unhighlightAll() {
   });
 }
 
-const legend = L.control({ position: "bottomright" });
-legend.onAdd = function () {
-  const div = L.DomUtil.create("div", "legend");
-  div.innerHTML = "<div class='legend-title'>MMI</div>" +
-    MMI_PALETTE.map(([m, c]) =>
-      `<div class="legend-item" data-level="${m}"><span class="legend-swatch" style="background:${c}"></span><span class="legend-label">${m}</span></div>`
-    ).join("");
-  div.querySelectorAll(".legend-item").forEach(el => {
+function presentLevels(fc) {
+  const set = new Set((fc && fc.features ? fc.features : []).map(f => f.properties.mmi_lower));
+  return MMI_PALETTE.map(([m]) => m).filter(m => set.has(m));
+}
+
+function updateExportEnabled() {
+  const btn = _legendDiv && _legendDiv.querySelector("#legend-export");
+  if (!btn) return;
+  const anyChecked = Object.values(_legendCheckboxes).some(cb => cb.checked);
+  btn.disabled = !(_lastFc && anyChecked);
+}
+
+function renderLegend(fc) {
+  if (!_legendDiv) return;
+  _legendItems = {};
+  Object.keys(_legendCheckboxes).forEach(k => delete _legendCheckboxes[k]);
+  const colorOf = Object.fromEntries(MMI_PALETTE);
+  const hasData = !!(fc && fc.features && fc.features.length);
+  const levels = hasData ? presentLevels(fc) : MMI_PALETTE.map(([m]) => m);
+
+  let html = "<div class='legend-title'>MMI</div>";
+  levels.forEach(m => {
+    const cb = hasData
+      ? `<input type="checkbox" class="legend-cb" data-level="${m}" checked aria-label="Include MMI ${m} in export">`
+      : "";
+    html += `<div class="legend-item" data-level="${m}">${cb}` +
+      `<span class="legend-swatch" style="background:${colorOf[m]}"></span>` +
+      `<span class="legend-label">${m}</span></div>`;
+  });
+  html += `<button type="button" id="legend-export" class="legend-export"${hasData ? "" : " disabled"}>⬇ Export shapefile</button>`;
+  _legendDiv.innerHTML = html;
+
+  _legendDiv.querySelectorAll(".legend-item").forEach(el => {
     const level = parseInt(el.dataset.level);
     el.addEventListener("mouseenter", () => highlightByLevel(level));
     el.addEventListener("mouseleave", () => unhighlightAll());
     _legendItems[level] = el;
   });
+  _legendDiv.querySelectorAll(".legend-cb").forEach(cb => {
+    _legendCheckboxes[parseInt(cb.dataset.level)] = cb;
+    cb.addEventListener("change", updateExportEnabled);
+  });
+  const btn = _legendDiv.querySelector("#legend-export");
+  if (btn) btn.addEventListener("click", exportShapefile);
+  updateExportEnabled();
+}
+
+async function exportShapefile() {
+  if (!_lastFc) return;
+  const levels = new Set(
+    Object.values(_legendCheckboxes).filter(cb => cb.checked).map(cb => parseInt(cb.dataset.level))
+  );
+  const features = _lastFc.features.filter(f => levels.has(f.properties.mmi_lower));
+  if (!features.length) { toast("Select at least one MMI band to export", "error"); return; }
+  toast(`Exporting ${features.length} band(s) as shapefile…`, "info");
+  try {
+    const resp = await fetch("/intensity/export/shapefile", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "FeatureCollection", features }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      toast("Export failed: " + JSON.stringify(err.detail ?? err), "error");
+      return;
+    }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "mmi_bands.shp.zip";
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    toast("Export request failed: " + e.message, "error");
+  }
+}
+
+const legend = L.control({ position: "bottomright" });
+legend.onAdd = function () {
+  const div = L.DomUtil.create("div", "legend");
+  _legendDiv = div;
+  L.DomEvent.disableClickPropagation(div);
+  L.DomEvent.disableScrollPropagation(div);
+  renderLegend(null);
   return div;
 };
 legend.addTo(map);
@@ -445,11 +518,13 @@ async function calculate() {
     }
     const fc = await resp.json();
     _mmiLayers = {};
+    _lastFc = fc;
     if (intensityLayer) map.removeLayer(intensityLayer);
     intensityLayer = L.geoJSON(fc, {
       style,
       onEachFeature: onMmiFeature,
     }).addTo(map);
+    renderLegend(fc);
 
     if (epicenterMarker) map.removeLayer(epicenterMarker);
     epicenterMarker = L.circleMarker([payload.lat, payload.lon], {
