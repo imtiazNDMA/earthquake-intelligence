@@ -17,3 +17,12 @@ def test_mmi_band_levels_are_increasing():
     assert config.MMI_BAND_LEVELS == sorted(config.MMI_BAND_LEVELS)
     assert config.MMI_BAND_LEVELS[0] >= 1
     assert config.MMI_BAND_LEVELS[-1] <= 10
+
+
+def test_analytics_tunables_present():
+    from eqmon import config as c
+    assert c.GRID_CELL_DEG == 0.25
+    assert c.MC_MIN_N == 50 and c.BVALUE_MIN_N == 50
+    assert c.DEPTH_CRUSTAL_MAX_KM == 35.0
+    assert c.DEPTH_INTERMEDIATE_MAX_KM == 70.0
+    assert c.MC_CORRECTION == 0.2 and c.MAG_BIN_WIDTH == 0.1

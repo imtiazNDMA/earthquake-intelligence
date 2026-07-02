@@ -44,3 +44,12 @@ def mmi_class_label(level: int) -> str:
 
 # Automated ingest interval (minutes).
 INGEST_INTERVAL_MINUTES = 15
+
+# --- Seismicity analytics tunables ---
+GRID_CELL_DEG = 0.25              # hotspot grid cell size (degrees)
+MC_MIN_N = 50                     # min events to estimate Mc
+BVALUE_MIN_N = 50                 # min events (>= Mc) to report a b-value
+MC_CORRECTION = 0.2               # MAXC completeness correction
+MAG_BIN_WIDTH = 0.1               # magnitude bin width
+DEPTH_CRUSTAL_MAX_KM = 35.0       # crustal < 35 km
+DEPTH_INTERMEDIATE_MAX_KM = 70.0  # intermediate 35-70 km; deep > 70 km
