@@ -20,7 +20,9 @@ def test_b_value_recovers_known_slope():
     mc = 3.0
     # exponential in (M - Mc) with rate b*ln(10) -> b=1.0
     draws = rng.exponential(scale=1.0 / (1.0 * math.log(10)), size=20000)
-    mags = np.round((mc + draws) / 0.1) * 0.1
+    # Start at the completeness bin's lower edge (Mc - Δ/2) so the Mc bin is
+    # fully populated — this is what the Utsu bin correction assumes.
+    mags = np.round((mc - 0.05 + draws) / 0.1) * 0.1
     b, sigma, n = b_value_aki(mags, mc)
     assert abs(b - 1.0) < 0.05
     assert sigma > 0 and n > 10000

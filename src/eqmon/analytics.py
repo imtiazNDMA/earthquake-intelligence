@@ -36,7 +36,7 @@ def b_value_aki(mags, mc) -> tuple[float, float, int] | None:
     if n < BVALUE_MIN_N:
         return None
     mean_m = float(sample.mean())
-    denom = mean_m - mc
+    denom = mean_m - (mc - MAG_BIN_WIDTH / 2.0)
     if denom <= 0:
         return None
     b = math.log10(math.e) / denom
