@@ -300,7 +300,7 @@ input:focus-visible { border-color: var(--brand); }
 
 .legend {
   background: var(--surface); padding: 12px 14px; border-radius: var(--r-lg);
-  box-shadow: var(--shadow-md); min-width: 64px;
+  box-shadow: var(--shadow-md); min-width: 168px;
 }
 .legend-title { font-weight: 700; font-size: 16px; margin-bottom: 7px; color: var(--slate); }
 .legend-item {
@@ -317,7 +317,11 @@ input:focus-visible { border-color: var(--brand); }
   display: inline-block; width: 34px; height: 24px;
   border-radius: 3px; border: 1px solid rgba(0,0,0,.1); flex: none;
 }
-.legend-label { font-family: var(--font-mono); font-size: 15px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+.legend-label { font-family: var(--font-mono); font-size: 14px; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Class I (Not Felt): reference row for the un-shaded background — not an
+   exportable band, so it never highlights on hover. */
+.legend-note { cursor: default; opacity: .85; }
+.legend-note .legend-swatch { border-color: rgba(0,0,0,.25); }
 
 /* Catalog search/filter bar */
 .filter-row { display: flex; gap: 4px; }
