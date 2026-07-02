@@ -12,6 +12,7 @@ from datetime import datetime
 import psycopg
 
 from .sources import RawEvent, SeismicSource
+from ..analytics import decluster_gardner_knopoff
 
 DEDUP_SECONDS = 60
 DEDUP_METERS = 50_000
@@ -79,6 +80,30 @@ def _recluster(conn: psycopg.Connection) -> None:
     )
 
 
+def _decluster(conn: psycopg.Connection) -> None:
+    rows = conn.execute(
+        "SELECT id, occurred_at, ST_Y(geom) AS lat, ST_X(geom) AS lon, magnitude "
+        "FROM seismic_event WHERE is_canonical = TRUE "
+        "AND magnitude >= -1 AND magnitude < 10"
+    ).fetchall()
+    events = [{"id": r[0], "occurred_at": r[1], "lat": r[2], "lon": r[3],
+               "magnitude": r[4]} for r in rows]
+    flags = decluster_gardner_knopoff(events)
+    conn.execute("UPDATE seismic_event SET is_mainshock = NULL, sequence_id = NULL")
+    for ev, (is_main, seq) in zip(events, flags):
+        conn.execute(
+            "UPDATE seismic_event SET is_mainshock = %s, sequence_id = %s WHERE id = %s",
+            (is_main, seq, ev["id"]),
+        )
+
+
+def _assign_zones(conn: psycopg.Connection) -> None:
+    conn.execute(
+        "UPDATE seismic_event e SET zone_id = z.id "
+        "FROM tectonic_zone z WHERE ST_Contains(z.geom, e.geom)"
+    )
+
+
 def ingest(conn: psycopg.Connection, source: SeismicSource,
            since: datetime | None = None,
            updatedafter: datetime | None = None) -> IngestResult:
@@ -95,4 +120,6 @@ def ingest(conn: psycopg.Connection, source: SeismicSource,
         except Exception as exc:
             errors.append(f"{e.source_event_id}: {exc!r}")
     _recluster(conn)
+    _decluster(conn)
+    _assign_zones(conn)
     return IngestResult(source.name, len(raw), inserted, errors)

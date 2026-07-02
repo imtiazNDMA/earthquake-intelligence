@@ -46,3 +46,32 @@ def test_far_apart_events_are_separate_clusters(db_conn):
     ingest(db_conn, a)
     ingest(db_conn, b)
     assert len(list_events(db_conn)) == 2
+
+
+def test_ingest_sets_mainshock_and_sequence(db_conn):
+    from eqmon.events.ingest import ingest
+    main = _FakeSource([RawEvent("USGS", "m", T0, 6.0, 10, 72.0, 34.0)])
+    after = _FakeSource([RawEvent("USGS", "a", T0 + timedelta(hours=2), 4.0, 10, 72.05, 34.05)])
+    ingest(db_conn, main)
+    ingest(db_conn, after)
+    rows = db_conn.execute(
+        "SELECT source_event_id, is_mainshock, sequence_id FROM seismic_event "
+        "WHERE source='USGS' ORDER BY magnitude DESC"
+    ).fetchall()
+    # largest is a mainshock; the smaller one is its aftershock (shares sequence)
+    assert rows[0][1] is True
+    assert rows[1][1] is False
+    assert rows[1][2] == rows[0][2]
+
+
+def test_ingest_assigns_zone_id(db_conn):
+    from eqmon.events.ingest import ingest
+    db_conn.execute(
+        "INSERT INTO tectonic_zone (name, geom) VALUES ('Z', "
+        "ST_SetSRID(ST_GeomFromText('MULTIPOLYGON(((71 33,73 33,73 35,71 35,71 33)))'),4326))"
+    )
+    ingest(db_conn, _FakeSource([RawEvent("USGS", "z", T0, 5.0, 10, 72.0, 34.0)]))
+    zone = db_conn.execute(
+        "SELECT zone_id FROM seismic_event WHERE source_event_id='z'"
+    ).fetchone()[0]
+    assert zone is not None
