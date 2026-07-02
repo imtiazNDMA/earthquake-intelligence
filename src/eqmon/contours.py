@@ -10,6 +10,8 @@ import numpy as np
 from contourpy import contour_generator, FillType
 from shapely.geometry import Polygon, mapping
 
+from .config import mmi_class_label
+
 # A real Vs30 grid varies cell-to-cell, so raw bands shatter into thousands of
 # pixel-scale slivers (~MBs of GeoJSON). Simplifying each band's rings and
 # dropping sub-threshold slivers cuts the payload by ~10x with no visible change
@@ -102,6 +104,7 @@ def mmi_to_geojson(mmi: np.ndarray, transform, levels: list[int],
                     "mmi_lower": int(lower),
                     "mmi_upper": int(min(upper, 10)),
                     "color": _MMI_COLORS.get(int(lower), "#888888"),
+                    "label": mmi_class_label(int(lower)),
                 },
                 "geometry": mapping(poly),
             })

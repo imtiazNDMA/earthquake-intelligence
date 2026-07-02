@@ -5,25 +5,25 @@
    ============================================================ */
 :root {
   /* — Brand (primary) — */
-  --brand:        #0F4C81;   /* deep seismic blue: actions, active nav, links */
-  --brand-hover:  #0C3D68;
-  --brand-tint:   #E8F0F7;   /* selected rows, subtle fills, chart areas */
+  --brand:        #2563EB;   /* vibrant brand blue */
+  --brand-hover:  #1D4FD7;
+  --brand-tint:   #E8F0FE;   /* selected rows, subtle fills, chart areas */
 
   /* — Secondary (structural) — */
-  --slate:        #2B3440;   /* headings, command-center surfaces */
-  --slate-muted:  #5B6675;   /* secondary text (WCAG-safe) */
+  --slate:        #16202E;   /* headings, command-center surfaces */
+  --slate-muted:  #5A6675;   /* secondary text (WCAG-safe) */
 
   /* — Tertiary (accent, sparing) — */
-  --copper:       #C97A24;   /* highlights, compare "event 2", chart accent */
-  --copper-tint:  #FBF1E4;
+  --copper:       #E0954A;   /* highlights, compare "event 2", chart accent */
+  --copper-tint:  rgba(224,149,74,.14);
 
   /* — Neutrals — */
-  --bg:           #F7F8FA;
+  --bg:           #F6F8FB;
   --surface:      #FFFFFF;
-  --surface-2:    #F1F3F5;
-  --border:       #E4E7EB;
-  --text:         #1A2230;
-  --text-muted:   #5B6675;
+  --surface-2:    #F0F3F7;
+  --border:       #E3E8EF;
+  --text:         #16202E;
+  --text-muted:   #5A6675;
 
   /* — Semantic / PAGER alert ramp (domain-locked) — */
   --alert-green:  #2E7D32;
@@ -34,18 +34,18 @@
   --danger-hover: #9E2A16;
 
   /* — Focus — */
-  --ring: 0 0 0 3px rgba(15,76,129,.30);
+  --ring: 0 0 0 3px rgba(37,99,235,.30);
 
   /* — Elevation — */
-  --shadow-sm: 0 1px 4px rgba(16,32,52,.06);
-  --shadow-md: 0 2px 12px rgba(16,32,52,.12);
-  --shadow-lg: 0 10px 28px rgba(16,32,52,.18);
+  --shadow-sm: 0 1px 2px rgba(16,32,52,.06);
+  --shadow-md: 0 4px 16px rgba(16,32,52,.10);
+  --shadow-lg: 0 10px 28px rgba(16,32,52,.16);
 
   /* — Radii — */
-  --r-sm: 4px; --r-md: 6px; --r-lg: 10px; --r-xl: 12px;
+  --r-sm: 4px; --r-md: 6px; --r-lg: 8px; --r-xl: 10px;
 
   /* — Type — */
-  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
   --fs-xs: 11px; --fs-sm: 12px; --fs-base: 13px; --fs-lg: 15px;
   --num: "tnum" 1; /* tabular figures */
@@ -64,27 +64,27 @@
    on <html> (set by JS from localStorage / prefers-color-scheme).
    ============================================================ */
 :root[data-theme="dark"] {
-  --brand:        #3D7FBF;
-  --brand-hover:  #5191CE;
-  --brand-tint:   rgba(61,127,191,.16);
+  --brand:        #4C8DF5;
+  --brand-hover:  #6AA1F8;
+  --brand-tint:   rgba(76,141,245,.14);
 
-  --slate:        #C7D0DC;
-  --slate-muted:  #9AA7B8;
+  --slate:        #C9D3E0;
+  --slate-muted:  #93A0B2;
 
-  --copper:       #D98E3A;
-  --copper-tint:  rgba(217,142,58,.16);
+  --copper:       #E0954A;
+  --copper-tint:  rgba(224,149,74,.14);
 
-  --bg:           #0E1622;
-  --surface:      #16202E;
-  --surface-2:    #1E2A3A;
-  --border:       #2A3849;
-  --text:         #E6EBF2;
-  --text-muted:   #9AA7B8;
+  --bg:           #0B0F14;
+  --surface:      #111722;
+  --surface-2:    #19212E;
+  --border:       #222C3A;
+  --text:         #E7ECF3;
+  --text-muted:   #93A0B2;
 
-  --ring: 0 0 0 3px rgba(61,127,191,.40);
-  --shadow-sm: 0 1px 4px rgba(0,0,0,.40);
-  --shadow-md: 0 2px 12px rgba(0,0,0,.50);
-  --shadow-lg: 0 10px 28px rgba(0,0,0,.60);
+  --ring: 0 0 0 3px rgba(76,141,245,.35);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.35);
+  --shadow-md: 0 4px 16px rgba(0,0,0,.40);
+  --shadow-lg: 0 10px 28px rgba(0,0,0,.50);
 
   color-scheme: dark;
 }
@@ -300,7 +300,7 @@ input:focus-visible { border-color: var(--brand); }
 
 .legend {
   background: var(--surface); padding: 12px 14px; border-radius: var(--r-lg);
-  box-shadow: var(--shadow-md); min-width: 64px;
+  box-shadow: var(--shadow-md); min-width: 168px;
 }
 .legend-title { font-weight: 700; font-size: 16px; margin-bottom: 7px; color: var(--slate); }
 .legend-item {
@@ -317,7 +317,11 @@ input:focus-visible { border-color: var(--brand); }
   display: inline-block; width: 34px; height: 24px;
   border-radius: 3px; border: 1px solid rgba(0,0,0,.1); flex: none;
 }
-.legend-label { font-family: var(--font-mono); font-size: 15px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+.legend-label { font-family: var(--font-mono); font-size: 14px; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Class I (Not Felt): reference row for the un-shaded background — not an
+   exportable band, so it never highlights on hover. */
+.legend-note { cursor: default; opacity: .85; }
+.legend-note .legend-swatch { border-color: rgba(0,0,0,.25); }
 
 /* Catalog search/filter bar */
 .filter-row { display: flex; gap: 4px; }

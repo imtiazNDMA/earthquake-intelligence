@@ -1,6 +1,7 @@
 import numpy as np
 from rasterio.transform import from_origin
 
+from eqmon.config import mmi_class_label
 from eqmon.contours import mmi_to_geojson
 
 
@@ -21,6 +22,22 @@ def test_filled_bands_produce_valid_featurecollection():
         assert feat["geometry"]["type"] in ("Polygon", "MultiPolygon")
         assert "mmi_lower" in feat["properties"]
         assert "color" in feat["properties"]
+        # Each band carries its classification label (classification_range.md).
+        assert feat["properties"]["label"] == mmi_class_label(feat["properties"]["mmi_lower"])
+
+
+def test_band_labels_follow_classification_scheme():
+    # Roman numeral + perceived-shaking descriptor per classification_range.md.
+    assert mmi_class_label(1) == "I (Not Felt)"
+    assert mmi_class_label(2) == "II (Weak)"
+    assert mmi_class_label(3) == "III (Weak)"
+    assert mmi_class_label(4) == "IV (Light)"
+    assert mmi_class_label(5) == "V (Moderate)"
+    assert mmi_class_label(6) == "VI (Strong)"
+    assert mmi_class_label(7) == "VII (Very Strong)"
+    assert mmi_class_label(8) == "VIII (Severe)"
+    assert mmi_class_label(9) == "IX (Violent)"
+    assert mmi_class_label(10) == "X (Extreme)"
 
 
 def test_higher_band_is_nested_inside_lower_band_area():

@@ -365,6 +365,19 @@ const MMI_PALETTE = [
   [6, "#ffff00"], [7, "#ffc800"], [8, "#ff9100"], [9, "#ff0000"], [10, "#c80000"],
 ];
 
+// MMI class -> [Roman numeral, perceived-shaking descriptor]. Mirrors MMI_CLASSES
+// in src/eqmon/config.py (the classification_range.md scheme). Class I is "Not
+// Felt": never contoured, shown only as the un-shaded-background reference row.
+const MMI_CLASSES = {
+  1: ["I", "Not Felt"], 2: ["II", "Weak"], 3: ["III", "Weak"], 4: ["IV", "Light"],
+  5: ["V", "Moderate"], 6: ["VI", "Strong"], 7: ["VII", "Very Strong"],
+  8: ["VIII", "Severe"], 9: ["IX", "Violent"], 10: ["X", "Extreme"],
+};
+function mmiClassLabel(level) {
+  const [roman, name] = MMI_CLASSES[level] || [String(level), ""];
+  return name ? `${roman} (${name})` : roman;
+}
+
 let _legendItems = {};
 let _mmiLayers = {};
 let _lastFc = null;
@@ -408,19 +421,25 @@ function renderLegend(fc) {
   const hasData = !!(fc && fc.features && fc.features.length);
   const levels = hasData ? presentLevels(fc) : MMI_PALETTE.map(([m]) => m);
 
-  let html = "<div class='legend-title'>MMI</div>";
-  levels.forEach(m => {
+  let html = "<div class='legend-title'>MMI Intensity</div>";
+  // Highest intensity on top so the legend reads like the map (hot core first).
+  levels.slice().reverse().forEach(m => {
     const cb = hasData
-      ? `<input type="checkbox" class="legend-cb" data-level="${m}" checked aria-label="Include MMI ${m} in export">`
+      ? `<input type="checkbox" class="legend-cb" data-level="${m}" checked aria-label="Include MMI ${mmiClassLabel(m)} in export">`
       : "";
     html += `<div class="legend-item" data-level="${m}">${cb}` +
       `<span class="legend-swatch" style="background:${colorOf[m]}"></span>` +
-      `<span class="legend-label">${m}</span></div>`;
+      `<span class="legend-label">${mmiClassLabel(m)}</span></div>`;
   });
+  // Class I (Not Felt) is never contoured (no band below MMI 2); list it as a
+  // reference for the un-shaded background so the full scheme is represented.
+  html += `<div class="legend-item legend-note">` +
+    `<span class="legend-swatch" style="background:#ffffff"></span>` +
+    `<span class="legend-label">${mmiClassLabel(1)}</span></div>`;
   html += `<button type="button" id="legend-export" class="legend-export"${hasData ? "" : " disabled"}>⬇ Export shapefile</button>`;
   _legendDiv.innerHTML = html;
 
-  _legendDiv.querySelectorAll(".legend-item").forEach(el => {
+  _legendDiv.querySelectorAll(".legend-item[data-level]").forEach(el => {
     const level = parseInt(el.dataset.level);
     el.addEventListener("mouseenter", () => highlightByLevel(level));
     el.addEventListener("mouseleave", () => unhighlightAll());
@@ -479,7 +498,7 @@ function onMmiFeature(f, l) {
   const level = f.properties.mmi_lower;
   if (!_mmiLayers[level]) _mmiLayers[level] = [];
   _mmiLayers[level].push(l);
-  l.bindPopup(`MMI ${f.properties.mmi_lower}–${f.properties.mmi_upper}`);
+  l.bindPopup(`MMI ${mmiClassLabel(f.properties.mmi_lower)}`);
   l.on("mouseover", () => highlightByLevel(level));
   l.on("mouseout", () => unhighlightAll());
 }
@@ -1026,8 +1045,8 @@ async function showComparison() {
   const BLUE = ["#dbeafe","#93c5fd","#60a5fa","#3b82f6","#2563eb","#1d4ed8","#1e40af","#1e3a8a","#172554"];
   const ORANGE = ["#fff7ed","#fed7aa","#fdba74","#fb923c","#f97316","#ea580c","#c2410c","#9a3412","#7c2d12"];
   const mkStyle = p => f => { const i = Math.max(0, Math.min(8, (f.properties.mmi_lower || 2) - 2)); const c = p[i]; return { color: c, weight: 1, fillColor: c, fillOpacity: 0.45 }; };
-  const l1 = L.geoJSON(d1.bands, { style: mkStyle(BLUE), onEachFeature: (f, l) => l.bindPopup(`Event 1: MMI ${f.properties.mmi_lower}–${f.properties.mmi_upper}`) }).addTo(map);
-  const l2 = L.geoJSON(d2.bands, { style: mkStyle(ORANGE), onEachFeature: (f, l) => l.bindPopup(`Event 2: MMI ${f.properties.mmi_lower}–${f.properties.mmi_upper}`) }).addTo(map);
+  const l1 = L.geoJSON(d1.bands, { style: mkStyle(BLUE), onEachFeature: (f, l) => l.bindPopup(`Event 1: MMI ${mmiClassLabel(f.properties.mmi_lower)}`) }).addTo(map);
+  const l2 = L.geoJSON(d2.bands, { style: mkStyle(ORANGE), onEachFeature: (f, l) => l.bindPopup(`Event 2: MMI ${mmiClassLabel(f.properties.mmi_lower)}`) }).addTo(map);
   _compLayers = [l1, l2];
   if (ev1 && ev1.lat != null) _compLayers.push(L.circleMarker([ev1.lat, ev1.lon], { radius: 6, color: "#0F4C81", fillColor: "#fff", fillOpacity: 1 }).addTo(map).bindPopup(`Event 1 — M${ev1.magnitude.toFixed(1)}`));
   if (ev2 && ev2.lat != null) _compLayers.push(L.circleMarker([ev2.lat, ev2.lon], { radius: 6, color: "#C97A24", fillColor: "#fff", fillOpacity: 1 }).addTo(map).bindPopup(`Event 2 — M${ev2.magnitude.toFixed(1)}`));
@@ -1676,7 +1695,7 @@ document.getElementById("theme-toggle").addEventListener("click", () =>
 (function initTheme() {
   let mode = null;
   try { mode = localStorage.getItem("eqmon-theme"); } catch (e) { /* ignore */ }
-  if (!mode) mode = (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light";
+  if (!mode) mode = "dark";
   applyTheme(mode);
 })();
 
