@@ -50,3 +50,46 @@ def test_decluster_groups_aftershock_and_separates_distant():
     assert flags[0] == (True, 1)
     assert flags[1] == (False, 1)
     assert flags[2] == (True, 3)
+
+
+from eqmon.analytics import (spatial_grid, depth_regime_split, rate_series, parse_window)
+
+
+def test_spatial_grid_bins_and_aggregates():
+    rows = [
+        {"lat": 34.1, "lon": 72.1, "magnitude": 4.0, "depth_km": 10.0},
+        {"lat": 34.2, "lon": 72.2, "magnitude": 5.0, "depth_km": 20.0},  # same 0.25 cell
+        {"lat": 40.0, "lon": 80.0, "magnitude": 3.0, "depth_km": 30.0},  # other cell
+    ]
+    cells = {(c["lon_low"], c["lat_low"]): c for c in spatial_grid(rows)}
+    a = cells[(72.0, 34.0)]
+    assert a["count"] == 2 and a["max_mag"] == 5.0 and a["mean_depth"] == 15.0
+    assert (80.0, 40.0) in cells
+
+
+def test_depth_regime_split_boundaries():
+    rows = [{"depth_km": d} for d in [0, 34.9, 35.0, 70.0, 70.1, 200]]
+    r = depth_regime_split(rows)
+    assert r == {"crustal": 2, "intermediate": 2, "deep": 2}
+
+
+def test_rate_series_total_vs_background():
+    rows = [
+        {"occurred_at": datetime(2026, 1, 5, tzinfo=timezone.utc), "is_mainshock": True},
+        {"occurred_at": datetime(2026, 1, 20, tzinfo=timezone.utc), "is_mainshock": False},
+        {"occurred_at": datetime(2026, 2, 3, tzinfo=timezone.utc), "is_mainshock": True},
+    ]
+    series = {s["month"]: s for s in rate_series(rows)}
+    assert series["2026-01"]["total"] == 2 and series["2026-01"]["background"] == 1
+    assert series["2026-02"]["total"] == 1 and series["2026-02"]["background"] == 1
+
+
+def test_parse_window():
+    anchor = datetime(2026, 7, 1, tzinfo=timezone.utc)
+    f, t = parse_window("1y", anchor)
+    assert t == anchor and f == anchor - timedelta(days=365)
+    f2, _ = parse_window("all", anchor)
+    assert f2.year <= 1970
+    import pytest
+    with pytest.raises(ValueError):
+        parse_window("bogus", anchor)
