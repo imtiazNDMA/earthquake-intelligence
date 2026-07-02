@@ -43,3 +43,52 @@ def b_value_aki(mags, mc) -> tuple[float, float, int] | None:
     var = float(((sample - mean_m) ** 2).sum()) / (n * (n - 1))
     sigma = 2.30 * b * b * math.sqrt(var)
     return (round(b, 3), round(sigma, 3), n)
+
+
+_EARTH_R_KM = 6371.0088
+
+
+def _haversine_km(lat1, lon1, lat2, lon2) -> float:
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlmb = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlmb / 2) ** 2
+    return 2 * _EARTH_R_KM * math.asin(math.sqrt(a))
+
+
+def _gk_windows(mag) -> tuple[float, float]:
+    """Gardner & Knopoff (1974): interaction distance L (km) and time T (days)."""
+    dist_km = 10 ** (0.1238 * mag + 0.983)
+    if mag >= 6.5:
+        time_days = 10 ** (0.032 * mag + 2.7389)
+    else:
+        time_days = 10 ** (0.5409 * mag - 0.547)
+    return dist_km, time_days
+
+
+def decluster_gardner_knopoff(events) -> list[tuple[bool, int]]:
+    """Flag each event (is_mainshock, sequence_id). Largest-magnitude first;
+    events inside a larger event's space-time window inherit its sequence.
+    Symmetric time window captures foreshocks and aftershocks."""
+    n = len(events)
+    order = sorted(range(n), key=lambda i: (-events[i]["magnitude"], events[i]["occurred_at"]))
+    assigned = [False] * n
+    out: dict[int, tuple[bool, int]] = {}
+    for i in order:
+        if assigned[i]:
+            continue
+        assigned[i] = True
+        main_id = events[i]["id"]
+        out[i] = (True, main_id)
+        dist_km, time_days = _gk_windows(events[i]["magnitude"])
+        for j in range(n):
+            if assigned[j] or j == i:
+                continue
+            dt = abs((events[j]["occurred_at"] - events[i]["occurred_at"]).total_seconds()) / 86400.0
+            if dt > time_days:
+                continue
+            if _haversine_km(events[i]["lat"], events[i]["lon"],
+                             events[j]["lat"], events[j]["lon"]) <= dist_km:
+                assigned[j] = True
+                out[j] = (False, main_id)
+    return [out[i] for i in range(n)]

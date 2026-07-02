@@ -30,3 +30,23 @@ def test_b_value_recovers_known_slope():
 
 def test_b_value_none_when_too_few():
     assert b_value_aki([3.0, 3.1, 3.2, 3.3], 3.0) is None
+
+
+from datetime import datetime, timedelta, timezone
+from eqmon.analytics import decluster_gardner_knopoff
+
+T0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+
+def test_decluster_groups_aftershock_and_separates_distant():
+    events = [
+        {"id": 1, "occurred_at": T0, "lat": 34.0, "lon": 72.0, "magnitude": 6.0},
+        # 2 hours later, 10 km away -> inside M6 window -> aftershock of #1
+        {"id": 2, "occurred_at": T0 + timedelta(hours=2), "lat": 34.05, "lon": 72.05, "magnitude": 4.0},
+        # far away in space -> its own mainshock
+        {"id": 3, "occurred_at": T0 + timedelta(hours=3), "lat": 40.0, "lon": 80.0, "magnitude": 5.0},
+    ]
+    flags = decluster_gardner_knopoff(events)
+    assert flags[0] == (True, 1)
+    assert flags[1] == (False, 1)
+    assert flags[2] == (True, 3)
