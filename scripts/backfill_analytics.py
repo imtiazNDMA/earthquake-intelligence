@@ -15,7 +15,7 @@ from eqmon.events.ingest import _decluster, _assign_zones  # noqa: E402
 
 
 def main() -> None:
-    with psycopg.connect(_database_url(), autocommit=True) as conn:
+    with psycopg.connect(_database_url()) as conn:
         apply_schema(conn)
         _decluster(conn)
         _assign_zones(conn)
@@ -25,6 +25,7 @@ def main() -> None:
         zoned = conn.execute(
             "SELECT count(*) FROM seismic_event WHERE zone_id IS NOT NULL"
         ).fetchone()[0]
+        conn.commit()
         print(f"backfill done: {mains} mainshocks, {zoned} events zoned")
 
 

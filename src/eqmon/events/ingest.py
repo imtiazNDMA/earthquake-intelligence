@@ -90,10 +90,16 @@ def _decluster(conn: psycopg.Connection) -> None:
                "magnitude": r[4]} for r in rows]
     flags = decluster_gardner_knopoff(events)
     conn.execute("UPDATE seismic_event SET is_mainshock = NULL, sequence_id = NULL")
-    for ev, (is_main, seq) in zip(events, flags):
+    if events:
+        ids = [ev["id"] for ev in events]
+        mains = [bool(is_main) for (is_main, _seq) in flags]
+        seqs = [int(seq) for (_is_main, seq) in flags]
         conn.execute(
-            "UPDATE seismic_event SET is_mainshock = %s, sequence_id = %s WHERE id = %s",
-            (is_main, seq, ev["id"]),
+            "UPDATE seismic_event AS s SET is_mainshock = v.m, sequence_id = v.seq "
+            "FROM (SELECT unnest(%s::bigint[]) AS id, "
+            "unnest(%s::boolean[]) AS m, unnest(%s::bigint[]) AS seq) AS v "
+            "WHERE s.id = v.id",
+            (ids, mains, seqs),
         )
 
 

@@ -32,6 +32,12 @@ def test_b_value_none_when_too_few():
     assert b_value_aki([3.0, 3.1, 3.2, 3.3], 3.0) is None
 
 
+def test_b_value_none_when_no_spread():
+    # All 60 magnitudes identical -> zero variance -> b is meaningless -> None.
+    mags = [3.0] * 60
+    assert b_value_aki(mags, 3.0) is None
+
+
 from datetime import datetime, timedelta, timezone
 from eqmon.analytics import decluster_gardner_knopoff
 
