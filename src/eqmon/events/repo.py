@@ -229,7 +229,11 @@ def get_event_stats(conn: psycopg.Connection) -> dict:
     # --- full daily counts + cumulative moment (all time) ---
     rows = conn.execute("""
         SELECT DATE(occurred_at) AS day, COUNT(*) AS cnt,
-               SUM((10.0 ^ (COALESCE(magnitude, 0) * 1.5))) AS moment_proxy,
+               -- Clamp the exponent to a physical max magnitude (10): the moment
+               -- proxy 10^(1.5*M) overflows double precision for the dirty
+               -- out-of-range magnitudes PMD sometimes emits (e.g. mag/depth
+               -- swaps giving M317). Real events are unaffected.
+               SUM(power(10.0, LEAST(COALESCE(magnitude, 0), 10.0) * 1.5)) AS moment_proxy,
                MAX(magnitude) AS max_mag
         FROM seismic_event WHERE is_canonical = TRUE AND occurred_at IS NOT NULL
         GROUP BY day ORDER BY day
