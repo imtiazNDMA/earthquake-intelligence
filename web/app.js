@@ -1384,8 +1384,60 @@ function renderRate(series) {
         y: { title: { display: true, text: "Events / month", font: { size: 10 } } } } },
   });
 }
-function renderHotspotMap() {}
-function renderZoneTable() {}
+let _hotspotMap = null, _zonesLayer = null;
+
+async function renderHotspotMap(grid) {
+  const host = document.getElementById("hotspot-map");
+  if (!host) return;
+  if (_hotspotMap) { _hotspotMap.remove(); _hotspotMap = null; }
+  _hotspotMap = L.map(host, { attributionControl: false }).setView([30.4, 69.3], 4);
+  const style = currentTheme() === "dark" ? "dark_all" : "light_all";
+  L.tileLayer(`https://{s}.basemaps.cartocdn.com/${style}/{z}/{x}/{y}{r}.png`,
+    { subdomains: "abcd" }).addTo(_hotspotMap);
+
+  const cell = 0.25; // GRID_CELL_DEG server-side
+  const max = grid.reduce((m, c) => Math.max(m, c.count), 1);
+  grid.forEach(c => {
+    const t = c.count / max;
+    L.rectangle([[c.lat_low, c.lon_low], [c.lat_low + cell, c.lon_low + cell]], {
+      stroke: false, fillColor: "#C97A24", fillOpacity: 0.15 + 0.6 * t,
+    }).addTo(_hotspotMap)
+      .bindPopup(`${c.count} events · max M${c.max_mag} · mean depth ${c.mean_depth} km`)
+      .on("click", () => {
+        _analyticsState.bbox = [c.lon_low, c.lat_low, c.lon_low + cell, c.lat_low + cell];
+        _analyticsState.zoneId = null; renderDashboard();
+      });
+  });
+
+  // tectonic-zone overlay (click → drill into zone)
+  try {
+    const fc = await (await fetch("/zones")).json();
+    _zonesLayer = L.geoJSON(fc, {
+      style: { color: "#0F4C81", weight: 1, fill: false },
+      onEachFeature: (feat, lyr) => lyr.on("click", () => {
+        _analyticsState.zoneId = feat.properties.zone_id;
+        _analyticsState.bbox = null; renderDashboard();
+      }),
+    }).addTo(_hotspotMap);
+  } catch (e) { /* zones optional */ }
+}
+
+function renderZoneTable(zones) {
+  const host = document.getElementById("zone-table");
+  if (!host) return;
+  if (!zones || !zones.length) { host.innerHTML = `<div style="color:var(--text-muted);padding:8px">No zone data in this view.</div>`; return; }
+  const rows = zones.map(z => `<tr data-zone="${z.zone_id}">
+    <td>${escapeHtml(z.name)}</td><td align=right>${z.n}</td>
+    <td align=right>${z.b != null ? z.b + "±" + z.sigma : "—"}</td>
+    <td align=right>${z.mc ?? "—"}</td><td align=right>${z.median_depth}</td>
+    <td align=right>M${z.max_mag.toFixed(1)}</td><td align=right>${Math.round(z.pct_aftershocks * 100)}%</td></tr>`).join("");
+  host.innerHTML = `<table class="zone-table"><thead><tr>
+    <th align=left>Zone</th><th>N</th><th>b±σ</th><th>Mc</th><th>med.z</th><th>maxM</th><th>aft%</th>
+    </tr></thead><tbody>${rows}</tbody></table>`;
+  host.querySelectorAll("tr[data-zone]").forEach(tr => tr.addEventListener("click", () => {
+    _analyticsState.zoneId = parseInt(tr.dataset.zone); _analyticsState.bbox = null; renderDashboard();
+  }));
+}
 
 async function renderDashboard() {
   const main = document.getElementById("dash-main");

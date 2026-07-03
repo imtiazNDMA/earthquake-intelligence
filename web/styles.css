@@ -409,6 +409,12 @@ input:focus-visible { border-color: var(--brand); }
   background: var(--surface-2); color: var(--text); border-radius: var(--r-sm); }
 .dash-breadcrumb { color: var(--brand); font-weight: 600; }
 .dash-provenance { font-size: var(--fs-sm); font-weight: 400; color: var(--text-muted); }
+#zone-table { max-height: 340px; overflow-y: auto; }
+.zone-table { width: 100%; border-collapse: collapse; font-size: var(--fs-xs); }
+.zone-table thead th { position: sticky; top: 0; background: var(--surface); }
+.zone-table th, .zone-table td { padding: 4px 6px; border-bottom: 1px solid var(--border); }
+.zone-table tbody tr { cursor: pointer; }
+.zone-table tbody tr:hover { background: var(--brand-tint); }
 .dash-stat-grid { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
 .dash-stat-box {
   flex: 1 0 140px; background: var(--surface); border-radius: var(--r-md); padding: 14px 10px; text-align: center;
