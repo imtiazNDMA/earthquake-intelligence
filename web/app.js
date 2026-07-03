@@ -1357,8 +1357,33 @@ function renderFmd(f) {
     },
   });
 }
-function renderDepth() {}
-function renderRate() {}
+function renderDepth(d) {
+  const r = d.regimes;
+  mk("ch-depth", {
+    type: "bar",
+    data: { labels: ["Crustal <35", "Intermediate 35–70", "Deep >70"],
+      datasets: [{ label: "Events", data: [r.crustal, r.intermediate, r.deep],
+        backgroundColor: [C_.teal, C_.blue, C_.purple], borderRadius: 3 }] },
+    options: { plugins: { legend: { display: false },
+      title: { display: true, text: "Depth regime (km)", font: { size: 12, weight: "600" } } },
+      scales: { x: { ticks: { font: { size: 9 } } }, y: { title: { display: true, text: "Events", font: { size: 10 } } } } },
+  });
+}
+function renderRate(series) {
+  mk("ch-rate", {
+    type: "line",
+    data: { labels: series.map(s => s.month), datasets: [
+      { label: "Total", data: series.map(s => s.total), borderColor: C_.gray,
+        backgroundColor: "rgba(148,163,184,0.15)", fill: true, tension: .2, pointRadius: 0 },
+      { label: "Background (declustered)", data: series.map(s => s.background),
+        borderColor: C_.blue, backgroundColor: "rgba(15,76,129,0.10)", fill: true, tension: .2, pointRadius: 0 },
+    ]},
+    options: { plugins: { legend: { position: "top", labels: { font: { size: 10 }, boxWidth: 14 } },
+      title: { display: true, text: "Monthly seismicity rate — total vs background", font: { size: 12, weight: "600" } } },
+      scales: { x: { ticks: { font: { size: 8 }, maxTicksLimit: 12 } },
+        y: { title: { display: true, text: "Events / month", font: { size: 10 } } } } },
+  });
+}
 function renderHotspotMap() {}
 function renderZoneTable() {}
 
