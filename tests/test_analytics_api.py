@@ -44,3 +44,20 @@ def test_analytics_endpoint_shape_and_filters(db_conn, monkeypatch):
     assert body["kpis"]["mc"] is not None
     # bad window -> 400
     assert client.get("/analytics?window=nope").status_code == 400
+
+
+def test_zones_geojson_and_stats_gone(db_conn, monkeypatch):
+    from eqmon import api, db
+    db_conn.execute(
+        "INSERT INTO tectonic_zone (name, geom) VALUES ('Z1', "
+        "ST_SetSRID(ST_GeomFromText('MULTIPOLYGON(((71 33,73 33,73 35,71 35,71 33)))'),4326))")
+    monkeypatch.setattr(db, "get_conn", lambda: _CtxConn(db_conn))
+    client = TestClient(api.app)
+    r = client.get("/zones")
+    assert r.status_code == 200
+    fc = r.json()
+    assert fc["type"] == "FeatureCollection" and fc["features"]
+    assert fc["features"][0]["properties"]["name"] == "Z1"
+    # retired: the path now falls through to /events/{event_id}, which
+    # rejects the non-integer "stats" with 422 rather than 404
+    assert client.get("/events/stats").status_code in (404, 422)

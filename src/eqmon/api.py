@@ -23,8 +23,7 @@ from .export import featurecollection_to_shapefile_zip
 from .events.ingest import ingest
 from .events.repo import (analytics_rows, catalog_max_time, count_events,
                            create_manual_event, delete_event, get_event,
-                           get_event_stats, list_events, update_event,
-                           update_usgs_detail)
+                           list_events, update_event, update_usgs_detail)
 from .events.sources import METSource, USGSSource
 from .impact import compute_event_impact
 from .intensity import compute_mmi_grid
@@ -364,10 +363,16 @@ def export_events(format: str = "csv",
     )
 
 
-@app.get("/events/stats")
-def event_stats():
+@app.get("/zones")
+def zones():
     with db.get_conn() as conn:
-        return get_event_stats(conn)
+        rows = conn.execute(
+            "SELECT id, name, ST_AsGeoJSON(geom) FROM tectonic_zone"
+        ).fetchall()
+    import json
+    return {"type": "FeatureCollection", "features": [
+        {"type": "Feature", "properties": {"zone_id": r[0], "name": r[1]},
+         "geometry": json.loads(r[2])} for r in rows]}
 
 
 @app.get("/analytics")
