@@ -342,3 +342,37 @@ def get_event_stats(conn: psycopg.Connection) -> dict:
     result["mag_type_dist"] = [{"mag_type": r[0], "count": r[1]} for r in rows]
 
     return result
+
+
+def catalog_max_time(conn: psycopg.Connection):
+    """Most recent event time in the catalog (analytics window anchor)."""
+    r = conn.execute("SELECT MAX(occurred_at) FROM seismic_event").fetchone()
+    return r[0]
+
+
+def analytics_rows(conn: psycopg.Connection, from_dt, to_dt, min_mag,
+                   zone_id=None, bbox=None) -> list[dict]:
+    """Canonical, quality-gated rows for analytics.
+
+    The gate (-1 <= magnitude < 10, depth present) excludes dirty catalog
+    rows such as PMD mag/depth swaps. `bbox` is (minlon, minlat, maxlon,
+    maxlat) or None.
+    """
+    clauses = ["is_canonical = TRUE", "magnitude >= -1", "magnitude < 10",
+               "depth_km IS NOT NULL", "occurred_at BETWEEN %s AND %s",
+               "magnitude >= %s"]
+    params = [from_dt, to_dt, min_mag]
+    if zone_id is not None:
+        clauses.append("zone_id = %s")
+        params.append(zone_id)
+    if bbox is not None:
+        clauses.append("geom && ST_MakeEnvelope(%s,%s,%s,%s,4326)")
+        params.extend(bbox)
+    sql = ("SELECT id, occurred_at, ST_Y(geom) AS lat, ST_X(geom) AS lon, "
+           "magnitude, depth_km, mag_type, place, is_mainshock, zone_id, "
+           "sequence_id "
+           "FROM seismic_event WHERE " + " AND ".join(clauses))
+    with conn.cursor() as cur:
+        cur.execute(sql, params)
+        cols = [d[0] for d in cur.description]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
