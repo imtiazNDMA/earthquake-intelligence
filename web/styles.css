@@ -188,10 +188,10 @@ input:focus-visible { border-color: var(--brand); }
            color: var(--text); font-variant-numeric: tabular-nums; }
 .evt-magtype { font-family: var(--font-sans); font-weight: 400; color: var(--text-muted); font-size: 10px; }
 .evt-alert { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px; text-transform: uppercase; }
-.evt-alert.green  { background: #E6F4E6; color: var(--alert-green); }
-.evt-alert.yellow { background: #FDF3D6; color: #8A6D11; }
-.evt-alert.orange { background: #FCE6D2; color: var(--alert-orange); }
-.evt-alert.red    { background: #FADBDB; color: var(--alert-red); }
+.evt-alert.green  { background: color-mix(in srgb, var(--alert-green) 16%, transparent);  color: var(--alert-green); }
+.evt-alert.yellow { background: color-mix(in srgb, var(--alert-yellow) 18%, transparent); color: var(--alert-yellow); }
+.evt-alert.orange { background: color-mix(in srgb, var(--alert-orange) 16%, transparent); color: var(--alert-orange); }
+.evt-alert.red    { background: color-mix(in srgb, var(--alert-red) 16%, transparent);    color: var(--alert-red); }
 .evt.alert-green::before  { background: var(--alert-green); }
 .evt.alert-yellow::before { background: var(--alert-yellow); }
 .evt.alert-orange::before { background: var(--alert-orange); }
