@@ -1218,11 +1218,13 @@ const _ALERT_RANK = { red: 3, orange: 2, yellow: 1 };  // levels considered "act
 async function renderAlerts() {
   const body = document.getElementById("alerts-body");
   body.innerHTML = `<div style="padding:18px;text-align:center;color:var(--text-muted)">${spinnerHTML()} Loading alerts…</div>`;
-  let s;
+  let evs;
   try {
-    const r = await fetch("/events/stats");
+    // /events/stats is retired; derive alert counts + top events from the
+    // recent catalog slice instead (PAGER alerts are recency-oriented).
+    const r = await fetch("/events?limit=500");
     if (!r.ok) throw new Error("HTTP " + r.status);
-    s = await r.json();
+    evs = (await r.json()).events || [];
   } catch (e) {
     body.innerHTML = `<div style="color:var(--text-muted);font-size:12px;padding:8px 0">Couldn't load alerts.</div>`;
     toast("Couldn't load PAGER alerts: " + e.message, "error");
@@ -1230,14 +1232,15 @@ async function renderAlerts() {
   }
 
   const counts = {};
-  (s.alert_dist || []).forEach(a => { counts[a.alert] = a.count; });
+  evs.forEach(e => { if (e.alert) counts[e.alert] = (counts[e.alert] || 0) + 1; });
   const chips = PAGER_LEVELS.map(l =>
     `<span class="pager-chip" title="${l.label} alerts"><span class="pager-dot" style="background:${PAGER_COLOR[l.key]}"></span>${counts[l.key] || 0}</span>`
   ).join("");
 
-  const active = (s.top_significant || [])
+  const active = evs
     .filter(e => _ALERT_RANK[e.alert])
-    .sort((a, b) => (_ALERT_RANK[b.alert] - _ALERT_RANK[a.alert]) || ((b.sig || 0) - (a.sig || 0)));
+    .sort((a, b) => (_ALERT_RANK[b.alert] - _ALERT_RANK[a.alert]) || ((b.sig || 0) - (a.sig || 0)))
+    .slice(0, 10);
   const listHtml = active.length
     ? active.map(e => `<div class="pager-row" data-id="${e.id}" tabindex="0" role="button" aria-label="M${(e.magnitude ?? 0).toFixed(1)} ${escapeHtml(e.place || "")}, ${e.alert} alert">
         <span class="pager-dot" style="background:${PAGER_COLOR[e.alert]}"></span>
