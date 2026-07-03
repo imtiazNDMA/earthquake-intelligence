@@ -29,6 +29,9 @@ web/tiles/
 
 # Local secrets / connection strings
 .env
+# API-client exports (Postman etc.) can embed live bearer tokens
+eqapi.json
+*.postman_collection.json
 
 # Session/agent transient state
 .remember/
