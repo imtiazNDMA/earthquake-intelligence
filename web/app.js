@@ -1324,7 +1324,19 @@ function _analyticsQuery() {
 
 // Panel renderers are filled in per-panel below; stubs keep the shell runnable.
 function renderProvenance() {}
-function renderKpis() {}
+function renderKpis(k) {
+  const grid = document.getElementById("dash-kpis");
+  const box = (val, lbl) => `<div class="dash-stat-box"><div class="dash-stat-val">${val}</div><div class="dash-stat-lbl">${lbl}</div></div>`;
+  const b = k.b != null ? `${k.b}±${k.b_sigma}` : "—";
+  const largest = k.largest ? `M${k.largest.magnitude.toFixed(1)}` : "—";
+  grid.innerHTML =
+    box(b, k.b_n != null ? `b-value (N ${k.b_n})` : "b-value") +
+    box(k.mc ?? "—", "Completeness Mc") +
+    box(k.background_rate ?? "—", "Background rate /yr") +
+    box(k.pct_aftershocks != null ? Math.round(k.pct_aftershocks * 100) + "%" : "—", "Aftershocks") +
+    box(largest, "Largest event") +
+    box(k.active_sequences ?? 0, "Active sequences");
+}
 function renderFmd() {}
 function renderDepth() {}
 function renderRate() {}
