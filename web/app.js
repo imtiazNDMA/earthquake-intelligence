@@ -1310,322 +1310,82 @@ function barDelay(ctx) {
   return ctx.dataIndex * (900 / n);
 }
 
+const _analyticsState = { window: "1y", minMag: "mc", zoneId: null, bbox: null };
+
+function _analyticsQuery() {
+  const p = new URLSearchParams({ window: _analyticsState.window, min_mag: _analyticsState.minMag });
+  if (_analyticsState.zoneId != null) p.set("zone_id", _analyticsState.zoneId);
+  if (_analyticsState.bbox) p.set("bbox", _analyticsState.bbox.join(","));
+  return p.toString();
+}
+
+// Panel renderers are filled in per-panel below; stubs keep the shell runnable.
+function renderProvenance() {}
+function renderKpis() {}
+function renderFmd() {}
+function renderDepth() {}
+function renderRate() {}
+function renderHotspotMap() {}
+function renderZoneTable() {}
+
 async function renderDashboard() {
-  const dashMain = document.getElementById("dash-main");
-  dashMain.innerHTML = `<div style="padding:48px;text-align:center;color:var(--text-muted)">${spinnerHTML()} Loading national overview…</div>`;
+  const main = document.getElementById("dash-main");
+  main.innerHTML = `<div style="padding:48px;text-align:center;color:var(--text-muted)">${spinnerHTML()} Loading analytics…</div>`;
   let resp;
-  try { resp = await fetch("/events/stats"); } catch (e) {
-    dashMain.innerHTML = `<div style="color:var(--text-muted);padding:20px">Network error: ${e.message}</div>`;
-    toast("Couldn't load overview: " + e.message, "error");
-    return;
-  }
+  try { resp = await fetch("/analytics?" + _analyticsQuery()); }
+  catch (e) { main.innerHTML = `<div style="padding:20px;color:var(--text-muted)">Network error: ${escapeHtml(e.message)}</div>`; return; }
   if (!resp.ok) {
-    const txt = await resp.text().catch(() => "unknown");
-    dashMain.innerHTML = `<div style="color:var(--text-muted);padding:20px">Failed to load stats (HTTP ${resp.status}: ${txt.substring(0, 200)})</div>`;
-    toast("Couldn't load overview (HTTP " + resp.status + ")", "error");
+    const t = await resp.text().catch(() => "");
+    main.innerHTML = `<div style="padding:20px;color:var(--text-muted)">Failed to load analytics (HTTP ${resp.status}: ${escapeHtml(t.slice(0, 160))})</div>`;
     return;
   }
-  let s;
-  try { s = await resp.json(); } catch (e) {
-    dashMain.innerHTML = `<div style="color:var(--text-muted);padding:20px">Stats response not JSON (${e.message})</div>`;
-    toast("Overview data was invalid", "error");
-    return;
-  }
+  const data = await resp.json();
   destroyCharts();
   syncChartTheme();
-  const surfaceC = getComputedStyle(document.documentElement).getPropertyValue("--surface").trim() || "#fff";
+  main.innerHTML = _dashScaffoldHTML();
+  _wireFilterBar();
+  renderProvenance(data.provenance);
+  renderKpis(data.kpis);
+  renderFmd(data.fmd);
+  renderDepth(data.depth);
+  renderRate(data.rate);
+  renderHotspotMap(data.grid);
+  renderZoneTable(data.zones);
+}
 
-  const el = document.getElementById("dash-main");
-  const top1 = s.top_significant?.[0];
-  el.innerHTML = `
-    <div class="dash-stat-grid">
-      <div class="dash-stat-box"><div class="dash-stat-val" id="ds-total">0</div><div class="dash-stat-lbl">Recorded Earthquakes</div></div>
-      <div class="dash-stat-box"><div class="dash-stat-val" id="ds-meanmag">—</div><div class="dash-stat-lbl">Average Strength</div></div>
-      <div class="dash-stat-box"><div class="dash-stat-val" id="ds-maxmag">—</div><div class="dash-stat-lbl">Strongest Event</div></div>
-      <div class="dash-stat-box"><div class="dash-stat-val" id="ds-bval">—</div><div class="dash-stat-lbl">Activity Pattern</div></div>
-      <div class="dash-stat-box"><div class="dash-stat-val" id="ds-tsunami">0</div><div class="dash-stat-lbl">Tsunami Flags</div></div>
-      <div class="dash-stat-box"><div class="dash-stat-val" id="ds-topsig">0</div><div class="dash-stat-lbl">Highest Impact Score</div></div>
-    </div>
-    <div class="dash-row">
-      <div class="dash-card" style="flex:1.4"><canvas id="ch-gr"></canvas></div>
-      <div class="dash-card" style="flex:1"><canvas id="ch-depth"></canvas></div>
-    </div>
-    <div class="dash-row">
-      <div class="dash-card"><canvas id="ch-moment"></canvas></div>
-    </div>
-    <div class="dash-row">
-      <div class="dash-card" style="flex:1.2"><canvas id="ch-rate"></canvas></div>
-      <div class="dash-card" style="flex:1"><canvas id="ch-hour"></canvas></div>
-    </div>
-    <div class="dash-row">
-      <div class="dash-card" style="flex:1.3"><canvas id="ch-top"></canvas></div>
-      <div class="dash-card" style="flex:1"><canvas id="ch-alert"></canvas></div>
-    </div>
-    <div class="dash-foot">All recorded events · Overview refreshes when opened</div>`;
+function _dashScaffoldHTML() {
+  return `
+  <div class="dash-filterbar">
+    <label>Time <select id="f-window">
+      <option value="30d">30 days</option><option value="1y" selected>1 year</option>
+      <option value="5y">5 years</option><option value="all">All</option></select></label>
+    <label>Min mag <select id="f-minmag">
+      <option value="mc" selected>≥ Mc</option><option value="2">2.0</option>
+      <option value="3">3.0</option><option value="4">4.0</option><option value="5">5.0</option></select></label>
+    <span id="f-breadcrumb" class="dash-breadcrumb"></span>
+    <button id="f-reset" class="btn-secondary" style="width:auto;margin:0">⟲ Reset</button>
+  </div>
+  <div id="dash-kpis" class="dash-stat-grid"></div>
+  <div class="dash-row"><div class="dash-card auto" style="flex:1.4"><div id="hotspot-map" style="height:340px"></div></div>
+    <div class="dash-card auto" style="flex:1"><div id="zone-table"></div></div></div>
+  <div class="dash-row"><div class="dash-card" style="flex:1.3"><canvas id="ch-fmd"></canvas></div>
+    <div class="dash-card" style="flex:1"><canvas id="ch-depth"></canvas></div></div>
+  <div class="dash-row"><div class="dash-card"><canvas id="ch-rate"></canvas></div></div>
+  <div class="dash-foot" id="dash-provenance-foot"></div>`;
+}
 
-  animateCounter(document.getElementById("ds-total"), s.total_events);
-  if (s.mean_magnitude != null) {
-    document.getElementById("ds-meanmag").textContent = s.mean_magnitude.toFixed(2);
-  }
-  if (s.max_magnitude != null) {
-    document.getElementById("ds-maxmag").textContent = s.max_magnitude.toFixed(1);
-  }
-  document.getElementById("ds-bval").textContent = s.b_value != null ? s.b_value.toFixed(3) : "—";
-  animateCounter(document.getElementById("ds-tsunami"), s.tsunami_count);
-  animateCounter(document.getElementById("ds-topsig"), top1?.sig ?? 0);
-
-  // --- 1. Gutenberg‑Richter (semi‑log cumulative + per‑bin bars) ---
-  const grLbl = s.gr_data.map(r => r.mag_low.toFixed(1));
-  mk("ch-gr", {
-    type: "line",
-    data: {
-      labels: grLbl,
-      datasets: [
-        {
-          label: "At least this strong",
-          data: s.gr_data.map(r => r.cumulative),
-          borderColor: C_.orange,
-          backgroundColor: "rgba(201,122,36,0.08)",
-          fill: true, tension: 0,
-          pointRadius: s.gr_data.map(r => r.cumulative > 0 ? 3 : 0),
-          pointBackgroundColor: C_.orange,
-          pointHoverRadius: 5,
-          order: 1,
-        },
-        {
-          label: "Number in range",
-          data: s.gr_data.map(r => r.count),
-          backgroundColor: "rgba(201,122,36,0.25)",
-          borderColor: "rgba(201,122,36,0.45)",
-          borderWidth: 1,
-          type: "bar", order: 2, yAxisID: "y1", borderRadius: 2,
-        },
-      ],
-    },
-    options: {
-      animation: { duration: 1200, easing: "easeOutQuart" },
-      plugins: {
-        legend: { position: "top", labels: { font: { size: 10 }, boxWidth: 14 } },
-        title: { display: true, text: "How Often Stronger Earthquakes Occur", font: { size: 12, weight: "600" } },
-        tooltip: {
-          callbacks: {
-            label: ctx => ctx.dataset.label === "At least this strong"
-              ? `Events at or above this strength: ${ctx.parsed.y}` : `Events in this strength range: ${ctx.parsed.y}`,
-          },
-        },
-      },
-      scales: {
-        x: { title: { display: true, text: "Earthquake strength", font: { size: 10 } }, ticks: { font: { size: 9 } } },
-        y: {
-          type: "logarithmic",
-          title: { display: true, text: "Number of events", font: { size: 10 } },
-          ticks: { font: { size: 9 }, callback: v => v >= 1 ? v : "" },
-          min: 0.5,
-        },
-        y1: {
-          position: "right", title: { display: true, text: "Events", font: { size: 10 } },
-          grid: { drawOnChartArea: false }, ticks: { font: { size: 9 } },
-        },
-      },
-    },
+function _wireFilterBar() {
+  const win = document.getElementById("f-window");
+  const mm = document.getElementById("f-minmag");
+  win.value = _analyticsState.window; mm.value = _analyticsState.minMag;
+  win.addEventListener("change", () => { _analyticsState.window = win.value; renderDashboard(); });
+  mm.addEventListener("change", () => { _analyticsState.minMag = mm.value; renderDashboard(); });
+  document.getElementById("f-reset").addEventListener("click", () => {
+    _analyticsState.zoneId = null; _analyticsState.bbox = null; renderDashboard();
   });
-
-  // --- 2. Depth distribution (animated bars) ---
-  const depthLbl = s.depth_bins.map(r => `${r.depth_low}–${r.depth_low + 10}`);
-  mk("ch-depth", {
-    type: "bar",
-    data: {
-      labels: depthLbl,
-      datasets: [{
-        label: "Events", data: s.depth_bins.map(r => r.count),
-        backgroundColor: C_.teal, borderRadius: 3,
-      }],
-    },
-    options: {
-      animation: { duration: 1000, easing: "easeOutQuart", delay: barDelay },
-      plugins: {
-        legend: { display: false },
-        title: { display: true, text: "How Deep Earthquakes Occurred", font: { size: 12, weight: "600" } },
-      },
-      scales: {
-        x: { title: { display: true, text: "Depth below ground (km)", font: { size: 10 } }, ticks: { font: { size: 8 }, maxRotation: 60 } },
-        y: { beginAtZero: true, ticks: { font: { size: 9 } } },
-      },
-    },
-  });
-
-  // --- 3. Cumulative Moment Release (animated growing line) ---
-  const momLbl = s.daily_cumulative.map(d => {
-    const p = d.day.split("-");
-    return p[1] + "/" + p[2];
-  });
-  mk("ch-moment", {
-    type: "line",
-    data: {
-      labels: momLbl,
-      datasets: [{
-        label: "Estimated total energy",
-        data: s.daily_cumulative.map(d => d.cum_moment),
-        borderColor: C_.blue,
-        backgroundColor: ctx => {
-          if (!ctx.chart.chartArea) return "transparent";
-          const g = ctx.chart.ctx.createLinearGradient(0, ctx.chart.chartArea.top, 0, ctx.chart.chartArea.bottom);
-          g.addColorStop(0, "rgba(15,76,129,0.20)"); g.addColorStop(1, "rgba(15,76,129,0.02)");
-          return g;
-        },
-        fill: true, tension: 0.1, pointRadius: 0, pointHoverRadius: 4, borderWidth: 2,
-      }],
-    },
-    options: {
-      animation: { duration: 2000, easing: "easeInOutQuad" },
-      plugins: {
-        legend: { display: false },
-        title: { display: true, text: "Estimated Energy Released Over Time", font: { size: 12, weight: "600" } },
-        tooltip: {
-          callbacks: {
-            label: ctx => `Estimated total: ${(+ctx.parsed.y).toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
-          },
-        },
-      },
-      scales: {
-        x: { ticks: { font: { size: 8 }, maxTicksLimit: 20 } },
-        y: {
-          title: { display: true, text: "Estimated total energy", font: { size: 10 } },
-          ticks: {
-            font: { size: 9 },
-            callback: v => v >= 1000 ? (v / 1000).toFixed(0) + "k" : v,
-          },
-        },
-      },
-    },
-  });
-
-  // --- 4. Seismicity Rate (daily bars + 7‑day rolling avg line) ---
-  const rateLabels = momLbl;
-  const chRate = document.getElementById("ch-rate");
-  if (chRate) {
-    const ch = new Chart(chRate, {
-      type: "bar",
-      data: {
-        labels: rateLabels,
-        datasets: [
-          {
-            label: "Daily earthquakes",
-            data: s.daily_cumulative.map(d => d.count),
-            backgroundColor: "rgba(15,76,129,0.22)",
-            borderWidth: 0, order: 2, borderRadius: 2,
-          },
-          {
-            label: "7-day trend",
-            data: s.daily_cumulative.map(d => d.rate_7day),
-            type: "line",
-            borderColor: C_.red,
-            fill: false, tension: 0.3, pointRadius: 0, pointHoverRadius: 4,
-            borderWidth: 2.5, order: 1,
-          },
-        ],
-      },
-      options: {
-        animation: { duration: 1500, easing: "easeOutQuart" },
-        plugins: {
-          legend: { position: "top", labels: { font: { size: 10 }, boxWidth: 14 } },
-          title: { display: true, text: "Daily Earthquake Activity", font: { size: 12, weight: "600" } },
-        },
-        scales: {
-          x: { ticks: { font: { size: 8 }, maxTicksLimit: 20 } },
-          y: { beginAtZero: true, ticks: { font: { size: 9 } } },
-        },
-      },
-    });
-    _dashCharts.push(ch);
-  }
-
-  // --- 5. Diurnal Periodicity (animated 24h bars) ---
-  const hrLbl = s.hour_dist.map(h => h.hour.toString().padStart(2, "0") + ":00");
-  const hrCnt = s.hour_dist.map(h => h.count);
-  const hrMax = Math.max(...hrCnt, 1);
-  const hrColors = hrCnt.map(v => `rgba(15,76,129,${0.2 + (v / hrMax) * 0.65})`);
-  mk("ch-hour", {
-    type: "bar",
-    data: {
-      labels: hrLbl,
-      datasets: [{
-        label: "Events", data: hrCnt,
-        backgroundColor: hrColors, borderRadius: 2,
-      }],
-    },
-    options: {
-      animation: { duration: 1200, easing: "easeOutQuart", delay: barDelay },
-      plugins: {
-        legend: { display: false },
-        title: { display: true, text: "Time of Day Pattern (UTC)", font: { size: 12, weight: "600" } },
-        tooltip: { callbacks: { label: ctx => `${ctx.parsed.y} events` } },
-      },
-      scales: {
-        x: { ticks: { font: { size: 8 }, maxTicksLimit: 12 } },
-        y: { beginAtZero: true, ticks: { font: { size: 9 } } },
-      },
-    },
-  });
-
-  // --- 6. Most Significant Events (animated horizontal bars) ---
-  // PAGER alert ramp — hazard semantics, kept distinct from the copper accent.
-  const alertColors = { green: "#2E7D32", yellow: "#F9A825", orange: "#EF6C00", red: "#C62828", none: C_.gray };
-  mk("ch-top", {
-    type: "bar",
-    data: {
-      labels: s.top_significant.map(e => (e.place || "?").substring(0, 24)),
-      datasets: [{
-        label: "Impact score",
-        data: s.top_significant.map(e => e.sig),
-        backgroundColor: s.top_significant.map(e => alertColors[e.alert] || alertColors.none),
-        borderRadius: 3,
-      }],
-    },
-    options: {
-      indexAxis: "y",
-      animation: { duration: 1000, easing: "easeOutQuart", delay: ctx => ctx.dataIndex * 60 },
-      plugins: {
-        legend: { display: false },
-        title: { display: true, text: "Events Needing Most Attention", font: { size: 12, weight: "600" } },
-        tooltip: {
-          callbacks: {
-            label: ctx => {
-              const e = s.top_significant[ctx.dataIndex];
-              return `Impact: ${e.sig} · Strength: ${e.magnitude?.toFixed(1) ?? "?"}`;
-            },
-          },
-        },
-      },
-      scales: {
-        x: { beginAtZero: true, ticks: { font: { size: 9 } } },
-        y: { ticks: { font: { size: 9 } } },
-      },
-    },
-  });
-
-  // --- 7. Alert Distribution (animated rotated doughnut) ---
-  mk("ch-alert", {
-    type: "doughnut",
-    data: {
-      labels: s.alert_dist.map(a =>
-        a.alert === "none" ? "No Alert" : a.alert.charAt(0).toUpperCase() + a.alert.slice(1)
-      ),
-      datasets: [{
-        data: s.alert_dist.map(a => a.count),
-        backgroundColor: s.alert_dist.map(a => alertColors[a.alert] || alertColors.none),
-        borderWidth: 2, borderColor: surfaceC,
-      }],
-    },
-    options: {
-      animation: { animateRotate: true, duration: 1200, easing: "easeOutQuart" },
-      cutout: "55%",
-      plugins: {
-        legend: { position: "bottom", labels: { font: { size: 10 }, boxWidth: 12 } },
-        title: { display: true, text: "Current Alert Levels", font: { size: 12, weight: "600" } },
-      },
-    },
-  });
+  const bc = document.getElementById("f-breadcrumb");
+  bc.textContent = _analyticsState.zoneId != null ? "▸ zone focus"
+    : _analyticsState.bbox ? "▸ cell focus" : "";
 }
 
 document.querySelectorAll(".rail-ic[data-section]").forEach((b) =>
