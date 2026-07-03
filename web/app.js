@@ -1276,20 +1276,6 @@ function destroyCharts() {
   _dashCharts = [];
 }
 
-function animateCounter(el, target, duration = 800) {
-  const from = 0;
-  const start = performance.now();
-  const isFloat = target !== Math.floor(target);
-  function tick(now) {
-    const t = Math.min((now - start) / duration, 1);
-    const eased = 1 - Math.pow(1 - t, 3);
-    const val = from + (target - from) * eased;
-    el.textContent = isFloat ? val.toFixed(2) : Math.round(val);
-    if (t < 1) requestAnimationFrame(tick);
-  }
-  requestAnimationFrame(tick);
-}
-
 function mk(id, conf) {
   const c = document.getElementById(id);
   if (!c) return null;
@@ -1308,11 +1294,6 @@ const C_ = {
   purple: "#7C3AED", amber: "#F9A825", green: "#2E7D32", gray: "#94A3B8",
 };
 
-function barDelay(ctx) {
-  const n = Math.max(ctx.chart.data.labels.length, 1);
-  return ctx.dataIndex * (900 / n);
-}
-
 const _analyticsState = { window: "1y", minMag: "mc", zoneId: null, bbox: null };
 
 function _analyticsQuery() {
@@ -1322,8 +1303,17 @@ function _analyticsQuery() {
   return p.toString();
 }
 
-// Panel renderers are filled in per-panel below; stubs keep the shell runnable.
-function renderProvenance() {}
+function renderProvenance(p) {
+  const sub = document.getElementById("dash-title-sub");
+  const span = `${p.from.slice(0, 10)} → ${p.to.slice(0, 10)}`;
+  if (sub) sub.textContent = `USGS + PMD · ${span} · ${p.n_used.toLocaleString()} events used`;
+  const foot = document.getElementById("dash-provenance-foot");
+  if (foot) {
+    const types = Object.entries(p.mag_types).map(([k, v]) => `${k}:${v}`).join(" · ");
+    foot.textContent = `${p.n_excluded.toLocaleString()} events below the magnitude floor excluded · magnitude types — ${types} `
+      + `(reported magnitudes, no scale conversion) · declustered (Gardner–Knopoff)`;
+  }
+}
 function renderKpis(k) {
   const grid = document.getElementById("dash-kpis");
   const box = (val, lbl) => `<div class="dash-stat-box"><div class="dash-stat-val">${val}</div><div class="dash-stat-lbl">${lbl}</div></div>`;
@@ -1453,6 +1443,14 @@ async function renderDashboard() {
   const data = await resp.json();
   destroyCharts();
   syncChartTheme();
+  if (data.provenance.n_used === 0) {
+    main.innerHTML = _dashScaffoldHTML();
+    _wireFilterBar();
+    renderProvenance(data.provenance);
+    document.getElementById("dash-kpis").innerHTML =
+      `<div style="padding:20px;color:var(--text-muted)">No events match this filter. Widen the time window or lower the minimum magnitude.</div>`;
+    return;
+  }
   main.innerHTML = _dashScaffoldHTML();
   _wireFilterBar();
   renderProvenance(data.provenance);

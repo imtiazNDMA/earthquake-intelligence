@@ -408,7 +408,8 @@ input:focus-visible { border-color: var(--brand); }
 .dash-filterbar select { padding: 4px 6px; border: 1px solid var(--border);
   background: var(--surface-2); color: var(--text); border-radius: var(--r-sm); }
 .dash-breadcrumb { color: var(--brand); font-weight: 600; }
-.dash-provenance { font-size: var(--fs-sm); font-weight: 400; color: var(--text-muted); }
+.dash-provenance { font-size: var(--fs-sm); font-weight: 400; }
+#dash-title-sub.dash-provenance { color: inherit; opacity: .85; }
 #zone-table { max-height: 340px; overflow-y: auto; }
 .zone-table { width: 100%; border-collapse: collapse; font-size: var(--fs-xs); }
 .zone-table thead th { position: sticky; top: 0; background: var(--surface); }
