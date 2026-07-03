@@ -1337,7 +1337,26 @@ function renderKpis(k) {
     box(largest, "Largest event") +
     box(k.active_sequences ?? 0, "Active sequences");
 }
-function renderFmd() {}
+function renderFmd(f) {
+  if (!f.bins.length) return;
+  mk("ch-fmd", {
+    type: "bar",
+    data: { labels: f.bins.map(m => m.toFixed(1)), datasets: [
+      { label: "Cumulative (≥ M)", data: f.cumulative, type: "line", borderColor: C_.orange,
+        backgroundColor: "rgba(201,122,36,0.08)", fill: true, tension: 0, pointRadius: 0, order: 1 },
+      { label: "Incremental", data: f.incremental, backgroundColor: "rgba(15,76,129,0.35)",
+        borderColor: C_.blue, borderWidth: 1, order: 2, borderRadius: 2 },
+    ]},
+    options: {
+      plugins: {
+        legend: { position: "top", labels: { font: { size: 10 }, boxWidth: 14 } },
+        title: { display: true, text: `Gutenberg–Richter${f.mc != null ? " · Mc " + f.mc : ""}`, font: { size: 12, weight: "600" } },
+      },
+      scales: { y: { type: "logarithmic", title: { display: true, text: "Count", font: { size: 10 } } },
+                x: { title: { display: true, text: "Magnitude", font: { size: 10 } }, ticks: { font: { size: 9 }, maxTicksLimit: 20 } } },
+    },
+  });
+}
 function renderDepth() {}
 function renderRate() {}
 function renderHotspotMap() {}
