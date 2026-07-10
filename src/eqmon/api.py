@@ -24,7 +24,7 @@ from .events.ingest import ingest
 from .events.repo import (analytics_rows, catalog_max_time, count_events,
                            create_manual_event, delete_event, get_event,
                            list_events, update_event, update_usgs_detail)
-from .events.sources import METSource, USGSSource
+from .events.sources import PMDSource, USGSSource
 from .impact import compute_event_impact
 from .intensity import compute_mmi_grid
 from .vs30 import Grid, load_grid
@@ -36,9 +36,9 @@ _STOP_SCHEDULER = False
 
 
 def _ingest_sources() -> list[tuple[object, str]]:
-    """Sources ingested each tick, in priority order. MET (Primary) goes first
+    """Sources ingested each tick, in priority order. PMD (Primary) goes first
     so it lands as the canonical row when it shares a quake with USGS."""
-    return [(METSource(), "met_last_sync"), (USGSSource(), "usgs_last_sync")]
+    return [(PMDSource(), "pmd_last_sync"), (USGSSource(), "usgs_last_sync")]
 
 
 def _ingest_source(conn, source, sync_key: str) -> None:
@@ -93,7 +93,7 @@ def start_ingest_scheduler(interval_minutes: int = config.INGEST_INTERVAL_MINUTE
         target=_scheduler_loop, args=(interval_minutes * 60,), daemon=True,
     )
     _ingest_scheduler_thread.start()
-    logger.info("[scheduler] started; ingesting MET+USGS every %d min",
+    logger.info("[scheduler] started; ingesting PMD+USGS every %d min",
                 interval_minutes)
 
 
@@ -250,17 +250,17 @@ def ingest_events(min_magnitude: float | None = None):
     return result.__dict__
 
 
-@app.post("/events/ingest/met")
-def ingest_met_events():
-    """Manually pull the Pakistan MET Department (Primary) feed. PMD returns the
-    full catalog each call; ingest() upserts and re-clusters (MET wins as
+@app.post("/events/ingest/pmd")
+def ingest_pmd_events():
+    """Manually pull the PMD (Primary) feed. PMD returns the
+    full catalog each call; ingest() upserts and re-clusters (PMD wins as
     canonical over USGS for shared quakes)."""
     with db.get_conn() as conn:
-        result = ingest(conn, METSource())
+        result = ingest(conn, PMDSource())
         conn.commit()
         now_iso = datetime.now(timezone.utc).isoformat()
         conn.execute(
-            "INSERT INTO _sync_state (key, value) VALUES ('met_last_sync', %s) "
+            "INSERT INTO _sync_state (key, value) VALUES ('pmd_last_sync', %s) "
             "ON CONFLICT (key) DO UPDATE SET value = %s, updated_at = now()",
             (now_iso, now_iso),
         )
@@ -273,13 +273,13 @@ def ingest_status():
     with db.get_conn() as conn:
         rows = dict(conn.execute(
             "SELECT key, value FROM _sync_state "
-            "WHERE key IN ('usgs_last_sync', 'met_last_sync')"
+            "WHERE key IN ('usgs_last_sync', 'pmd_last_sync')"
         ).fetchall())
         usgs = rows.get("usgs_last_sync")
-        met = rows.get("met_last_sync")
+        pmd = rows.get("pmd_last_sync")
         # last_sync = most recent across sources (kept for the existing UI label)
-        last = max([t for t in (usgs, met) if t], default=None)
-        return {"last_sync": last, "usgs_last_sync": usgs, "met_last_sync": met}
+        last = max([t for t in (usgs, pmd) if t], default=None)
+        return {"last_sync": last, "usgs_last_sync": usgs, "pmd_last_sync": pmd}
 
 @app.get("/events")
 def get_events(since: datetime | None = None,

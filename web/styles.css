@@ -173,6 +173,13 @@ button { font-family: inherit; }
 :focus-visible { outline: none; box-shadow: var(--ring); border-radius: var(--r-sm); }
 input:focus-visible { border-color: var(--brand); }
 
+/* Catalog source tabs */
+.catalog-tabs { display: flex; gap: 2px; margin-bottom: 6px; background: var(--surface-2); border-radius: var(--r-sm); padding: 2px; }
+.cat-tab { flex: 1; padding: 4px 8px; font-size: var(--fs-xs); font-weight: 500; border: none; border-radius: var(--r-sm); cursor: pointer; background: transparent; color: var(--text-muted); transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease); }
+.cat-tab:hover { color: var(--text); background: rgba(128,128,128,.08); }
+.cat-tab.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm); }
+.cat-tab .tab-count { font-weight: 400; color: var(--text-muted); }
+
 /* Event catalog cards */
 #events { font-size: var(--fs-sm); }
 .evt { cursor: pointer; padding: 9px 10px 9px 13px; margin: 2px 0; border-bottom: 1px solid var(--border);

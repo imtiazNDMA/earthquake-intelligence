@@ -29,15 +29,15 @@ def test_ingest_inserts_and_is_idempotent(db_conn):
     assert len(list_events(db_conn)) == 1
 
 
-def test_dedup_clusters_close_events_and_prefers_met(db_conn):
+def test_dedup_clusters_close_events_and_prefers_pmd(db_conn):
     usgs = _FakeSource([RawEvent("USGS", "u1", T0, 5.5, 10, 72.50, 34.00)])
-    met = _FakeSource([RawEvent("MET", "m1", T0 + timedelta(seconds=30), 5.6, 10, 72.55, 34.02)])
+    pmd = _FakeSource([RawEvent("PMD", "m1", T0 + timedelta(seconds=30), 5.6, 10, 72.55, 34.02)])
     ingest(db_conn, usgs)
-    ingest(db_conn, met)
+    ingest(db_conn, pmd)
     canonical = list_events(db_conn)
-    # one cluster -> one canonical event, and MET (Primary) wins
+    # one cluster -> one canonical event, and PMD (Primary) wins
     assert len(canonical) == 1
-    assert canonical[0]["source"] == "MET"
+    assert canonical[0]["source"] == "PMD"
 
 
 def test_far_apart_events_are_separate_clusters(db_conn):

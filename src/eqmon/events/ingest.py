@@ -1,7 +1,7 @@
 """Ingest events from a SeismicSource: upsert by (source, source_event_id), then
 re-cluster within a space-time window, preferring the Primary source.
 
-Dedup window: <= 60 s and <= 50 km. Source priority MET(1) > USGS(2); MANUAL is
+Dedup window: <= 60 s and <= 50 km. Source priority PMD(1) > USGS(2); MANUAL is
 never clustered with feed events (it stays its own cluster). Clustering uses the
 smallest event id in a row's window as the cluster id — sufficient for the
 pairwise dedup this platform needs."""
@@ -73,7 +73,7 @@ def _recluster(conn: psycopg.Connection) -> None:
           FROM seismic_event
           WHERE source <> 'MANUAL'
           ORDER BY cluster_id,
-                   CASE source WHEN 'MET' THEN 1 WHEN 'USGS' THEN 2 ELSE 3 END,
+                   CASE source WHEN 'PMD' THEN 1 WHEN 'USGS' THEN 2 ELSE 3 END,
                    id
         )
         """

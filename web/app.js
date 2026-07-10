@@ -611,6 +611,8 @@ async function refreshEvents(append = false) {
   const f = (id, name) => { const v = document.getElementById(id).value; return v ? `&${name}=` + encodeURIComponent(v) : ""; };
   eventsEl._filter = `?limit=20${f("filter-search","search")}${f("filter-minmag","min_magnitude")}${f("filter-maxmag","max_magnitude")}${f("filter-source","source")}${f("filter-sort","orderby")}${f("filter-after","occurred_after")}${f("filter-before","occurred_before")}`;
   renderEventList(events, total);
+  // Update tab counts (no delay — lightweight COUNT queries)
+  updateTabCounts();
 }
 
 function renderEventList(events, total) {
@@ -785,7 +787,7 @@ function renderDetail(evt) {
     return;
   }
   if (evt.source !== "USGS") {
-    // Non-USGS feed event (e.g. Pakistan MET) — no USGS detail products.
+    // Non-USGS feed event (e.g. PMD) — no USGS detail products.
     el.innerHTML = `<div class="evt-detail">
       <div class="detail-info">${escapeHtml(evt.source)} event${evt.place ? " — " + escapeHtml(evt.place) : ""}. No USGS detail available.</div>
       <button class="btn-edit" data-edit-id="${evt.id}">${svgIcon("edit")} Edit</button>
@@ -914,6 +916,37 @@ function renderRollup(rollups, level) {
     "</table>";
   document.getElementById("rollup-level").addEventListener("change", (e) =>
     renderRollup(impactEl._rollups, e.target.value));
+}
+
+// Fetch per-source counts for catalog tabs.
+function updateTabCounts() {
+  const params = new URLSearchParams();
+  const minmag = document.getElementById("filter-minmag").value;
+  const maxmag = document.getElementById("filter-maxmag").value;
+  const search = document.getElementById("filter-search").value;
+  const after = document.getElementById("filter-after").value;
+  const before = document.getElementById("filter-before").value;
+  if (minmag) params.set("min_magnitude", minmag);
+  if (maxmag) params.set("max_magnitude", maxmag);
+  if (search) params.set("search", search);
+  if (after) params.set("occurred_after", after);
+  if (before) params.set("occurred_before", before);
+  const q = params.toString();
+  Promise.all([
+    fetch("/events?limit=1&" + q).then(r => r.json()).then(d => d.total).catch(() => null),
+    fetch("/events?limit=1&source=USGS&" + q).then(r => r.json()).then(d => d.total).catch(() => null),
+    fetch("/events?limit=1&source=PMD&" + q).then(r => r.json()).then(d => d.total).catch(() => null),
+  ]).then(([all, usgs, pmd]) => {
+    document.querySelectorAll(".cat-tab").forEach(t => {
+      const src = t.dataset.src;
+      const c = src === "USGS" ? usgs : src === "PMD" ? pmd : all;
+      const label = t.childNodes[0]; // text node before <span class="tab-count">
+      if (c != null) {
+        if (!t.querySelector(".tab-count")) t.innerHTML = label.textContent + ` <span class="tab-count">(${c})</span>`;
+        else t.querySelector(".tab-count").textContent = `(${c})`;
+      }
+    });
+  });
 }
 
 // Minimal HTML escaper for server-supplied names rendered via innerHTML.
@@ -1093,15 +1126,15 @@ document.getElementById("ingest").addEventListener("click", async (e) => {
   refreshEvents();
 });
 
-// Pull the Pakistan MET Department (PMD) feed — full catalog, no mag filter.
-document.getElementById("ingest-met").addEventListener("click", async (e) => {
+// Pull the PMD feed — full catalog, no mag filter.
+document.getElementById("ingest-pmd").addEventListener("click", async (e) => {
   const btn = e.currentTarget;
   const orig = btn.innerHTML;
   btn.disabled = true;
   btn.innerHTML = spinnerHTML() + " Pulling…";
   statusEl.innerHTML = spinnerHTML() + " Pulling PMD feed…";
   try {
-    const r = await fetch("/events/ingest/met", { method: "POST" });
+    const r = await fetch("/events/ingest/pmd", { method: "POST" });
     const res = await r.json();
     statusEl.textContent = "";
     toast(`Ingested ${res.inserted} new event${res.inserted === 1 ? "" : "s"} of ${res.fetched} fetched`,
@@ -1130,8 +1163,27 @@ setInterval(updateIngestStatus, 30000);
 
 refreshEvents();
 
+// Catalog source tabs
+document.querySelectorAll(".cat-tab").forEach(tab => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".cat-tab").forEach(t => t.classList.remove("active"));
+    tab.classList.add("active");
+    const src = tab.dataset.src;
+    document.getElementById("filter-source").value = src;
+    refreshEvents();
+  });
+});
+
+// Keep tabs in sync when source dropdown changes directly
+document.getElementById("filter-source").addEventListener("change", () => {
+  const val = document.getElementById("filter-source").value;
+  document.querySelectorAll(".cat-tab").forEach(t => {
+    t.classList.toggle("active", t.dataset.src === val);
+  });
+});
+
 // Catalog filter auto-refresh on change
-["filter-search", "filter-minmag", "filter-maxmag", "filter-source", "filter-sort", "filter-after", "filter-before"].forEach(id => {
+["filter-search", "filter-minmag", "filter-maxmag", "filter-sort", "filter-after", "filter-before"].forEach(id => {
   const el = document.getElementById(id);
   const ev = el.tagName === "SELECT" ? "change" : "input";
   el.addEventListener(ev, () => refreshEvents());
