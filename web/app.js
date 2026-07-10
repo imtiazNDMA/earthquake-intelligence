@@ -103,6 +103,13 @@ function catalogSkeleton(n = 5) {
 }
 
 const map = L.map("map").setView([30.4, 69.3], 5); // Primary Focus Country: Pakistan
+map.on("click", () => {
+  if (_selectedMmiLevel != null) {
+    _selectedMmiLevel = null;
+    Object.values(_legendItems).forEach(el => el.classList.remove("selected"));
+    _applyMmiStyles();
+  }
+});
 
 // --- Basemaps (all free + keyless; tile servers reachable without a token) ---
 const OSM_ATTR = "© OpenStreetMap contributors";
@@ -134,16 +141,16 @@ BASEMAPS["OpenStreetMap"].addTo(map); // default basemap
 // `dataLayer` MUST equal the tippecanoe -l layer id used in scripts/build_tiles.py.
 
 const OVERLAY_CONFIG = {
-  National:        { id: "national",         color: "#444",   width: 1.5, defaultOn: true },
-  Provinces:       { id: "provinces",        color: "#666",   width: 1.0, defaultOn: true },
-  Districts:       { id: "districts",        color: "#999",   width: 0.6, defaultOn: false },
-  Tehsils:         { id: "tehsils",          color: "#bbb",   width: 0.4, defaultOn: false },
-  "Global Faults": { id: "faults",          color: "#111", width: 0.8, defaultOn: false, lineOnly: true, faultStyle: true },
-  "Plate boundaries": { id: "plate_boundaries", color: "#ff8800", width: 1.6, defaultOn: false, lineOnly: true },
-  "Pakistan Major": { id: "pak_faults_major", color: "#111", width: 0.9, defaultOn: false, lineOnly: true, faultStyle: true },
-  "Pakistan Minor": { id: "pak_faults_minor", color: "#111", width: 1.1, defaultOn: true, lineOnly: true, faultStyle: true },
-  "Tectonic Zones":{ id: "pak_tectonic_zones", color: "#444", width: 0.5, defaultOn: false,
-                     fillColor: "#888", fillOpacity: 0.7 },
+  National:        { id: "national",         color: "#444",   width: 1.5, defaultOn: true, opacity: 1 },
+  Provinces:       { id: "provinces",        color: "#666",   width: 1.0, defaultOn: true, opacity: 1 },
+  Districts:       { id: "districts",        color: "#999",   width: 0.6, defaultOn: false, opacity: 0.8 },
+  Tehsils:         { id: "tehsils",          color: "#bbb",   width: 0.4, defaultOn: false, opacity: 0.7 },
+  "Global Faults": { id: "faults",           color: "#dc2626", width: 0.8, defaultOn: false, lineOnly: true, faultStyle: true, opacity: 0.9 },
+  "Plate boundaries": { id: "plate_boundaries", color: "#f59e0b", width: 1.6, defaultOn: false, lineOnly: true, opacity: 0.85 },
+  "Pakistan Major": { id: "pak_faults_major", color: "#dc2626", width: 0.9, defaultOn: false, lineOnly: true, faultStyle: true, opacity: 0.9 },
+  "Pakistan Minor": { id: "pak_faults_minor", color: "#dc2626", width: 1.1, defaultOn: true, lineOnly: true, faultStyle: true, opacity: 0.9 },
+  "Tectonic Zones":{ id: "pak_tectonic_zones", color: "#6366f1", width: 0.5, defaultOn: false,
+                     fillColor: "#6366f1", fillOpacity: 0.3, opacity: 0.7 },
 };
 
 function _pastelFromName(name) {
@@ -185,11 +192,13 @@ class FaultLineSymbolizer {
   constructor(opts) {
     this.color = opts.color;
     this.width = opts.width;
+    this.opacity = opts.opacity ?? 1;
     this.spacing = opts.spacing ?? 28;
     this.size = opts.size ?? 5;
   }
   draw(ctx, geom) {
     ctx.save();
+    ctx.globalAlpha = this.opacity;
     ctx.strokeStyle = this.color;
     ctx.fillStyle = this.color;
     ctx.lineWidth = this.width;
@@ -230,28 +239,68 @@ class FaultLineSymbolizer {
   }
 }
 
+// Shared tooltip for fault/feature hover info.
+let _featureTooltip = null;
+
 function buildOverlay(name) {
   const c = OVERLAY_CONFIG[name];
+  const needsHover = name.includes("Fault") || name.includes("fault") || name === "Tectonic Zones";
 
-  if (name === "Tectonic Zones") {
-    return protomapsL.leafletLayer({
-      url: `/tiles/${c.id}.pmtiles`,
-      paintRules: [{ dataLayer: c.id, symbolizer: new NamedPolySymbolizer({ prop: "Name", stroke: c.color, width: c.width, opacity: c.fillOpacity ?? 0.7 }) }],
-      backgroundColor: "rgba(0,0,0,0)"
+  const paintRules = [{
+    dataLayer: c.id,
+    symbolizer: _buildSymbolizer(name, c),
+  }];
+
+  const opts = {
+    url: `/tiles/${c.id}.pmtiles`,
+    paintRules,
+    backgroundColor: "rgba(0,0,0,0)",
+  };
+
+  const layer = protomapsL.leafletLayer(opts);
+
+  if (needsHover) {
+    layer.on('mousemove', (e) => {
+      if (e.feature && e.feature.properties) {
+        const props = e.feature.properties;
+        const lines = [];
+        // Build a concise tooltip from available properties.
+        for (const k of ["Name", "name", "Fault_Name", "FAULT", "fault", "TYPE", "type", "Length_km", "SlipRate"]) {
+          if (props[k] != null && props[k] !== "") {
+            lines.push(`${k.replace(/_/g, " ")}: ${props[k]}`);
+          }
+        }
+        if (lines.length === 0) lines.push(name);
+        if (!_featureTooltip) {
+          _featureTooltip = L.tooltip({ direction: "top", offset: L.point(0, -8), className: "fault-tooltip" });
+        }
+        _featureTooltip.setLatLng(e.latlng).setContent(lines.join("<br>")).addTo(map);
+      }
+    });
+    layer.on('mouseout', () => {
+      if (_featureTooltip) { _featureTooltip.remove(); _featureTooltip = null; }
     });
   }
 
-  let sym;
-  if (c.fillColor) {
-    sym = new protomapsL.PolygonSymbolizer({ fill: c.fillColor, opacity: c.fillOpacity, stroke: c.color, width: c.width });
-  } else if (c.faultStyle) {
-    sym = new FaultLineSymbolizer({ color: c.color, width: c.width });
-  } else if (c.lineOnly) {
-    sym = new protomapsL.LineSymbolizer({ color: c.color, width: c.width });
-  } else {
-    sym = new protomapsL.PolygonSymbolizer({ fill: "rgba(0,0,0,0)", opacity: 1, stroke: c.color, width: c.width });
+  return layer;
+}
+
+function _buildSymbolizer(overlayName, c) {
+  const opacity = c.opacity ?? 1;
+  if (overlayName === "Tectonic Zones" || c.fillColor) {
+    const fillOpacity = c.fillOpacity ?? opacity;
+    if (overlayName === "Tectonic Zones") {
+      return new NamedPolySymbolizer({ prop: "Name", stroke: c.color, width: c.width, opacity: fillOpacity });
+    }
+    return new protomapsL.PolygonSymbolizer({ fill: c.fillColor ?? "rgba(0,0,0,0)", opacity: fillOpacity, stroke: c.color, width: c.width });
   }
-  return protomapsL.leafletLayer({ url: `/tiles/${c.id}.pmtiles`, paintRules: [{ dataLayer: c.id, symbolizer: sym }], backgroundColor: "rgba(0,0,0,0)" });
+  if (c.faultStyle) {
+    return new FaultLineSymbolizer({ color: c.color, width: c.width, opacity });
+  }
+  if (c.lineOnly) {
+    return new protomapsL.LineSymbolizer({ color: c.color, width: c.width, opacity });
+  }
+  return new protomapsL.PolygonSymbolizer({ fill: "rgba(0,0,0,0)", opacity: 1, stroke: c.color, width: c.width });
 }
 
 function rebuildOverlay(name) {
@@ -328,15 +377,19 @@ function buildConfigPanel() {
       rebuildOverlay(name);
     });
     controls.appendChild(colPick);
-    if (c.fillColor) {
-      const o = document.createElement("input");
-      o.type = "range";
-      o.className = "ov-opacity";
-      o.min = "0"; o.max = "1"; o.step = "0.05"; o.value = c.fillOpacity;
-      o.title = "Fill opacity";
-      o.addEventListener("input", () => { c.fillOpacity = parseFloat(o.value); rebuildOverlay(name); });
-      controls.appendChild(o);
-    }
+    // Opacity slider for all layers (controls line + fill opacity together).
+    const o = document.createElement("input");
+    o.type = "range";
+    o.className = "ov-opacity";
+    o.min = "0"; o.max = "1"; o.step = "0.05"; o.value = c.opacity ?? 1;
+    o.title = "Opacity";
+    o.addEventListener("input", () => {
+      const v = parseFloat(o.value);
+      c.opacity = v;
+      if (c.fillOpacity != null) c.fillOpacity = v;
+      rebuildOverlay(name);
+    });
+    controls.appendChild(o);
     row.append(cb, sw, txt, controls);
     ovEl.appendChild(row);
   });
@@ -383,22 +436,46 @@ let _mmiLayers = {};
 let _lastFc = null;
 let _legendDiv = null;
 const _legendCheckboxes = {};
+let _selectedMmiLevel = null;
 
-function highlightByLevel(level) {
-  Object.keys(_legendItems).forEach(k => {
-    _legendItems[k].classList.toggle("active", parseInt(k) === level);
-  });
+function _applyMmiStyles() {
   Object.entries(_mmiLayers).forEach(([k, layers]) => {
-    const on = parseInt(k) === level;
-    layers.forEach(l => l.setStyle({ weight: on ? 2.5 : 1, fillOpacity: on ? 0.7 : 0.45 }));
+    const level = parseInt(k);
+    const isHover = _hoveredMmiLevel === level;
+    const isSelected = _selectedMmiLevel === level;
+    const w = isSelected ? 3 : isHover ? 2.5 : 1;
+    const fo = isSelected ? 0.8 : isHover ? 0.7 : 0.45;
+    layers.forEach(l => l.setStyle({ weight: w, fillOpacity: fo }));
   });
 }
 
-function unhighlightAll() {
-  Object.values(_legendItems).forEach(el => el.classList.remove("active"));
-  Object.values(_mmiLayers).forEach(group => {
-    group.forEach(l => l.setStyle({ weight: 1, fillOpacity: 0.45 }));
+let _hoveredMmiLevel = null;
+
+function highlightByLevel(level) {
+  _hoveredMmiLevel = level;
+  Object.keys(_legendItems).forEach(k => {
+    _legendItems[k].classList.toggle("active", parseInt(k) === level);
   });
+  _applyMmiStyles();
+}
+
+function unhighlightAll() {
+  _hoveredMmiLevel = null;
+  Object.values(_legendItems).forEach(el => el.classList.remove("active"));
+  _applyMmiStyles();
+}
+
+function selectMmiLevel(level) {
+  if (_selectedMmiLevel === level) {
+    _selectedMmiLevel = null; // deselect
+  } else {
+    _selectedMmiLevel = level;
+  }
+  Object.keys(_legendItems).forEach(k => {
+    const el = _legendItems[k];
+    el.classList.toggle("selected", parseInt(k) === _selectedMmiLevel);
+  });
+  _applyMmiStyles();
 }
 
 function presentLevels(fc) {
@@ -498,9 +575,13 @@ function onMmiFeature(f, l) {
   const level = f.properties.mmi_lower;
   if (!_mmiLayers[level]) _mmiLayers[level] = [];
   _mmiLayers[level].push(l);
-  l.bindPopup(`MMI ${mmiClassLabel(f.properties.mmi_lower)}`);
-  l.on("mouseover", () => highlightByLevel(level));
-  l.on("mouseout", () => unhighlightAll());
+  l.bindPopup(`MMI ${mmiClassLabel(level)}<br><small>Click to select this band</small>`);
+  l.on("mouseover", () => { _hoveredMmiLevel = level; highlightByLevel(level); });
+  l.on("mouseout", () => { _hoveredMmiLevel = null; unhighlightAll(); });
+  l.on("click", (e) => {
+    L.DomEvent.stopPropagation(e);
+    selectMmiLevel(level);
+  });
 }
 
 let intensityLayer = null;
@@ -540,6 +621,7 @@ async function calculate() {
     }
     const fc = await resp.json();
     _mmiLayers = {};
+    _selectedMmiLevel = null;
     _lastFc = fc;
     if (intensityLayer) map.removeLayer(intensityLayer);
     intensityLayer = L.geoJSON(fc, {
@@ -1207,10 +1289,17 @@ function setCollapsed(value) {
 // (Re)render the rail icons, reflecting which section is active (for Lordicon coloring).
 const RAIL_GLYPH = { event: "plus", catalog: "list", alerts: "bell", dashboard: "chart", config: "settings" };
 function renderRailIcons() {
-  document.querySelectorAll(".rail-ic[data-section]").forEach((b) => {
-    const key = b.dataset.section;
-    b.innerHTML = railIconMarkup(key, RAIL_GLYPH[key], b.classList.contains("active"));
-    if (!b.getAttribute("aria-label")) b.setAttribute("aria-label", b.title || key);
+  document.querySelectorAll(".rail-ic").forEach((b) => {
+    const section = b.dataset.section;
+    const icon = b.dataset.icon || (section && RAIL_GLYPH[section]);
+    if (icon) {
+      if (section && LORD_ICONS[section] && LORD_ICONS[section].src) {
+        b.innerHTML = railIconMarkup(section, icon, b.classList.contains("active"));
+      } else {
+        b.innerHTML = svgIcon(icon, 20);
+      }
+    }
+    if (!b.getAttribute("aria-label")) b.setAttribute("aria-label", b.title || section || icon);
   });
 }
 
