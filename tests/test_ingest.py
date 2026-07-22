@@ -29,6 +29,46 @@ def test_ingest_inserts_and_is_idempotent(db_conn):
     assert len(list_events(db_conn)) == 1
 
 
+def test_ingest_updates_existing_event_when_upstream_revision_is_newer(db_conn):
+    original = RawEvent("USGS", "u-revised", T0, 5.0, 20, 72.5, 34.0,
+                        place="original", updated_at=T0)
+    revised = RawEvent("USGS", "u-revised", T0 + timedelta(seconds=5), 6.2, 12,
+                       72.7, 34.2, place="revised",
+                       updated_at=T0 + timedelta(minutes=10))
+
+    assert ingest(db_conn, _FakeSource([original])).inserted == 1
+    assert ingest(db_conn, _FakeSource([revised])).inserted == 0
+
+    row = db_conn.execute(
+        "SELECT magnitude, depth_km, ST_X(geom), ST_Y(geom), place, updated_at "
+        "FROM seismic_event WHERE source='USGS' AND source_event_id='u-revised'"
+    ).fetchone()
+    assert row[0] == 6.2
+    assert row[1] == 12
+    assert round(row[2], 1) == 72.7
+    assert round(row[3], 1) == 34.2
+    assert row[4] == "revised"
+    assert row[5] == T0 + timedelta(minutes=10)
+
+
+def test_ingest_does_not_overwrite_with_older_upstream_revision(db_conn):
+    newer = RawEvent("USGS", "u-older", T0, 6.0, 10, 72.5, 34.0,
+                     place="newer", updated_at=T0 + timedelta(minutes=10))
+    older = RawEvent("USGS", "u-older", T0, 5.0, 10, 72.5, 34.0,
+                     place="older", updated_at=T0)
+
+    ingest(db_conn, _FakeSource([newer]))
+    ingest(db_conn, _FakeSource([older]))
+
+    row = db_conn.execute(
+        "SELECT magnitude, place, updated_at FROM seismic_event "
+        "WHERE source='USGS' AND source_event_id='u-older'"
+    ).fetchone()
+    assert row[0] == 6.0
+    assert row[1] == "newer"
+    assert row[2] == T0 + timedelta(minutes=10)
+
+
 def test_dedup_clusters_close_events_and_prefers_pmd(db_conn):
     usgs = _FakeSource([RawEvent("USGS", "u1", T0, 5.5, 10, 72.50, 34.00)])
     pmd = _FakeSource([RawEvent("PMD", "m1", T0 + timedelta(seconds=30), 5.6, 10, 72.55, 34.02)])

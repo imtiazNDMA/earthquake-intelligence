@@ -24,6 +24,7 @@ class IngestResult:
     fetched: int
     inserted: int
     errors: list[str]
+    watermark: datetime | None = None
 
 
 def _upsert(conn: psycopg.Connection, e: RawEvent) -> bool:
@@ -35,14 +36,38 @@ def _upsert(conn: psycopg.Connection, e: RawEvent) -> bool:
         "VALUES (%s, %s, %s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), "
         " %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
         "ON CONFLICT (source, source_event_id) WHERE source_event_id IS NOT NULL "
-        "DO NOTHING RETURNING id",
+        "DO UPDATE SET "
+        "occurred_at = EXCLUDED.occurred_at, "
+        "magnitude = EXCLUDED.magnitude, "
+        "depth_km = EXCLUDED.depth_km, "
+        "geom = EXCLUDED.geom, "
+        "place = EXCLUDED.place, "
+        "mag_type = EXCLUDED.mag_type, "
+        "event_type = EXCLUDED.event_type, "
+        "alert = EXCLUDED.alert, "
+        "tsunami = EXCLUDED.tsunami, "
+        "sig = EXCLUDED.sig, "
+        "review_status = EXCLUDED.review_status, "
+        "felt = EXCLUDED.felt, "
+        "cdi = EXCLUDED.cdi, "
+        "mmi_report = EXCLUDED.mmi_report, "
+        "gap = EXCLUDED.gap, "
+        "nst = EXCLUDED.nst, "
+        "url = EXCLUDED.url, "
+        "detail_url = EXCLUDED.detail_url, "
+        "updated_at = EXCLUDED.updated_at "
+        "WHERE seismic_event.updated_at IS NULL "
+        "OR EXCLUDED.updated_at IS NULL "
+        "OR EXCLUDED.updated_at >= seismic_event.updated_at "
+        "RETURNING (xmax = 0) AS inserted",
         (e.source, e.source_event_id, e.occurred_at, e.magnitude, e.depth_km,
          e.lon, e.lat,
          e.place, e.mag_type, e.event_type, e.alert, e.tsunami, e.sig,
          e.review_status, e.felt, e.cdi, e.mmi_report, e.gap, e.nst,
          e.url, e.detail_url, e.updated_at),
     )
-    return cur.fetchone() is not None
+    row = cur.fetchone()
+    return bool(row and row[0])
 
 
 def _recluster(conn: psycopg.Connection) -> None:
@@ -118,6 +143,7 @@ def ingest(conn: psycopg.Connection, source: SeismicSource,
         raw = source.fetch(since, updatedafter=updatedafter)
     except Exception as exc:  # network/parse failure is non-fatal
         return IngestResult(source.name, 0, 0, [f"fetch failed: {exc!r}"])
+    watermark = max((e.updated_at or e.occurred_at for e in raw), default=None)
     inserted = 0
     for e in raw:
         try:
@@ -128,4 +154,4 @@ def ingest(conn: psycopg.Connection, source: SeismicSource,
     _recluster(conn)
     _decluster(conn)
     _assign_zones(conn)
-    return IngestResult(source.name, len(raw), inserted, errors)
+    return IngestResult(source.name, len(raw), inserted, errors, watermark)

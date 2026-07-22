@@ -1,0 +1,126 @@
+{
+  "type": "FeatureCollection",
+  "metadata": {
+    "gcop_export_scope": "loaded-map-tiles",
+    "gcop_notice": "This vector tile source does not expose a full browser-side dataset endpoint; exported features are from currently loaded map tiles."
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          62.3419189453125,
+          25.110471486223346
+        ]
+      },
+      "properties": {
+        "category": "Warm water/deep sea",
+        "dead_weigh": "50000 (bulk carriers)",
+        "district": "Gwadar",
+        "name": "Gawadar Port",
+        "province": "Balochistan",
+        "tehsil": "Gwadar",
+        "gcop_source_layer": "seaports",
+        "gcop_map_layer": "seaports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          64.6710205078125,
+          25.199970890386027
+        ]
+      },
+      "properties": {
+        "category": "Fish Harbour",
+        "district": "Gwadar",
+        "name": "Port Ormara",
+        "province": "Balochistan",
+        "tehsil": "Ormara",
+        "gcop_source_layer": "seaports",
+        "gcop_map_layer": "seaports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          63.4735107421875,
+          25.264568475331586
+        ]
+      },
+      "properties": {
+        "category": "Fishing Port",
+        "district": "Gwadar",
+        "name": "Port of Pasni",
+        "province": "Balochistan",
+        "tehsil": "Pasni",
+        "gcop_source_layer": "seaports",
+        "gcop_map_layer": "seaports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          67.4505615234375,
+          24.14675359470307
+        ]
+      },
+      "properties": {
+        "category": "Fishing Port",
+        "district": "Thatta",
+        "name": "Keti Bandar",
+        "province": "Sindh",
+        "tehsil": "Ghorabari",
+        "gcop_source_layer": "seaports",
+        "gcop_map_layer": "seaports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          66.9781494140625,
+          24.811667555461852
+        ]
+      },
+      "properties": {
+        "category": "Deep Sea",
+        "dead_weigh": "75000",
+        "district": "Karachi City",
+        "name": "Karachi Port Trust",
+        "province": "Sindh",
+        "tehsil": "Liyari Town",
+        "gcop_source_layer": "seaports",
+        "gcop_map_layer": "seaports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          67.3406982421875,
+          24.771772328228806
+        ]
+      },
+      "properties": {
+        "category": "Deep Sea",
+        "dead_weigh": "75000",
+        "district": "Karachi City",
+        "name": "Port Qasim",
+        "province": "Sindh",
+        "tehsil": "Mirpur Sakro",
+        "gcop_source_layer": "seaports",
+        "gcop_map_layer": "seaports_label"
+      }
+    }
+  ]
+}

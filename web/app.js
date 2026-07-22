@@ -9,7 +9,7 @@ const LORD_ICONS = {
   //  key        page (browse → "Copy CDN link" → paste into src)                          src (paste here)
   event:     { page: "https://lordicon.com/icons/system/regular/12-plus",        src: "" },
   catalog:   { page: "https://lordicon.com/icons/system/regular/2-line-list",     src: "" },
-  alerts:    { page: "https://lordicon.com/icons/system/regular/37-approve-checked", src: "" },
+  aftershock:{ page: "https://lordicon.com/icons/system/regular/61-target",      src: "" },
   dashboard: { page: "https://lordicon.com/icons/system/regular/10-analytics",    src: "" },
   config:    { page: "https://lordicon.com/icons/system/regular/53-settings",     src: "" },
   refresh:   { page: "https://lordicon.com/icons/system/regular/103-refresh",     src: "" },
@@ -20,7 +20,6 @@ const LORD_ICONS = {
 const SVG_PATHS = {
   plus:     '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
   list:     '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
-  bell:     '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
   chart:    '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
   settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
   "chevron-left":  '<polyline points="15 18 9 12 15 6"/>',
@@ -40,9 +39,12 @@ const SVG_PATHS = {
   building: '<path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/>',
   waves:    '<path d="M2 6c.6.5 1.2 1 2.5 1C7 7 7 5 9.5 5c2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/><path d="M2 12c.6.5 1.2 1 2.5 1C7 13 7 11 9.5 11c2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/><path d="M2 18c.6.5 1.2 1 2.5 1C7 19 7 17 9.5 17c2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/>',
   target:   '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+  maximize: '<path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>',
   moon:     '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
   sun:      '<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>',
 };
+
+const MMI_STYLE = { opacity: 0.45 };
 
 // Inline-SVG markup for a named icon (inherits text color via currentColor).
 function svgIcon(name, size = 16) {
@@ -145,13 +147,15 @@ const OVERLAY_CONFIG = {
   Provinces:       { id: "provinces",        color: "#666",   width: 1.0, defaultOn: true, opacity: 1 },
   Districts:       { id: "districts",        color: "#999",   width: 0.6, defaultOn: false, opacity: 0.8 },
   Tehsils:         { id: "tehsils",          color: "#bbb",   width: 0.4, defaultOn: false, opacity: 0.7 },
-  "Global Faults": { id: "faults",           color: "#dc2626", width: 0.8, defaultOn: false, lineOnly: true, faultStyle: true, opacity: 0.9 },
-  "Plate boundaries": { id: "plate_boundaries", color: "#f59e0b", width: 1.6, defaultOn: false, lineOnly: true, opacity: 0.85 },
-  "Pakistan Major": { id: "pak_faults_major", color: "#dc2626", width: 0.9, defaultOn: false, lineOnly: true, faultStyle: true, opacity: 0.9 },
-  "Pakistan Minor": { id: "pak_faults_minor", color: "#dc2626", width: 1.1, defaultOn: true, lineOnly: true, faultStyle: true, opacity: 0.9 },
+  "Global Faults": { id: "faults",           color: "#dc2626", width: 0.8, defaultOn: false, lineOnly: true, faultStyle: true, opacity: 0.9, hoverTolerancePx: 12 },
+  "Plate boundaries": { id: "plate_boundaries", color: "#f59e0b", width: 1.6, defaultOn: false, lineOnly: true, opacity: 0.85, hoverFields: ["Name_Full", "Name"], hoverTolerancePx: 12 },
+  "Pakistan Major": { id: "pak_faults_major", color: "#dc2626", width: 0.9, defaultOn: false, lineOnly: true, faultStyle: true, opacity: 0.9, hoverFields: ["Name"], hoverTolerancePx: 12 },
+  "Pakistan Minor": { id: "pak_faults_minor", color: "#dc2626", width: 1.1, defaultOn: true, lineOnly: true, faultStyle: true, opacity: 0.9, hoverFields: ["Name"], hoverTolerancePx: 12 },
   "Tectonic Zones":{ id: "pak_tectonic_zones", color: "#6366f1", width: 0.5, defaultOn: false,
                      fillColor: "#6366f1", fillOpacity: 0.3, opacity: 0.7 },
 };
+
+const DEFAULT_HOVER_FIELDS = ["Name", "name", "Fault_Name", "FAULT", "fault", "TYPE", "Type", "type", "Length_km", "Fault_Leng", "SlipRate"];
 
 function _pastelFromName(name) {
   let h = 0;
@@ -239,13 +243,8 @@ class FaultLineSymbolizer {
   }
 }
 
-// Shared tooltip for fault/feature hover info.
-let _featureTooltip = null;
-
 function buildOverlay(name) {
   const c = OVERLAY_CONFIG[name];
-  const needsHover = name.includes("Fault") || name.includes("fault") || name === "Tectonic Zones";
-
   const paintRules = [{
     dataLayer: c.id,
     symbolizer: _buildSymbolizer(name, c),
@@ -257,32 +256,80 @@ function buildOverlay(name) {
     backgroundColor: "rgba(0,0,0,0)",
   };
 
-  const layer = protomapsL.leafletLayer(opts);
+  return protomapsL.leafletLayer(opts);
+}
 
-  if (needsHover) {
-    layer.on('mousemove', (e) => {
-      if (e.feature && e.feature.properties) {
-        const props = e.feature.properties;
-        const lines = [];
-        // Build a concise tooltip from available properties.
-        for (const k of ["Name", "name", "Fault_Name", "FAULT", "fault", "TYPE", "type", "Length_km", "SlipRate"]) {
-          if (props[k] != null && props[k] !== "") {
-            lines.push(`${k.replace(/_/g, " ")}: ${props[k]}`);
-          }
-        }
-        if (lines.length === 0) lines.push(name);
-        if (!_featureTooltip) {
-          _featureTooltip = L.tooltip({ direction: "top", offset: L.point(0, -8), className: "fault-tooltip" });
-        }
-        _featureTooltip.setLatLng(e.latlng).setContent(lines.join("<br>")).addTo(map);
-      }
-    });
-    layer.on('mouseout', () => {
-      if (_featureTooltip) { _featureTooltip.remove(); _featureTooltip = null; }
-    });
+function _setupFaultHover() {
+  let tip = null;
+  let lastQuery = 0;
+  const THROTTLE = 50;
+
+  function hoverQueryPoints(e, tolerancePx) {
+    if (!tolerancePx) return [map.wrapLatLng(e.latlng)];
+    const p = e.containerPoint;
+    return [
+      p,
+      L.point(p.x - tolerancePx, p.y),
+      L.point(p.x + tolerancePx, p.y),
+      L.point(p.x, p.y - tolerancePx),
+      L.point(p.x, p.y + tolerancePx),
+    ].map(pt => map.wrapLatLng(map.containerPointToLatLng(pt)));
   }
 
-  return layer;
+  function needsHover(name) {
+    const cfg = OVERLAY_CONFIG[name];
+    return !!cfg?.hoverFields || name.includes("Fault") || name.includes("fault") || name === "Tectonic Zones";
+  }
+
+  map.on("mousemove", function (e) {
+    const now = Date.now();
+    if (now - lastQuery < THROTTLE) return;
+    lastQuery = now;
+
+    let found = null;
+
+    for (const [name, layer] of Object.entries(OVERLAYS)) {
+      if (!map.hasLayer(layer) || !needsHover(name)) continue;
+      const c = OVERLAY_CONFIG[name];
+      const hoverFields = c.hoverFields ?? DEFAULT_HOVER_FIELDS;
+      const hoverPoints = hoverQueryPoints(e, c.hoverTolerancePx ?? ((c.lineOnly || c.faultStyle) ? 8 : 0));
+      const hoverTolerancePx = c.hoverTolerancePx ?? ((c.lineOnly || c.faultStyle) ? 8 : 16);
+      for (const point of hoverPoints) {
+        const results = layer.queryTileFeaturesDebug(point.lng, point.lat, hoverTolerancePx);
+        for (const [, features] of results) {
+          for (const picked of features) {
+            if (picked.layerName !== c.id) continue;
+            const props = picked.feature.props;
+            const lines = [];
+            for (const k of hoverFields) {
+              if (props[k] != null && props[k] !== "") lines.push(`${k.replace(/_/g, " ")}: ${props[k]}`);
+            }
+            if (lines.length === 0) lines.push(name);
+            const html = hoverFields.length === 1 && lines.length === 1
+              ? String(props[hoverFields[0]])
+              : lines.join("<br>");
+            found = { latlng: e.latlng, html };
+            break;
+          }
+          if (found) break;
+        }
+        if (found) break;
+      }
+      if (found) break;
+    }
+
+    if (found) {
+      if (!tip) tip = L.tooltip({ direction: "top", offset: L.point(0, -8), className: "fault-tooltip" });
+      tip.setLatLng(found.latlng).setContent(found.html).addTo(map);
+    } else if (tip) {
+      tip.remove();
+      tip = null;
+    }
+  });
+
+  map.on("mouseout", function () {
+    if (tip) { tip.remove(); tip = null; }
+  });
 }
 
 function _buildSymbolizer(overlayName, c) {
@@ -317,6 +364,7 @@ Object.keys(OVERLAY_CONFIG).forEach(name => {
   OVERLAYS[name] = buildOverlay(name);
   if (OVERLAY_CONFIG[name].defaultOn) OVERLAYS[name].addTo(map);
 });
+_setupFaultHover();
 
 // Move the zoom control clear of the left-edge sidebar shell.
 map.zoomControl.setPosition("topright");
@@ -331,6 +379,55 @@ function setBasemap(name) {
   map.removeLayer(BASEMAPS[currentBasemap]);
   BASEMAPS[name].addTo(map);
   currentBasemap = name;
+}
+
+function refreshMmiLayerStyles() {
+  if (intensityLayer) intensityLayer.setStyle(style);
+  _compLayers.forEach((layer) => {
+    if (typeof layer.setStyle === "function" && layer.feature == null) layer.setStyle({
+      opacity: MMI_STYLE.opacity,
+      fillOpacity: MMI_STYLE.opacity,
+    });
+  });
+}
+
+function buildMmiOpacityControl() {
+  const section = document.getElementById("sec-config");
+  if (!section) return;
+
+  const group = document.createElement("div");
+  group.className = "cfg-group";
+  const title = document.createElement("div");
+  title.className = "field-label";
+  title.textContent = "MMI intensity";
+  const row = document.createElement("label");
+  row.className = "cfg-row";
+  const txt = document.createElement("span");
+  txt.className = "ov-name";
+  txt.textContent = "Polygon opacity";
+  const controls = document.createElement("span");
+  controls.className = "ov-controls";
+  const slider = document.createElement("input");
+  slider.type = "range";
+  slider.className = "ov-opacity";
+  slider.min = "0";
+  slider.max = "1";
+  slider.step = "0.05";
+  slider.value = String(MMI_STYLE.opacity);
+  slider.title = "MMI polygon opacity";
+  const value = document.createElement("span");
+  value.className = "cfg-value";
+  const syncValue = () => { value.textContent = `${Math.round(parseFloat(slider.value) * 100)}%`; };
+  syncValue();
+  slider.addEventListener("input", () => {
+    MMI_STYLE.opacity = parseFloat(slider.value);
+    syncValue();
+    refreshMmiLayerStyles();
+  });
+  controls.append(slider, value);
+  row.append(txt, controls);
+  group.append(title, row);
+  section.appendChild(group);
 }
 
 function buildConfigPanel() {
@@ -411,6 +508,7 @@ function buildConfigPanel() {
   });
 }
 buildConfigPanel();
+buildMmiOpacityControl();
 
 // MMI legend (colors mirror _MMI_COLORS in src/eqmon/contours.py).
 const MMI_PALETTE = [
@@ -560,8 +658,9 @@ async function exportShapefile() {
   }
 }
 
-const legend = L.control({ position: "bottomright" });
-legend.onAdd = function () {
+let _legendAdded = false;
+const legendCtrl = L.control({ position: "bottomright" });
+legendCtrl.onAdd = function () {
   const div = L.DomUtil.create("div", "legend");
   _legendDiv = div;
   L.DomEvent.disableClickPropagation(div);
@@ -569,7 +668,15 @@ legend.onAdd = function () {
   renderLegend(null);
   return div;
 };
-legend.addTo(map);
+
+function _showLegend(fc) {
+  if (!_legendAdded) { legendCtrl.addTo(map); _legendAdded = true; }
+  renderLegend(fc);
+}
+
+function _hideLegend() {
+  if (_legendAdded) { map.removeControl(legendCtrl); _legendAdded = false; _legendDiv = null; }
+}
 
 function onMmiFeature(f, l) {
   const level = f.properties.mmi_lower;
@@ -594,9 +701,42 @@ let _compLayers = [];
 let _cmpLegendCtrl = null;
 let _timelineExpanded = true;
 
+function ensureAdminKey() {
+  let key = localStorage.getItem("eqmon.adminApiKey") || "";
+  if (key) return key;
+  key = prompt("Admin API key required for catalog mutations and ingest:") || "";
+  key = key.trim();
+  if (key) localStorage.setItem("eqmon.adminApiKey", key);
+  return key || null;
+}
+
+async function fetchAdmin(url, options = {}) {
+  const key = ensureAdminKey();
+  if (!key) throw new Error("Admin API key required");
+  const headers = { ...(options.headers || {}), "X-Admin-API-Key": key };
+  const resp = await fetch(url, { ...options, headers });
+  if (resp.status === 401) localStorage.removeItem("eqmon.adminApiKey");
+  return resp;
+}
+
 function style(feature) {
-  return { color: feature.properties.color, weight: 1,
-           fillColor: feature.properties.color, fillOpacity: 0.45 };
+  return {
+    color: feature.properties.color,
+    weight: 1,
+    opacity: MMI_STYLE.opacity,
+    fillColor: feature.properties.color,
+    fillOpacity: MMI_STYLE.opacity,
+  };
+}
+
+function makeEpicenterMarker(lat, lon, color, popupText) {
+  const icon = L.divIcon({
+    className: "epicenter-star-wrap",
+    html: `<svg class="epicenter-star" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12 2.6l2.78 5.63 6.22.91-4.5 4.38 1.06 6.19L12 16.79 6.44 19.71l1.06-6.19L3 9.14l6.22-.91L12 2.6z" fill="#ffffff" stroke="${color}" stroke-width="2" stroke-linejoin="round"/></svg>`,
+    iconSize: [24, 24],
+    iconAnchor: [12, 12],
+  });
+  return L.marker([lat, lon], { icon }).bindPopup(popupText);
 }
 
 async function calculate() {
@@ -609,8 +749,18 @@ async function calculate() {
   };
   statusEl.innerHTML = spinnerHTML() + " Calculating…";
   try {
+    const headers = { "Content-Type": "application/json" };
+    if (payload.save_to_catalog) {
+      const key = ensureAdminKey();
+      if (!key) {
+        statusEl.textContent = "";
+        toast("Admin API key required to save events", "warn");
+        return;
+      }
+      headers["X-Admin-API-Key"] = key;
+    }
     const resp = await fetch("/intensity", {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST", headers,
       body: JSON.stringify(payload),
     });
     if (!resp.ok) {
@@ -628,12 +778,10 @@ async function calculate() {
       style,
       onEachFeature: onMmiFeature,
     }).addTo(map);
-    renderLegend(fc);
+    _showLegend(fc);
 
     if (epicenterMarker) map.removeLayer(epicenterMarker);
-    epicenterMarker = L.circleMarker([payload.lat, payload.lon], {
-      radius: 6, color: "#000", fillColor: "#fff", fillOpacity: 1,
-    }).addTo(map).bindPopup("Epicenter");
+    epicenterMarker = makeEpicenterMarker(payload.lat, payload.lon, "#000000", "Epicenter").addTo(map);
 
     statusEl.textContent = `${fc.features.length} intensity bands`;
     if (intensityLayer.getBounds().isValid()) map.fitBounds(intensityLayer.getBounds());
@@ -773,7 +921,7 @@ confirmOk.addEventListener("click", async () => {
   const id = _pendingDeleteId;
   closeConfirm();
   try {
-    const r = await fetch(`/events/${id}`, { method: "DELETE" });
+    const r = await fetchAdmin(`/events/${id}`, { method: "DELETE" });
     if (r.ok) {
       document.getElementById("detail").innerHTML = "";
       impactEl.innerHTML = "";
@@ -829,20 +977,22 @@ async function showImpact(id) {
   if (intensityLayer) map.removeLayer(intensityLayer);
   intensityLayer = L.geoJSON(data.bands, { style, onEachFeature: onMmiFeature }).addTo(map);
   const hasBands = data.bands.features.length > 0;
-  if (evt && (evt.lat != null || evt.lon != null)) {
-    if (epicenterMarker) map.removeLayer(epicenterMarker);
-    epicenterMarker = L.circleMarker([evt.lat, evt.lon], {
-      radius: 6, color: "#000", fillColor: "#fff", fillOpacity: 1,
-    }).addTo(map).bindPopup(`Epicenter — M${evt.magnitude.toFixed(1)}`);
-  }
-  if (hasBands && intensityLayer.getBounds().isValid()) {
-    map.fitBounds(intensityLayer.getBounds());
+  if (hasBands) {
+    _showLegend(data.bands);
   } else {
+    _hideLegend();
     // Deep and/or small events produce surface shaking below MMI 2, so there
     // are no bands to draw. Center on the epicenter and explain the blank map
     // rather than leaving the user to wonder if rendering failed.
     if (evt && evt.lat != null && evt.lon != null) map.setView([evt.lat, evt.lon], 7);
     toast("No mapped intensity — shaking stays below MMI 2 for this event.", "info");
+  }
+  if (evt && (evt.lat != null || evt.lon != null)) {
+    if (epicenterMarker) map.removeLayer(epicenterMarker);
+    epicenterMarker = makeEpicenterMarker(evt.lat, evt.lon, "#000000", `Epicenter — M${evt.magnitude.toFixed(1)}`).addTo(map);
+  }
+  if (hasBands && intensityLayer.getBounds().isValid()) {
+    map.fitBounds(intensityLayer.getBounds());
   }
   // Render USGS detail card
   renderDetail(evt);
@@ -926,7 +1076,7 @@ async function refreshFromUsgs(eventId) {
   const btn = document.querySelector(".btn-refresh");
   if (btn) { btn.disabled = true; btn.innerHTML = svgIcon("refresh") + " Refreshing…"; }
   try {
-    const r = await fetch(`/events/${eventId}/refresh-from-usgs`, { method: "POST" });
+    const r = await fetchAdmin(`/events/${eventId}/refresh-from-usgs`, { method: "POST" });
     if (r.ok) {
       const evt = await r.json();
       renderDetail(evt);
@@ -967,7 +1117,7 @@ function showEditForm(evt) {
       place: document.getElementById("edit-place").value || null,
     };
     try {
-      const r = await fetch(`/events/${evt.id}`, {
+      const r = await fetchAdmin(`/events/${evt.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -1157,14 +1307,19 @@ async function showComparison() {
   _compLayers.forEach(l => map.removeLayer(l));
   _compLayers = [];
   if (intensityLayer) { map.removeLayer(intensityLayer); intensityLayer = null; }
+  _hideLegend();
   const BLUE = ["#dbeafe","#93c5fd","#60a5fa","#3b82f6","#2563eb","#1d4ed8","#1e40af","#1e3a8a","#172554"];
   const ORANGE = ["#fff7ed","#fed7aa","#fdba74","#fb923c","#f97316","#ea580c","#c2410c","#9a3412","#7c2d12"];
-  const mkStyle = p => f => { const i = Math.max(0, Math.min(8, (f.properties.mmi_lower || 2) - 2)); const c = p[i]; return { color: c, weight: 1, fillColor: c, fillOpacity: 0.45 }; };
+  const mkStyle = p => f => {
+    const i = Math.max(0, Math.min(8, (f.properties.mmi_lower || 2) - 2));
+    const c = p[i];
+    return { color: c, weight: 1, opacity: MMI_STYLE.opacity, fillColor: c, fillOpacity: MMI_STYLE.opacity };
+  };
   const l1 = L.geoJSON(d1.bands, { style: mkStyle(BLUE), onEachFeature: (f, l) => l.bindPopup(`Event 1: MMI ${mmiClassLabel(f.properties.mmi_lower)}`) }).addTo(map);
   const l2 = L.geoJSON(d2.bands, { style: mkStyle(ORANGE), onEachFeature: (f, l) => l.bindPopup(`Event 2: MMI ${mmiClassLabel(f.properties.mmi_lower)}`) }).addTo(map);
   _compLayers = [l1, l2];
-  if (ev1 && ev1.lat != null) _compLayers.push(L.circleMarker([ev1.lat, ev1.lon], { radius: 6, color: "#0F4C81", fillColor: "#fff", fillOpacity: 1 }).addTo(map).bindPopup(`Event 1 — M${ev1.magnitude.toFixed(1)}`));
-  if (ev2 && ev2.lat != null) _compLayers.push(L.circleMarker([ev2.lat, ev2.lon], { radius: 6, color: "#C97A24", fillColor: "#fff", fillOpacity: 1 }).addTo(map).bindPopup(`Event 2 — M${ev2.magnitude.toFixed(1)}`));
+  if (ev1 && ev1.lat != null) _compLayers.push(makeEpicenterMarker(ev1.lat, ev1.lon, "#000000", `Event 1 — M${ev1.magnitude.toFixed(1)}`).addTo(map));
+  if (ev2 && ev2.lat != null) _compLayers.push(makeEpicenterMarker(ev2.lat, ev2.lon, "#000000", `Event 2 — M${ev2.magnitude.toFixed(1)}`).addTo(map));
   const b = l1.getBounds().extend(l2.getBounds());
   if (b.isValid()) map.fitBounds(b);
   if (_cmpLegendCtrl) map.removeControl(_cmpLegendCtrl);
@@ -1193,8 +1348,9 @@ document.getElementById("ingest").addEventListener("click", async (e) => {
   let url = "/events/ingest";
   if (minmag) url += "?min_magnitude=" + encodeURIComponent(minmag);
   try {
-    const r = await fetch(url, { method: "POST" });
+    const r = await fetchAdmin(url, { method: "POST" });
     const res = await r.json();
+    if (!r.ok) throw new Error(JSON.stringify(res.detail ?? res));
     statusEl.textContent = "";
     toast(`Ingested ${res.inserted} new event${res.inserted === 1 ? "" : "s"} of ${res.fetched} fetched`,
           res.inserted > 0 ? "success" : "info");
@@ -1216,8 +1372,9 @@ document.getElementById("ingest-pmd").addEventListener("click", async (e) => {
   btn.innerHTML = spinnerHTML() + " Pulling…";
   statusEl.innerHTML = spinnerHTML() + " Pulling PMD feed…";
   try {
-    const r = await fetch("/events/ingest/pmd", { method: "POST" });
+    const r = await fetchAdmin("/events/ingest/pmd", { method: "POST" });
     const res = await r.json();
+    if (!r.ok) throw new Error(JSON.stringify(res.detail ?? res));
     statusEl.textContent = "";
     toast(`Ingested ${res.inserted} new event${res.inserted === 1 ? "" : "s"} of ${res.fetched} fetched`,
           res.inserted > 0 ? "success" : "info");
@@ -1244,6 +1401,81 @@ updateIngestStatus();
 setInterval(updateIngestStatus, 30000);
 
 refreshEvents();
+
+// --- USGS/PMD earthquake map tab ---
+let _mapEventsLayer = null;
+let _mapEventsLoaded = false;
+
+function _quakeMarker(event) {
+  const isPMD = event.source === "PMD";
+  const color = isPMD ? "#60a5fa" : "#ff5a1f";
+  const radius = Math.max(3, Math.min(9, 2 + Math.max(0, event.magnitude || 0)));
+  const marker = L.circleMarker([event.lat, event.lon], {
+    radius,
+    color,
+    weight: 1,
+    fillColor: color,
+    fillOpacity: 0.72,
+    opacity: 0.95,
+    className: "quake-scatter-point",
+  });
+  marker.bindPopup(
+    `<strong>${escapeHtml(event.source)} M${Number(event.magnitude).toFixed(1)}</strong><br>` +
+    `${escapeHtml(event.place || "Unknown location")}<br>` +
+    `<span style="color:#64748B">${new Date(event.occurred_at).toLocaleString()}</span>`
+  );
+  return marker;
+}
+
+async function loadMapEvents({ fit = true } = {}) {
+  const status = document.getElementById("map-events-status");
+  const btn = document.getElementById("map-events-refresh");
+  const includeUSGS = document.getElementById("map-src-usgs")?.checked;
+  const includePMD = document.getElementById("map-src-pmd")?.checked;
+  const minmag = document.getElementById("map-minmag")?.value || "";
+  const limit = Math.max(1, Math.min(1000, parseInt(document.getElementById("map-limit")?.value || "250", 10)));
+  const sources = new Set([
+    ...(includeUSGS ? ["USGS"] : []),
+    ...(includePMD ? ["PMD"] : []),
+  ]);
+
+  if (btn) { btn.disabled = true; btn.innerHTML = spinnerHTML() + " Loading…"; }
+  if (status) status.textContent = "Loading recent earthquakes…";
+
+  try {
+    if (intensityLayer) { map.removeLayer(intensityLayer); intensityLayer = null; }
+    if (epicenterMarker) { map.removeLayer(epicenterMarker); epicenterMarker = null; }
+    _hideLegend();
+
+    let url = `/events?limit=${encodeURIComponent(limit)}&orderby=time`;
+    if (minmag) url += `&min_magnitude=${encodeURIComponent(minmag)}`;
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const data = await resp.json();
+    const events = (data.events || data)
+      .filter(e => sources.has(e.source) && e.lat != null && e.lon != null);
+
+    if (_mapEventsLayer) map.removeLayer(_mapEventsLayer);
+    _mapEventsLayer = L.layerGroup(events.map(_quakeMarker)).addTo(map);
+    _mapEventsLoaded = true;
+    if (status) status.textContent = events.length ? "Earthquakes shown on map" : "No matching USGS/PMD events found";
+
+    if (fit && events.length) {
+      const bounds = L.latLngBounds(events.map(e => [e.lat, e.lon]));
+      if (bounds.isValid()) map.fitBounds(bounds.pad(0.15));
+    }
+  } catch (err) {
+    if (status) status.textContent = "";
+    toast("Could not load earthquake map: " + err.message, "error");
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "Show earthquakes"; }
+  }
+}
+
+document.getElementById("map-events-refresh")?.addEventListener("click", () => loadMapEvents());
+["map-src-usgs", "map-src-pmd"].forEach(id => {
+  document.getElementById(id)?.addEventListener("change", () => loadMapEvents({ fit: false }));
+});
 
 // Catalog source tabs
 document.querySelectorAll(".cat-tab").forEach(tab => {
@@ -1272,7 +1504,7 @@ document.getElementById("filter-source").addEventListener("change", () => {
 });
 
 // --- Sidebar rail: section switching + collapse ---
-const SECTIONS = { event: "sec-event", catalog: "sec-catalog", alerts: "sec-alerts", dashboard: "sec-dashboard", config: "sec-config" };
+const SECTIONS = { event: "sec-event", catalog: "sec-catalog", mapEvents: "sec-map-events", aftershock: "sec-aftershock", dashboard: "sec-dashboard", config: "sec-config" };
 // Start as null (not "event") so the initial showSection("event") renders the
 // section instead of matching the active-icon-toggle guard and collapsing.
 let activeSection = null;
@@ -1287,7 +1519,7 @@ function setCollapsed(value) {
 }
 
 // (Re)render the rail icons, reflecting which section is active (for Lordicon coloring).
-const RAIL_GLYPH = { event: "plus", catalog: "list", alerts: "bell", dashboard: "chart", config: "settings" };
+const RAIL_GLYPH = { event: "plus", catalog: "list", mapEvents: "pin", aftershock: "target", dashboard: "chart", config: "settings" };
 function renderRailIcons() {
   document.querySelectorAll(".rail-ic").forEach((b) => {
     const section = b.dataset.section;
@@ -1313,7 +1545,6 @@ function showSection(key) {
   document.getElementById("dashboard-view").classList.toggle("open", nowDashboard);
   if (nowDashboard && !wasDashboard) renderDashboard();
   if (wasDashboard && !nowDashboard) setTimeout(() => map.invalidateSize(), 100);
-  if (key === "alerts") renderAlerts();
   for (const [k, id] of Object.entries(SECTIONS)) {
     document.getElementById(id).style.display = (k === key) ? "block" : "none";
   }
@@ -1335,79 +1566,33 @@ document.addEventListener("click", (e) => {
   e.stopPropagation();
   document.getElementById("export-menu").classList.toggle("open");
 });
-document.addEventListener("click", (e) => {
+document.addEventListener("click", async (e) => {
   const opt = e.target.closest(".export-opt");
   if (!opt) return;
   e.stopPropagation();
   const fmt = opt.dataset.format;
   const filter = (eventsEl._filter || "").replace(/^\?limit=\d+/, "");
-  window.open("/events/export?format=" + fmt + filter, "_blank");
   document.getElementById("export-menu").classList.remove("open");
-  toast("Exporting catalog as " + fmt.toUpperCase() + "…", "info");
-});
-
-// --- PAGER alerts section ---
-const PAGER_LEVELS = [
-  { key: "red",    label: "Red",    desc: "1,000+ estimated fatalities — extensive impact" },
-  { key: "orange", label: "Orange", desc: "100–999 fatalities — national response likely" },
-  { key: "yellow", label: "Yellow", desc: "1–99 fatalities — local impact possible" },
-  { key: "green",  label: "Green",  desc: "No significant impact expected" },
-];
-const PAGER_COLOR = { red: "var(--alert-red)", orange: "var(--alert-orange)", yellow: "var(--alert-yellow)", green: "var(--alert-green)" };
-const _ALERT_RANK = { red: 3, orange: 2, yellow: 1 };  // levels considered "active alerts"
-
-async function renderAlerts() {
-  const body = document.getElementById("alerts-body");
-  body.innerHTML = `<div style="padding:18px;text-align:center;color:var(--text-muted)">${spinnerHTML()} Loading alerts…</div>`;
-  let evs;
   try {
-    // /events/stats is retired; derive alert counts + top events from the
-    // recent catalog slice instead (PAGER alerts are recency-oriented).
-    const r = await fetch("/events?limit=500");
-    if (!r.ok) throw new Error("HTTP " + r.status);
-    evs = (await r.json()).events || [];
-  } catch (e) {
-    body.innerHTML = `<div style="color:var(--text-muted);font-size:12px;padding:8px 0">Couldn't load alerts.</div>`;
-    toast("Couldn't load PAGER alerts: " + e.message, "error");
-    return;
+    const resp = await fetchAdmin("/events/export?format=" + fmt + filter);
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(JSON.stringify(err.detail ?? err));
+    }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fmt === "geojson" ? "events.geojson" : "events.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast("Exported catalog as " + fmt.toUpperCase(), "success");
+  } catch (err) {
+    toast("Export failed: " + err.message, "error");
   }
-
-  const counts = {};
-  evs.forEach(e => { if (e.alert) counts[e.alert] = (counts[e.alert] || 0) + 1; });
-  const chips = PAGER_LEVELS.map(l =>
-    `<span class="pager-chip" title="${l.label} alerts"><span class="pager-dot" style="background:${PAGER_COLOR[l.key]}"></span>${counts[l.key] || 0}</span>`
-  ).join("");
-
-  const active = evs
-    .filter(e => _ALERT_RANK[e.alert])
-    .sort((a, b) => (_ALERT_RANK[b.alert] - _ALERT_RANK[a.alert]) || ((b.sig || 0) - (a.sig || 0)))
-    .slice(0, 10);
-  const listHtml = active.length
-    ? active.map(e => `<div class="pager-row" data-id="${e.id}" tabindex="0" role="button" aria-label="M${(e.magnitude ?? 0).toFixed(1)} ${escapeHtml(e.place || "")}, ${e.alert} alert">
-        <span class="pager-dot" style="background:${PAGER_COLOR[e.alert]}"></span>
-        <span class="pager-mag">M${(e.magnitude ?? 0).toFixed(1)}</span>
-        <span class="pager-place">${escapeHtml(e.place || "—")}</span>
-        ${e.tsunami ? `<span class="evt-tsunami" title="Tsunami warning">${svgIcon("waves", 13)}</span>` : ""}
-        <span class="pager-sig">${e.sig ?? ""}</span>
-      </div>`).join("")
-    : `<div class="pager-empty">No active PAGER alerts.</div>`;
-
-  const legendHtml = PAGER_LEVELS.map(l =>
-    `<div class="pager-legend-row"><span class="pager-dot" style="background:${PAGER_COLOR[l.key]}"></span><span class="pager-legend-lbl">${l.label}</span><span class="pager-legend-desc">${l.desc}</span></div>`
-  ).join("");
-
-  body.innerHTML =
-    `<div class="pager-counts">${chips}</div>` +
-    `<div class="pager-list">${listHtml}</div>` +
-    `<div class="field-label" style="margin-top:12px">What the levels mean</div>` +
-    `<div class="pager-legend">${legendHtml}</div>`;
-
-  body.querySelectorAll(".pager-row").forEach(row => {
-    const go = () => showImpact(row.dataset.id);
-    row.addEventListener("click", go);
-    row.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
-  });
-}
+});
 
 // --- Dashboard ---
 let _dashCharts = [];
@@ -1699,7 +1884,7 @@ function syncBasemapToTheme(mode) {
   if (_basemapRadios[want]) _basemapRadios[want].checked = true;
 }
 
-document.getElementById("theme-toggle").addEventListener("click", () =>
+  document.getElementById("theme-toggle").addEventListener("click", () =>
   applyTheme(currentTheme() === "dark" ? "light" : "dark"));
 
 (function initTheme() {
@@ -1708,5 +1893,394 @@ document.getElementById("theme-toggle").addEventListener("click", () =>
   if (!mode) mode = "dark";
   applyTheme(mode);
 })();
+
+// --- Aftershock probability section ---
+let _asChart = null;
+let _asExpandedChart = null;
+let _asData = null;
+const _AS_DAYS = [1, 3, 5, 7, 14, 30];
+const _AS_TARGETS = [3, 4, 5, 6, 7];
+const _AS_COLORS = ["#0F4C81", "#C97A24", "#7C3AED", "#2E7D32", "#B91C1C"];
+
+function _asDestroyChart() {
+  if (_asChart) { _asChart.destroy(); _asChart = null; }
+}
+
+function _asDestroyExpandedChart() {
+  if (_asExpandedChart) { _asExpandedChart.destroy(); _asExpandedChart = null; }
+}
+
+async function _asLoadEvents() {
+  const sel = document.getElementById("as-event-id");
+  if (!sel) return;
+  sel.innerHTML = '<option value="">Loading…</option>';
+  try {
+    const resp = await fetch("/events?min_magnitude=4&limit=50&orderby=time");
+    const data = await resp.json();
+    const events = data.events || [];
+    sel.innerHTML = events.map(e =>
+      `<option value="${e.id}" data-lat="${e.lat}" data-lon="${e.lon}" data-mag="${e.magnitude}">`
+      + `M${e.magnitude.toFixed(1)} · ${e.place || "—"} · ${new Date(e.occurred_at).toLocaleDateString()}`
+      + `</option>`
+    ).join("");
+    if (events.length) _asOnEventSelect();
+  } catch (e) {
+    sel.innerHTML = '<option value="">Could not load catalog</option>';
+  }
+}
+
+function _asOnEventSelect() {
+  const sel = document.getElementById("as-event-id");
+  const opt = sel.options[sel.selectedIndex];
+  if (opt && opt.value) {
+    document.getElementById("as-mag").value = opt.dataset.mag;
+    document.getElementById("as-lat").value = opt.dataset.lat;
+    document.getElementById("as-lon").value = opt.dataset.lon;
+  }
+  _asDetectRegion();
+}
+
+function _asDetectRegion() {
+  const lat = parseFloat(document.getElementById("as-lat").value);
+  const lon = parseFloat(document.getElementById("as-lon").value);
+  const badge = document.getElementById("as-region-badge");
+  if (isNaN(lat) || isNaN(lon)) { badge.textContent = ""; return; }
+  let region;
+  if (lat >= 33.5) region = "northern";
+  else if (lat >= 28) region = "central";
+  else region = "southern";
+  const names = {
+    northern: "Northern Pakistan (Kashmir / Himalayan Thrust)",
+    central: "Central Pakistan (Indus Basin / Punjab)",
+    southern: "Southern Pakistan (Chaman Fault / Quetta)",
+  };
+  badge.innerHTML = `<span class="as-badge-inner as-${region}">${names[region]}</span>`
+    + `<span style="font-size:10px;color:var(--text-muted);margin-left:6px">(${lat.toFixed(1)}°N, ${lon.toFixed(1)}°E)</span>`;
+}
+
+async function _asCalculate() {
+  const calcBtn = document.getElementById("as-calc");
+  const resultsEl = document.getElementById("as-results");
+  calcBtn.disabled = true;
+  calcBtn.innerHTML = spinnerHTML() + " Computing…";
+
+  const source = document.getElementById("as-source").value;
+  let body;
+  if (source === "catalog") {
+    const eventId = parseInt(document.getElementById("as-event-id").value);
+    if (!eventId) { toast("Select an event from the catalog", "warn"); calcBtn.disabled = false; calcBtn.textContent = "Calculate aftershock probability"; return; }
+    body = { event_id: eventId };
+  } else {
+    const mag = parseFloat(document.getElementById("as-mag").value);
+    const lat = parseFloat(document.getElementById("as-lat").value);
+    const lon = parseFloat(document.getElementById("as-lon").value);
+    if (isNaN(mag) || isNaN(lat) || isNaN(lon)) { toast("Fill in magnitude, latitude, and longitude", "warn"); calcBtn.disabled = false; calcBtn.textContent = "Calculate aftershock probability"; return; }
+    body = { magnitude: mag, lat, lon };
+  }
+
+  try {
+    const resp = await fetch("/aftershock", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) {
+      const err = await resp.text().catch(() => "Unknown error");
+      toast("Aftershock calculation failed: " + err.slice(0, 120), "error");
+      calcBtn.disabled = false; calcBtn.textContent = "Calculate aftershock probability";
+      return;
+    }
+    const data = await resp.json();
+    _asRenderResults(data);
+    resultsEl.style.display = "block";
+  } catch (e) {
+    toast("Network error: " + e.message, "error");
+  }
+  calcBtn.disabled = false;
+  calcBtn.textContent = "Calculate aftershock probability";
+}
+
+function _asRenderResults(data) {
+  _asData = data;
+  const resultsEl = document.getElementById("as-results");
+  if (!data.probabilities || data.probabilities.length === 0) {
+    document.getElementById("as-summary").innerHTML =
+      `<div class="as-summary-inner" style="color:var(--text-muted)">No supported target magnitudes: forecasts are only shown for M≥3 and below the current M${data.main_mag} event.</div>`;
+    document.getElementById("as-chart-wrap").style.display = "none";
+    document.getElementById("as-table-wrap").innerHTML = "";
+    document.getElementById("as-export").style.display = "none";
+    return;
+  }
+  document.getElementById("as-chart-wrap").style.display = "";
+  document.getElementById("as-export").style.display = "";
+  const _asMags = data.target_mags;
+  const allTargets = _AS_TARGETS;
+  const excluded = allTargets.filter(m => !_asMags.includes(m));
+  const magsStr = _asMags.map(m => "M≥" + m).join(", ");
+  const excludedStr = excluded.length
+    ? `<span style="color:var(--text-muted);font-size:10px"> (${excluded.map(m => "M " + m).join(", ")} excluded: above mainshock)</span>`
+    : "";
+  const extrapolated = _asMags.filter(m => m < data.params.Mmin);
+  const caveat = extrapolated.length
+    ? `<div style="font-size:10px;color:var(--copper);margin-top:1px">M≥${extrapolated.join(", M≥")} is extrapolated below catalog completeness Mmin=${data.params.Mmin}.</div>`
+    : "";
+  const summaryEl = document.getElementById("as-summary");
+  const ev = data.event;
+  let eventStr = "";
+  if (ev) {
+    eventStr = `M${ev.magnitude} · ${ev.place || "—"} · ${ev.occurred_at ? new Date(ev.occurred_at).toLocaleDateString() : ""}`;
+  } else {
+    eventStr = `M${data.main_mag} (manual entry)`;
+  }
+  const zoneStr = data.zone_name ? ` · Zone: ${escapeHtml(data.zone_name)}` : "";
+
+  summaryEl.innerHTML = `
+    <div class="as-summary-inner">
+      <strong>${eventStr}</strong>
+      <span class="as-badge-inner as-${data.region}">${escapeHtml(data.region_name)}</span>${zoneStr}
+      <div style="font-size:11px;color:var(--slate);margin-top:2px">
+        ${magsStr}${excludedStr}
+      </div>
+      ${caveat}
+      <div style="font-size:11px;color:var(--text-muted);margin-top:1px">
+        k=${Number(data.params.k).toPrecision(3)} · c=${escapeHtml(data.params.c)} · p=${escapeHtml(data.params.p)} · b=${escapeHtml(data.params.b)} · Mmin=${escapeHtml(data.params.Mmin)}
+      </div>
+    </div>
+  `;
+
+  _asDestroyChart();
+  const probsByMag = {};
+  data.probabilities.forEach(r => {
+    if (!probsByMag[r.Mtarget]) probsByMag[r.Mtarget] = [];
+    probsByMag[r.Mtarget].push(r);
+  });
+
+  const chartWrap = document.getElementById("as-chart-wrap");
+  const expandBtn = document.createElement("button");
+  expandBtn.className = "as-expand-btn";
+  expandBtn.innerHTML = svgIcon("maximize", 14) + " Expand";
+  expandBtn.setAttribute("aria-label", "Expand chart to full screen");
+  expandBtn.addEventListener("click", () => _asShowExpanded());
+  chartWrap.prepend(expandBtn);
+
+  const canvas = document.getElementById("as-chart");
+  syncChartTheme();
+  _asChart = new Chart(canvas, {
+    type: "line",
+    data: {
+      labels: _AS_DAYS,
+      datasets: _asMags.map((mt, i) => ({
+        label: `M ${mt}`,
+        data: probsByMag[mt] ? probsByMag[mt].map(r => r.AftershockProb) : [],
+        borderColor: _AS_COLORS[i],
+        backgroundColor: _AS_COLORS[i] + "18",
+        fill: true,
+        tension: 0.3,
+        borderWidth: 3,
+        borderDash: [[], [8, 4], [4, 4], [2, 3], [6, 2]][i] || [],
+        pointRadius: 4,
+        pointHoverRadius: 7,
+      })),
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: "top", labels: { font: { size: 10 }, boxWidth: 14 } },
+        title: { display: true, text: "Aftershock probability vs. days since mainshock", font: { size: 12, weight: "600" } },
+      },
+      scales: {
+        y: {
+          title: { display: true, text: "Probability (%)", font: { size: 10 } },
+          min: 0, max: 100,
+          ticks: { font: { size: 9 }, callback: v => v + "%" },
+        },
+        x: {
+          title: { display: true, text: "Days since mainshock", font: { size: 10 } },
+          ticks: { font: { size: 9 } },
+        },
+      },
+    },
+  });
+
+  const tableWrap = document.getElementById("as-table-wrap");
+  tableWrap.innerHTML = `
+    <table class="as-table">
+      <thead><tr><th>Days since</th>${_asMags.map(mt => `<th>M≥${mt}</th>`).join("")}</tr></thead>
+      <tbody>${_AS_DAYS.map(d => {
+        const row = data.probabilities.filter(r => r.DaysSince === d);
+        return `<tr><td>${d}</td>${
+          row.map(r => `<td>${r.AftershockProb > 99.9 ? ">99.9" : r.AftershockProb}%</td>`).join("")
+        }</tr>`;
+      }).join("")}</tbody>
+    </table>
+  `;
+
+  document.getElementById("as-export").onclick = () => _asExportCsv(data);
+}
+
+function _asShowExpanded() {
+  if (!_asData) return;
+  const expandedView = document.getElementById("as-expanded-view");
+  const mapEl = document.getElementById("map");
+  mapEl.style.display = "none";
+  expandedView.classList.add("open");
+
+  const _asMags = _asData.target_mags;
+  const ev = _asData.event;
+  const summary = document.getElementById("as-expanded-summary");
+  const eventStr = ev
+    ? `M${ev.magnitude} · ${ev.place || "—"} · ${ev.occurred_at ? new Date(ev.occurred_at).toLocaleDateString() : ""}`
+    : `M${_asData.main_mag} (manual entry)`;
+
+  const allTargets = _AS_TARGETS;
+  const excluded = allTargets.filter(m => !_asMags.includes(m));
+  const magsStr = _asMags.map(m => "M≥" + m).join(", ");
+  const excludedStr = excluded.length
+    ? `<span style="color:var(--text-muted);font-size:10px"> (${excluded.map(m => "M " + m).join(", ")} excluded: above mainshock)</span>`
+    : "";
+  const extrapolated = _asMags.filter(m => m < _asData.params.Mmin);
+  const caveat = extrapolated.length
+    ? `<div style="font-size:10px;color:var(--copper);margin-top:1px">M≥${extrapolated.join(", M≥")} is extrapolated below catalog completeness Mmin=${_asData.params.Mmin}.</div>`
+    : "";
+
+  summary.innerHTML = `
+    <div class="as-summary-inner" style="background:var(--surface);border:1px solid var(--border)">
+      <strong>${escapeHtml(eventStr)}</strong>
+      <span class="as-badge-inner as-${_asData.region}">${escapeHtml(_asData.region_name)}</span>
+      <div style="font-size:11px;color:var(--slate);margin-top:2px">
+        ${magsStr}${excludedStr}
+      </div>
+      ${caveat}
+      <div style="font-size:11px;color:var(--text-muted);margin-top:1px">
+        k=${Number(_asData.params.k).toPrecision(3)} · c=${_asData.params.c} · p=${_asData.params.p} · b=${_asData.params.b} · Mmin=${_asData.params.Mmin}
+      </div>
+    </div>
+  `;
+
+  _asDestroyExpandedChart();
+  const probsByMag = {};
+  _asData.probabilities.forEach(r => {
+    if (!probsByMag[r.Mtarget]) probsByMag[r.Mtarget] = [];
+    probsByMag[r.Mtarget].push(r);
+  });
+
+  syncChartTheme();
+  const expandedCanvas = document.getElementById("as-expanded-chart");
+  _asExpandedChart = new Chart(expandedCanvas, {
+    type: "line",
+    data: {
+      labels: _AS_DAYS,
+      datasets: _asMags.map((mt, i) => ({
+        label: `M ${mt}`,
+        data: probsByMag[mt] ? probsByMag[mt].map(r => r.AftershockProb) : [],
+        borderColor: _AS_COLORS[i],
+        backgroundColor: _AS_COLORS[i] + "15",
+        fill: true,
+        tension: 0.3,
+        borderWidth: 3,
+        borderDash: [[], [8, 4], [4, 4], [2, 3], [6, 2]][i] || [],
+        pointRadius: 5,
+        pointHoverRadius: 8,
+      })),
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: "top", labels: { font: { size: 13 }, boxWidth: 18 } },
+        title: { display: true, text: "Aftershock probability vs. days since mainshock", font: { size: 16, weight: "600" } },
+      },
+      scales: {
+        y: {
+          title: { display: true, text: "Probability (%)", font: { size: 13 } },
+          min: 0, max: 100,
+          ticks: { font: { size: 12 }, callback: v => v + "%" },
+        },
+        x: {
+          title: { display: true, text: "Days since mainshock", font: { size: 13 } },
+          ticks: { font: { size: 12 } },
+        },
+      },
+    },
+  });
+
+  const table = document.getElementById("as-expanded-table");
+  table.innerHTML = `
+    <table class="as-table">
+      <thead><tr><th>Days since</th>${_asMags.map(mt => `<th>M≥${mt}</th>`).join("")}</tr></thead>
+      <tbody>${_AS_DAYS.map(d => {
+        const row = _asData.probabilities.filter(r => r.DaysSince === d);
+        return `<tr><td>${d}</td>${
+          row.map(r => `<td>${r.AftershockProb > 99.9 ? ">99.9" : r.AftershockProb}%</td>`).join("")
+        }</tr>`;
+      }).join("")}</tbody>
+    </table>
+  `;
+}
+
+function _asCloseExpanded() {
+  const expandedView = document.getElementById("as-expanded-view");
+  const mapEl = document.getElementById("map");
+  expandedView.classList.remove("open");
+  mapEl.style.display = "";
+  _asDestroyExpandedChart();
+  setTimeout(() => map.invalidateSize(), 100);
+}
+
+function _asExportCsv(data) {
+  const header = "DaysSince,Mtarget,AftershockProb(%),OmoriRate";
+  const rows = data.probabilities.map(r =>
+    `${r.DaysSince},${r.Mtarget},${r.AftershockProb},${r.OmoriRate}`
+  ).join("\n");
+  const blob = new Blob([header + "\n" + rows], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  const region = data.region || "pakistan";
+  a.download = `aftershock_probs_${region}_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast("CSV downloaded", "success");
+}
+
+// Wire up aftershock UI events
+document.addEventListener("DOMContentLoaded", () => {
+  const srcSel = document.getElementById("as-source");
+  const catRow = document.getElementById("as-catalog-row");
+  const manRow = document.getElementById("as-manual-row");
+  if (srcSel) {
+    srcSel.addEventListener("change", () => {
+      const isCat = srcSel.value === "catalog";
+      catRow.style.display = isCat ? "" : "none";
+      manRow.style.display = isCat ? "none" : "";
+      if (isCat) _asOnEventSelect();
+    });
+  }
+  const eventSel = document.getElementById("as-event-id");
+  if (eventSel) eventSel.addEventListener("change", _asOnEventSelect);
+
+  ["as-mag", "as-lat", "as-lon"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("input", _asDetectRegion);
+  });
+
+  const calcBtn = document.getElementById("as-calc");
+  if (calcBtn) calcBtn.addEventListener("click", _asCalculate);
+
+  const closeBtn = document.getElementById("as-expanded-close");
+  if (closeBtn) closeBtn.addEventListener("click", _asCloseExpanded);
+});
+
+// Load catalog events when aftershock section is shown
+const _origShowSection = showSection;
+showSection = function(key) {
+  _origShowSection(key);
+  if (key !== "mapEvents" && _mapEventsLayer) {
+    map.removeLayer(_mapEventsLayer);
+    _mapEventsLayer = null;
+  }
+  if (key === "mapEvents" && (!_mapEventsLoaded || !_mapEventsLayer)) loadMapEvents();
+  if (key === "aftershock") _asLoadEvents();
+};
 
 showSection("event"); // default panel on load

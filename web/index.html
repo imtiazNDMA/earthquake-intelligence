@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Earthquake Intensity Platform</title>
+  <title>Seismic Intelligence Platform</title>
   <link rel="stylesheet"
         href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
         integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
@@ -17,6 +17,9 @@
 </head>
 <body>
   <div id="map"></div>
+  <header id="titlebar" aria-label="Application title">
+    <span class="titlebar-title">Seismic Intelligence Platform</span>
+  </header>
   <div id="dashboard-view">
     <div id="dash-inner">
       <h2 id="dash-title">
@@ -26,11 +29,25 @@
       <div id="dash-main"></div>
     </div>
   </div>
+  <div id="as-expanded-view">
+    <div id="as-expanded-inner">
+      <div id="as-expanded-header">
+        <span id="as-expanded-title">Aftershock Probability</span>
+        <button id="as-expanded-close" class="as-exp-close-btn" aria-label="Close expanded view">&#10005;</button>
+      </div>
+      <div id="as-expanded-body">
+        <div id="as-expanded-summary"></div>
+        <div id="as-expanded-chart-wrap"><canvas id="as-expanded-chart"></canvas></div>
+        <div id="as-expanded-table"></div>
+      </div>
+    </div>
+  </div>
   <div id="sidebar">
     <div class="rail">
       <button class="rail-ic active" data-section="event" title="Event input" data-icon="plus"></button>
       <button class="rail-ic" data-section="catalog" title="Catalog" data-icon="list"></button>
-      <button class="rail-ic" data-section="alerts" title="PAGER alerts" data-icon="bell"></button>
+      <button class="rail-ic" data-section="mapEvents" title="Earthquake map" data-icon="pin"></button>
+      <button class="rail-ic" data-section="aftershock" title="Aftershock" data-icon="target"></button>
       <button class="rail-ic" data-section="dashboard" title="Analytics" data-icon="chart"></button>
       <button class="rail-ic" data-section="config" title="Map config" data-icon="settings"></button>
       <button id="theme-toggle" class="rail-ic" style="margin-top:auto" title="Toggle dark mode" data-icon="moon"></button>
@@ -96,9 +113,60 @@
         <div id="detail"></div>
         <div id="impact"></div>
       </section>
-      <section id="sec-alerts">
-        <h4>PAGER alerts</h4>
-        <div id="alerts-body"></div>
+      <section id="sec-map-events">
+        <h4>Earthquake Map</h4>
+        <div class="map-events-note">Recent USGS and PMD catalog events rendered directly on the map.</div>
+        <div class="map-events-controls">
+          <label class="map-events-check"><input id="map-src-usgs" type="checkbox" checked /> USGS</label>
+          <label class="map-events-check"><input id="map-src-pmd" type="checkbox" checked /> PMD</label>
+        </div>
+        <div class="grid2">
+          <div><span class="field-label">Min mag</span>
+            <input id="map-minmag" type="number" value="2.5" step="0.5" min="0" /></div>
+          <div><span class="field-label">Limit</span>
+            <input id="map-limit" type="number" value="250" step="50" min="1" max="1000" /></div>
+        </div>
+        <button id="map-events-refresh" class="btn-primary">Show earthquakes</button>
+        <div id="map-events-status" role="status" aria-live="polite"></div>
+        <div class="map-events-legend">
+          <div><span class="quake-dot usgs"></span>USGS event</div>
+          <div><span class="quake-dot pmd"></span>PMD event</div>
+          <div class="map-events-hint">Scatter points are source-colored and sized lightly by magnitude. Click a point for event metadata.</div>
+        </div>
+      </section>
+      <section id="sec-aftershock">
+        <h4>Aftershock Probability</h4>
+        <div class="as-form">
+          <div><span class="field-label">Event source</span>
+            <select id="as-source" class="as-select">
+              <option value="catalog">From catalog</option>
+              <option value="manual">Manual entry</option>
+            </select></div>
+          <div id="as-catalog-row"><span class="field-label">Select event</span>
+            <select id="as-event-id" class="as-select"></select></div>
+          <div id="as-manual-row" style="display:none">
+            <div class="grid2">
+              <div><span class="field-label">Magnitude</span>
+                <input id="as-mag" type="number" value="6.5" step="0.1" /></div>
+              <div><span class="field-label">Depth (km)</span>
+                <input id="as-depth" type="number" value="10" step="1" /></div>
+            </div>
+            <div class="grid2">
+              <div><span class="field-label">Latitude</span>
+                <input id="as-lat" type="number" value="30.4" step="0.01" /></div>
+              <div><span class="field-label">Longitude</span>
+                <input id="as-lon" type="number" value="69.3" step="0.01" /></div>
+            </div>
+          </div>
+          <div id="as-region-badge" class="as-badge"></div>
+          <button id="as-calc" class="btn-primary">Calculate aftershock probability</button>
+        </div>
+        <div id="as-results" style="display:none">
+          <div id="as-summary"></div>
+          <div id="as-chart-wrap"><canvas id="as-chart"></canvas></div>
+          <div id="as-table-wrap"></div>
+          <button id="as-export" class="btn-secondary">Download CSV</button>
+        </div>
       </section>
       <section id="sec-dashboard">
         <h4>Dashboard</h4>

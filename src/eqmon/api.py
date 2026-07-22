@@ -5,17 +5,18 @@ import csv
 import io
 import logging
 import os
+import secrets
 import threading
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse, Response
-from fastapi.staticfiles import StaticFiles
+from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field, field_validator
 
+from . import aftershock as ashock
 from . import analytics as ana
 from . import config, db
 from .contours import mmi_to_geojson
@@ -33,12 +34,20 @@ logger = logging.getLogger("uvicorn.error")
 
 _ingest_scheduler_thread: threading.Thread | None = None
 _STOP_SCHEDULER = False
+_pmd_tick_counter = 0
 
 
 def _ingest_sources() -> list[tuple[object, str]]:
-    """Sources ingested each tick, in priority order. PMD (Primary) goes first
-    so it lands as the canonical row when it shares a quake with USGS."""
-    return [(PMDSource(), "pmd_last_sync"), (USGSSource(), "usgs_last_sync")]
+    """Sources for this tick. USGS runs every tick (1 min). PMD (full-catalog)
+    runs every Nth tick (config.PMD_INTERVAL_MULTIPLIER). PMD goes first when it
+    runs so it lands as the canonical row when it shares a quake with USGS."""
+    global _pmd_tick_counter
+    _pmd_tick_counter = (_pmd_tick_counter + 1) % 1_000_000
+    sources: list[tuple[object, str]] = []
+    if _pmd_tick_counter % config.PMD_INTERVAL_MULTIPLIER == 0:
+        sources.append((PMDSource(), "pmd_last_sync"))
+    sources.append((USGSSource(), "usgs_last_sync"))
+    return sources
 
 
 def _ingest_source(conn, source, sync_key: str) -> None:
@@ -48,16 +57,27 @@ def _ingest_source(conn, source, sync_key: str) -> None:
     ).fetchone()
     updatedafter = datetime.fromisoformat(row[0]) if row is not None else None
     result = ingest(conn, source, updatedafter=updatedafter)
-    conn.commit()
-    now_iso = datetime.now(timezone.utc).isoformat()
+    _commit_successful_ingest(conn, sync_key, result)
+    logger.info("[scheduler] %s ingest: %d new, %d fetched",
+                source.name, result.inserted, result.fetched)
+
+
+def _commit_successful_ingest(conn, sync_key: str, result) -> None:
+    if result.errors:
+        conn.rollback()
+        raise RuntimeError("ingest failed: " + "; ".join(result.errors))
+    sync_dt = getattr(result, "watermark", None) or datetime.now(timezone.utc)
+    sync_iso = sync_dt.isoformat()
     conn.execute(
         "INSERT INTO _sync_state (key, value) VALUES (%s, %s) "
         "ON CONFLICT (key) DO UPDATE SET value = %s, updated_at = now()",
-        (sync_key, now_iso, now_iso),
+        (sync_key, sync_iso, sync_iso),
     )
     conn.commit()
-    logger.info("[scheduler] %s ingest: %d new, %d fetched",
-                source.name, result.inserted, result.fetched)
+
+
+def _raise_ingest_error(exc: RuntimeError) -> None:
+    raise HTTPException(status_code=502, detail=str(exc))
 
 
 def _ingest_tick() -> None:
@@ -113,6 +133,18 @@ async def _lifespan(_app):
 app = FastAPI(title="Earthquake Intensity Platform", lifespan=_lifespan)
 
 
+def _check_admin_key(x_admin_api_key: str | None) -> None:
+    expected = os.environ.get("EQMON_ADMIN_API_KEY")
+    if not expected:
+        raise HTTPException(status_code=503, detail="admin API key is not configured")
+    if x_admin_api_key is None or not secrets.compare_digest(x_admin_api_key, expected):
+        raise HTTPException(status_code=401, detail="invalid admin API key")
+
+
+def require_admin(x_admin_api_key: str | None = Header(default=None)) -> None:
+    _check_admin_key(x_admin_api_key)
+
+
 def _vs30_path() -> Path:
     return Path(os.environ.get("EQMON_VS30_TIF", str(config.VS30_TIF)))
 
@@ -152,7 +184,8 @@ class EventRequest(BaseModel):
 
 
 @app.post("/intensity")
-def intensity(req: EventRequest) -> JSONResponse:
+def intensity(req: EventRequest,
+              x_admin_api_key: str | None = Header(default=None)) -> JSONResponse:
     grid = get_grid()
     mmi = compute_mmi_grid(
         grid.lon, grid.lat, grid.vs30,
@@ -164,6 +197,7 @@ def intensity(req: EventRequest) -> JSONResponse:
     # "what-if" calculations from cluttering the event catalog. Best-effort —
     # intensity bands render either way.
     if req.save_to_catalog:
+        _check_admin_key(x_admin_api_key)
         try:
             with db.get_conn() as conn:
                 row = create_manual_event(conn, magnitude=req.magnitude,
@@ -220,7 +254,7 @@ class ManualEvent(BaseModel):
 
 
 @app.post("/events")
-def create_event(ev: ManualEvent):
+def create_event(ev: ManualEvent, _admin: None = Depends(require_admin)):
     with db.get_conn() as conn:
         row = create_manual_event(conn, magnitude=ev.magnitude, depth_km=ev.depth_km,
                                   lon=ev.lon, lat=ev.lat, occurred_at=ev.occurred_at)
@@ -229,7 +263,8 @@ def create_event(ev: ManualEvent):
 
 
 @app.post("/events/ingest")
-def ingest_events(min_magnitude: float | None = None):
+def ingest_events(min_magnitude: float | None = None,
+                  _admin: None = Depends(require_admin)):
     with db.get_conn() as conn:
         updatedafter = None
         row = conn.execute(
@@ -239,32 +274,24 @@ def ingest_events(min_magnitude: float | None = None):
             updatedafter = datetime.fromisoformat(row[0])
         result = ingest(conn, USGSSource(min_magnitude=min_magnitude),
                         updatedafter=updatedafter)
-        conn.commit()
-        now_iso = datetime.now(timezone.utc).isoformat()
-        conn.execute(
-            "INSERT INTO _sync_state (key, value) VALUES ('usgs_last_sync', %s) "
-            "ON CONFLICT (key) DO UPDATE SET value = %s, updated_at = now()",
-            (now_iso, now_iso),
-        )
-        conn.commit()
+        try:
+            _commit_successful_ingest(conn, "usgs_last_sync", result)
+        except RuntimeError as exc:
+            _raise_ingest_error(exc)
     return result.__dict__
 
 
 @app.post("/events/ingest/pmd")
-def ingest_pmd_events():
+def ingest_pmd_events(_admin: None = Depends(require_admin)):
     """Manually pull the PMD (Primary) feed. PMD returns the
     full catalog each call; ingest() upserts and re-clusters (PMD wins as
     canonical over USGS for shared quakes)."""
     with db.get_conn() as conn:
         result = ingest(conn, PMDSource())
-        conn.commit()
-        now_iso = datetime.now(timezone.utc).isoformat()
-        conn.execute(
-            "INSERT INTO _sync_state (key, value) VALUES ('pmd_last_sync', %s) "
-            "ON CONFLICT (key) DO UPDATE SET value = %s, updated_at = now()",
-            (now_iso, now_iso),
-        )
-        conn.commit()
+        try:
+            _commit_successful_ingest(conn, "pmd_last_sync", result)
+        except RuntimeError as exc:
+            _raise_ingest_error(exc)
     return result.__dict__
 
 
@@ -315,7 +342,8 @@ def export_events(format: str = "csv",
                   source: str | None = None,
                   search: str | None = None,
                   occurred_after: datetime | None = None,
-                  occurred_before: datetime | None = None):
+                  occurred_before: datetime | None = None,
+                  _admin: None = Depends(require_admin)):
     with db.get_conn() as conn:
         evs = list_events(conn, min_magnitude=min_magnitude,
                           max_magnitude=max_magnitude, source=source,
@@ -509,7 +537,7 @@ def event_impact(event_id: int):
 
 
 @app.post("/events/{event_id}/refresh-from-usgs")
-def refresh_from_usgs(event_id: int):
+def refresh_from_usgs(event_id: int, _admin: None = Depends(require_admin)):
     with db.get_conn() as conn:
         event = get_event(conn, event_id)
         if event is None:
@@ -537,7 +565,8 @@ class EventUpdate(BaseModel):
 
 
 @app.put("/events/{event_id}")
-def edit_event(event_id: int, body: EventUpdate):
+def edit_event(event_id: int, body: EventUpdate,
+               _admin: None = Depends(require_admin)):
     with db.get_conn() as conn:
         event = get_event(conn, event_id)
         if event is None:
@@ -551,7 +580,7 @@ def edit_event(event_id: int, body: EventUpdate):
 
 
 @app.delete("/events/{event_id}")
-def remove_event(event_id: int):
+def remove_event(event_id: int, _admin: None = Depends(require_admin)):
     with db.get_conn() as conn:
         event = get_event(conn, event_id)
         if event is None:
@@ -563,7 +592,88 @@ def remove_event(event_id: int):
     return {"deleted": True, "id": event_id}
 
 
-# serve the Leaflet frontend (built in a later task) at /
+class AftershockRequest(BaseModel):
+    event_id: int | None = None
+    magnitude: float | None = None
+    lat: float | None = None
+    lon: float | None = None
+
+
+@app.post("/aftershock")
+def aftershock_endpoint(req: AftershockRequest) -> JSONResponse:
+    """Compute aftershock probabilities for a given event.
+
+    Provide *event_id* (fetched from catalog) **or** inline
+    *magnitude* + *lat* + *lon*.  Region is auto-detected from
+    the tectonic-zone spatial lookup, falling back to lat bands.
+    """
+    if req.event_id is not None:
+        with db.get_conn() as conn:
+            event = get_event(conn, req.event_id)
+        if event is None:
+            raise HTTPException(status_code=404, detail="event not found")
+        main_mag = event["magnitude"]
+        lat = event["lat"]
+        lon = event["lon"]
+        event_info = {
+            "id": event["id"], "magnitude": event["magnitude"],
+            "lat": event["lat"], "lon": event["lon"],
+            "place": event.get("place"),
+            "occurred_at": event["occurred_at"].isoformat() if event.get("occurred_at") else None,
+        }
+    elif req.magnitude is not None and req.lat is not None and req.lon is not None:
+        main_mag = req.magnitude
+        lat = req.lat
+        lon = req.lon
+        event_info = None
+    else:
+        raise HTTPException(status_code=400, detail="provide event_id or magnitude+lat+lon")
+
+    # Detect region — first try tectonic-zone spatial lookup.
+    zone_name: str | None = None
+    try:
+        with db.get_conn() as conn:
+            row = conn.execute(
+                "SELECT name FROM tectonic_zone "
+                "WHERE ST_Contains(geom, ST_SetSRID(ST_MakePoint(%s, %s), 4326)) "
+                "LIMIT 1",
+                (lon, lat),
+            ).fetchone()
+            if row is not None:
+                zone_name = row[0]
+    except Exception:
+        pass  # fall through to lat-band heuristic
+
+    region = ashock.detect_region(lat, lon, zone_name=zone_name)
+    result = ashock.compute_table(main_mag, region)
+
+    result["event"] = event_info
+    if zone_name:
+        result["zone_name"] = zone_name
+    return JSONResponse(result)
+
+
+# Serve static frontend files — defined AFTER all API routes so they take priority.
 _web = Path(__file__).resolve().parents[2] / "web"
+
+
+def _serve_file(path: str) -> FileResponse:
+    """Resolve a path under the web root, falling back only for SPA routes."""
+    root = _web.resolve()
+    cleaned = path.replace("\\", "/").lstrip("/")
+    candidate = (root / cleaned).resolve()
+    if not candidate.is_relative_to(root):
+        raise HTTPException(status_code=404, detail="not found")
+    if candidate.exists() and candidate.is_file():
+        return FileResponse(str(candidate))
+
+    first_segment = cleaned.split("/", 1)[0]
+    if first_segment in {"assets", "tiles"} or Path(cleaned).suffix:
+        raise HTTPException(status_code=404, detail="not found")
+    return FileResponse(str(root / "index.html"))
+
+
 if _web.exists():
-    app.mount("/", StaticFiles(directory=str(_web), html=True), name="web")
+    @app.get("/{full_path:path}")
+    def spa_fallback(full_path: str = ""):
+        return _serve_file(full_path)

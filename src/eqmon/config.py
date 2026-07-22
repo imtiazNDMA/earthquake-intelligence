@@ -42,8 +42,10 @@ def mmi_class_label(level: int) -> str:
     roman, name = MMI_CLASSES.get(int(level), (str(level), ""))
     return f"{roman} ({name})" if name else roman
 
-# Automated ingest interval (minutes).
-INGEST_INTERVAL_MINUTES = 15
+# Automated ingest intervals. Base tick runs every 1 min; PMD (full-catalog)
+# is ingested every 5th tick since it has no incremental API.
+INGEST_INTERVAL_MINUTES = 1
+PMD_INTERVAL_MULTIPLIER = 5
 
 # --- Seismicity analytics tunables ---
 GRID_CELL_DEG = 0.25              # hotspot grid cell size (degrees)

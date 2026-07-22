@@ -1,0 +1,71 @@
+# === STEP 1: Install & Import Dependencies ===
+from google.colab import files
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+# === Kashmir Earthquake Parameters ===
+MainMag = 7.6  # 2005 Kashmir Earthquake
+target_mags = [4, 5, 6, 7]  # Target magnitudes (excluding 3)
+days_list = [0, 1, 3, 5, 7, 14, 30]  # Specific days
+
+# Omori-Utsu Parameters (regional for Kashmir)
+k = 45.0
+c = 0.4
+p = 1.25
+b = 0.85
+Mmin = 4.0  # Keep original magnitude of completeness
+
+# === Helper Functions ===
+def gutenberg_richter_scaling(Mtarget, b=b, Mmin=Mmin):
+    if Mtarget < Mmin:
+        return 1.0
+    else:
+        return 10 ** (-b * (Mtarget - Mmin))
+
+def omori_utsu_rate(t, k=k, c=c, p=p):
+    return round(k / ((t + c) ** p), 4)
+
+def aftershock_prob_per_day(t, Mtarget):
+    lam_total = omori_utsu_rate(t)
+    mag_scaling = gutenberg_richter_scaling(Mtarget)
+    lam_target = lam_total * mag_scaling
+    prob = 1 - np.exp(-lam_target)
+    return round(prob * 100, 2)  # %
+
+# === STEP 2: Compute Probabilities ===
+results = []
+
+for t in days_list:
+    for Mtarget in target_mags:
+        prob = aftershock_prob_per_day(t, Mtarget)
+        results.append({
+            'MainMag': MainMag,
+            'DaysSince': t,
+            'Mtarget': Mtarget,
+            'AftershockProb (%)': prob,
+            'OmoriRate': omori_utsu_rate(t)
+        })
+
+result_df = pd.DataFrame(results)
+
+# === STEP 3: Plotting ===
+plt.figure(figsize=(10, 6))
+for Mtarget in target_mags:
+    subset = result_df[result_df['Mtarget'] == Mtarget]
+    plt.plot(subset['DaysSince'], subset['AftershockProb (%)'], 
+             marker='o', label=f'M ≥ {Mtarget}')
+
+plt.title('Aftershock Probability (2005 Kashmir Earthquake)')
+plt.xlabel('Days Since Mainshock')
+plt.ylabel('Aftershock Probability (%)')
+plt.grid(True)
+plt.legend()
+plt.xticks(days_list)
+plt.tight_layout()
+plt.show()
+
+# === STEP 4: Save to CSV ===
+output_filename = "kashmir2005_aftershock_probs_final.csv"
+result_df.to_csv(output_filename, index=False)
+files.download(output_filename)
