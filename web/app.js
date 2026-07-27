@@ -105,6 +105,9 @@ function catalogSkeleton(n = 5) {
 }
 
 const map = L.map("map").setView([30.4, 69.3], 5); // Primary Focus Country: Pakistan
+map.createPane("referencePane");
+map.getPane("referencePane").style.zIndex = 410;
+map.getPane("referencePane").style.pointerEvents = "none";
 map.on("click", () => {
   if (_selectedMmiLevel != null) {
     _selectedMmiLevel = null;
@@ -130,8 +133,17 @@ const BASEMAPS = {
   "Light (Positron)": L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
     attribution: CARTO_ATTR, subdomains: "abcd", maxZoom: 20,
   }),
+  "Voyager": L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+    attribution: CARTO_ATTR, subdomains: "abcd", maxZoom: 20,
+  }),
   "Dark (Dark Matter)": L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
     attribution: CARTO_ATTR, subdomains: "abcd", maxZoom: 20,
+  }),
+  "CyclOSM": L.tileLayer("https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png", {
+    attribution: OSM_ATTR + " © CyclOSM", subdomains: "abc", maxZoom: 20,
+  }),
+  "Transport (OPNVKarte)": L.tileLayer("https://tileserver.memomaps.de/tilegen/{z}/{x}/{y}.png", {
+    attribution: OSM_ATTR + " © ÖPNVKarte", maxZoom: 18,
   }),
   "Satellite (Esri)": L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
     attribution: ESRI_ATTR + ", Maxar, Earthstar Geographics", maxZoom: 19,
@@ -255,6 +267,7 @@ function buildOverlay(name) {
     url: `/tiles/${c.id}.pmtiles`,
     paintRules,
     backgroundColor: "rgba(0,0,0,0)",
+    pane: "referencePane",
   };
 
   return protomapsL.leafletLayer(opts);
@@ -376,9 +389,12 @@ let currentBasemap = "OpenStreetMap";
 let _userPickedBasemap = false;   // once true, theme no longer auto-switches the basemap
 const _basemapRadios = {};        // name -> radio input, for keeping the config panel in sync
 function setBasemap(name) {
-  if (name === currentBasemap) return;
-  map.removeLayer(BASEMAPS[currentBasemap]);
+  if (!BASEMAPS[name] || name === currentBasemap) return;
+  if (BASEMAPS[currentBasemap] && map.hasLayer(BASEMAPS[currentBasemap])) {
+    map.removeLayer(BASEMAPS[currentBasemap]);
+  }
   BASEMAPS[name].addTo(map);
+  if (typeof BASEMAPS[name].bringToBack === "function") BASEMAPS[name].bringToBack();
   currentBasemap = name;
 }
 
@@ -701,6 +717,7 @@ function onMmiFeature(f, l) {
 let intensityLayer = null;
 let epicenterMarker = null;
 let _mmiVisible = true;
+let _currentEvent = null;
 const statusEl = document.getElementById("status");
 // --- Comparison mode state ---
 let _compareMode = false;
@@ -767,6 +784,32 @@ function setCurrentMmiVisible(visible) {
   _mmiVisible = visible;
   if (_lastFc) renderCurrentMmiLayer(_lastFc);
   else syncMmiToggle();
+  updateCurrentEventCard(_currentEvent);
+}
+
+function updateCurrentEventCard(event) {
+  const card = document.getElementById("current-event-card");
+  if (!card) return;
+  const main = document.getElementById("current-event-main");
+  const meta = document.getElementById("current-event-meta");
+  const pills = card.querySelector(".current-pills");
+  if (!event) {
+    _currentEvent = null;
+    card.classList.remove("active");
+    main.textContent = "No event selected";
+    meta.textContent = "Draw a footprint or select an event from the catalog.";
+    pills.innerHTML = "<span>Epicenter pending</span><span>MMI pending</span>";
+    return;
+  }
+  const mag = Number(event.magnitude);
+  const depth = Number(event.depth_km);
+  const lat = Number(event.lat);
+  const lon = Number(event.lon);
+  _currentEvent = event;
+  card.classList.add("active");
+  main.textContent = `${Number.isFinite(mag) ? "M" + mag.toFixed(1) : "M?"} current event`;
+  meta.textContent = `${Number.isFinite(depth) ? depth.toFixed(0) + " km" : "Depth ?"} depth • ${Number.isFinite(lat) && Number.isFinite(lon) ? `${lat.toFixed(2)}°N, ${lon.toFixed(2)}°E` : "Location pending"}`;
+  pills.innerHTML = `<span>Epicenter pinned</span><span>${_mmiVisible ? "MMI visible" : "MMI hidden"}</span>`;
 }
 
 async function calculate() {
@@ -795,6 +838,7 @@ async function calculate() {
 
     if (epicenterMarker) map.removeLayer(epicenterMarker);
     epicenterMarker = makeEpicenterMarker(payload.lat, payload.lon, "#000000", "Epicenter").addTo(map);
+    updateCurrentEventCard(payload);
 
     statusEl.textContent = `${fc.features.length} intensity bands`;
     if (intensityLayer && intensityLayer.getBounds().isValid()) map.fitBounds(intensityLayer.getBounds());
@@ -869,10 +913,12 @@ function renderEventList(events, total) {
     const alertText = ev.alert ? ev.alert.toUpperCase() : "";
     const cmpIdx = _compareIds.indexOf(ev.id);
     const cmpClass = cmpIdx === 0 ? " selected1" : cmpIdx === 1 ? " selected2" : "";
-    return `<div class="evt${_compareMode ? " evt-comp" : ""}${ev.alert ? " alert-" + ev.alert : ""}" data-id="${ev.id}" tabindex="0">
+    const magColor = _magColor(ev.magnitude);
+    return `<div class="evt${_compareMode ? " evt-comp" : ""}${ev.alert ? " alert-" + ev.alert : ""}" data-id="${ev.id}" tabindex="0" style="--evt-mag-color:${magColor}">
       <button class="evt-del" data-del-id="${ev.id}" title="Delete event" aria-label="Delete event">${svgIcon("x", 12)}</button>
       ${_compareMode ? `<div class="cmp-radio${cmpClass}">${cmpIdx >= 0 ? cmpIdx + 1 : ""}</div>` : ""}
       <div class="evt-head">
+        <span class="evt-mag-swatch" aria-hidden="true"></span>
         <span class="evt-mag">M${ev.magnitude.toFixed(1)}${ev.mag_type ? ` <span class="evt-magtype">${escapeHtml(ev.mag_type)}</span>` : ""}</span>
         ${ev.alert ? `<span class="${alertClass}">${alertText}</span>` : ""}
         ${ev.tsunami ? `<span class="evt-tsunami" title="Tsunami warning">${svgIcon("waves", 14)}</span>` : ""}
@@ -998,9 +1044,10 @@ async function showImpact(id) {
     if (evt && evt.lat != null && evt.lon != null) map.setView([evt.lat, evt.lon], 7);
     toast("No mapped intensity — shaking stays below MMI 2 for this event.", "info");
   }
-  if (evt && (evt.lat != null || evt.lon != null)) {
+  if (evt && evt.lat != null && evt.lon != null) {
     if (epicenterMarker) map.removeLayer(epicenterMarker);
     epicenterMarker = makeEpicenterMarker(evt.lat, evt.lon, "#000000", `Epicenter — M${evt.magnitude.toFixed(1)}`).addTo(map);
+    updateCurrentEventCard(evt);
   }
   if (hasBands && intensityLayer && intensityLayer.getBounds().isValid()) {
     map.fitBounds(intensityLayer.getBounds());

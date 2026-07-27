@@ -44,38 +44,55 @@
   </div>
   <div id="sidebar">
     <div class="rail">
-      <button class="rail-ic active" data-section="event" title="Event input" data-icon="plus" data-label="Event"></button>
-      <button class="rail-ic" data-section="catalog" title="Catalog" data-icon="list" data-label="Catalog"></button>
-      <button class="rail-ic" data-section="mapEvents" title="Earthquake map" data-icon="pin" data-label="Quakes"></button>
-      <button class="rail-ic" data-section="aftershock" title="Aftershock" data-icon="target" data-label="Aftershock"></button>
-      <button class="rail-ic" data-section="dashboard" title="Analytics" data-icon="chart" data-label="Analytics"></button>
-      <button class="rail-ic" data-section="config" title="Map config" data-icon="settings" data-label="Config"></button>
+      <button class="rail-ic active" data-section="event" title="Start" data-icon="plus" data-label="Start"></button>
+      <button class="rail-ic" data-section="catalog" title="Events" data-icon="list" data-label="Events"></button>
+      <button class="rail-ic" data-section="mapEvents" title="Map" data-icon="pin" data-label="Map"></button>
+      <button class="rail-ic" data-section="aftershock" title="Forecast" data-icon="target" data-label="Forecast"></button>
+      <button class="rail-ic" data-section="dashboard" title="Insights" data-icon="chart" data-label="Insights"></button>
+      <button class="rail-ic" data-section="config" title="Layers" data-icon="settings" data-label="Layers"></button>
       <button id="theme-toggle" class="rail-ic" style="margin-top:auto" title="Toggle dark mode" data-icon="moon"></button>
       <button id="rail-collapse" class="rail-ic rail-collapse" title="Collapse" data-icon="chevron-left"></button>
     </div>
     <div id="panel-body">
       <section id="sec-event">
-        <h4>Event input</h4>
-        <div class="grid2">
-          <div><span class="field-label">Magnitude</span>
-            <input id="magnitude" type="number" value="6.5" step="0.1" /></div>
-          <div><span class="field-label">Depth (km)</span>
-            <input id="depth_km" type="number" value="10" step="1" /></div>
+        <div class="section-head">
+          <div class="section-kicker">Story anchor</div>
+          <h4>Start with an earthquake</h4>
+          <p>Enter an event manually or pull recent feed data, then draw the shaking footprint.</p>
         </div>
-        <div class="grid2">
-          <div><span class="field-label">Latitude</span>
-            <input id="lat" type="number" value="34.0" step="0.01" /></div>
-          <div><span class="field-label">Longitude</span>
-            <input id="lon" type="number" value="72.5" step="0.01" /></div>
+        <div class="story-card event-card">
+          <div class="card-title">Manual earthquake</div>
+          <div class="grid2">
+            <div><span class="field-label">Magnitude</span>
+              <input id="magnitude" type="number" value="6.5" step="0.1" /></div>
+            <div><span class="field-label">Depth (km)</span>
+              <input id="depth_km" type="number" value="10" step="1" /></div>
+          </div>
+          <div class="grid2">
+            <div><span class="field-label">Latitude</span>
+              <input id="lat" type="number" value="34.0" step="0.01" /></div>
+            <div><span class="field-label">Longitude</span>
+              <input id="lon" type="number" value="72.5" step="0.01" /></div>
+          </div>
+          <label class="save-toggle">
+            <input id="save-catalog" type="checkbox" />
+            <span>Save to catalog</span>
+          </label>
+          <button id="calc" class="btn-primary">Draw shaking footprint</button>
         </div>
-        <label style="display:flex;align-items:center;gap:6px;font-size:12px;margin:2px 0;cursor:pointer">
-          <input id="save-catalog" type="checkbox" /> Save event to catalog
-        </label>
-        <button id="calc" class="btn-primary">Calculate intensity</button>
-        <button id="ingest" class="btn-secondary">Pull USGS feed</button>
-        <button id="ingest-pmd" class="btn-secondary">Pull PMD feed</button>
-        <div><span class="field-label">Min mag for ingest</span>
-          <input id="ingest-minmag" type="number" value="2.5" step="0.5" min="0" /></div>
+        <div class="story-card feed-card">
+          <div class="card-title">Live feeds</div>
+          <div class="feed-row"><span><strong>PMD</strong><small>Primary source</small></span><button id="ingest-pmd" class="btn-secondary">Pull PMD</button></div>
+          <div class="feed-row"><span><strong>USGS</strong><small>Secondary source</small></span><button id="ingest" class="btn-secondary">Pull USGS</button></div>
+          <div><span class="field-label">Min mag for USGS ingest</span>
+            <input id="ingest-minmag" type="number" value="2.5" step="0.5" min="0" /></div>
+        </div>
+        <div class="current-event-card" id="current-event-card">
+          <div class="current-label">Current earthquake</div>
+          <div class="current-main" id="current-event-main">No event selected</div>
+          <div class="current-meta" id="current-event-meta">Draw a footprint or select an event from the catalog.</div>
+          <div class="current-pills"><span>Epicenter pending</span><span>MMI pending</span></div>
+        </div>
         <div id="ingest-status"></div>
         <div id="status" role="status" aria-live="polite"></div>
       </section>

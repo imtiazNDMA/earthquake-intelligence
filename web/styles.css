@@ -160,7 +160,7 @@ html, body { margin: 0; height: 100%; font-family: var(--font-sans); color: var(
   backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
 }
 #sidebar .rail {
-  width: 118px; background: var(--glass-bg); border-right: 1px solid var(--glass-border);
+  width: 118px; background: linear-gradient(180deg, rgba(9,16,31,.96), rgba(15,23,42,.90)); border-right: 1px solid rgba(148,163,184,.12);
   display: flex; flex-direction: column; align-items: stretch; gap: 4px; padding: 10px 8px;
   border-radius: var(--r-lg) 0 0 var(--r-lg);
 }
@@ -181,7 +181,12 @@ html, body { margin: 0; height: 100%; font-family: var(--font-sans); color: var(
 #theme-toggle, #rail-collapse { width: 34px; justify-content: center; padding: 7px; align-self: center; }
 
 #panel-body {
-  width: 268px; background: var(--glass-bg); padding: 16px; box-sizing: border-box;
+  width: 334px;
+  background:
+    radial-gradient(circle at 85% 12%, rgba(59,130,246,.13), transparent 28%),
+    radial-gradient(circle at 8% 90%, rgba(217,119,6,.08), transparent 30%),
+    var(--glass-bg);
+  padding: 18px 20px; box-sizing: border-box;
   overflow-y: auto;
   border-radius: 0 var(--r-lg) var(--r-lg) 0;
   border-right: 1px solid var(--glass-border);
@@ -190,10 +195,18 @@ html, body { margin: 0; height: 100%; font-family: var(--font-sans); color: var(
 #sidebar.collapsed #panel-body { width: 0; padding-left: 0; padding-right: 0; overflow: hidden; }
 
 #panel-body h4 {
-  margin: 0 0 10px; font-size: var(--fs-lg); font-weight: 700; color: var(--slate);
+  margin: 0 0 10px; font-size: 20px; font-weight: 800; color: var(--slate);
   letter-spacing: -.3px;
   padding-bottom: 8px;
   border-bottom: 2px solid var(--brand-tint);
+}
+.section-head { margin-bottom: 14px; }
+.section-head h4 { margin-bottom: 3px; padding-bottom: 0; border-bottom: 0; }
+.section-head p { margin: 0; color: var(--text-muted); font-size: var(--fs-sm); line-height: 1.45; }
+.section-kicker {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  color: var(--copper); letter-spacing: .12em; text-transform: uppercase;
+  margin-bottom: 5px;
 }
 
 /* Section enter animation (re-fires when JS flips display:none -> block) */
@@ -221,9 +234,61 @@ html, body { margin: 0; height: 100%; font-family: var(--font-sans); color: var(
 }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 #panel-body input[type="number"] {
-  width: 100%; box-sizing: border-box; padding: 6px;
-  border: 1px solid var(--border); background: var(--surface-2); border-radius: var(--r-sm);
-  font-size: var(--fs-base); color: var(--text); transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
+  width: 100%; box-sizing: border-box; padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--surface-2) 88%, transparent);
+  border-radius: 10px;
+  font-family: var(--font-mono); font-size: var(--fs-base); color: var(--text);
+  transition: border-color var(--dur-fast), box-shadow var(--dur-fast), background var(--dur-fast);
+}
+.story-card {
+  position: relative;
+  padding: 13px;
+  margin: 11px 0;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  box-shadow: var(--shadow-sm);
+}
+.story-card::before {
+  content: ""; position: absolute; inset: 0 0 auto; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(96,165,250,.5), transparent);
+  border-radius: inherit;
+}
+.card-title { font-size: var(--fs-sm); font-weight: 800; color: var(--slate); letter-spacing: -.15px; margin-bottom: 8px; }
+.save-toggle {
+  display: inline-flex; align-items: center; gap: 7px;
+  margin: 9px 0 0; padding: 5px 8px;
+  border: 1px solid var(--border); border-radius: 999px;
+  color: var(--slate-muted); font-size: var(--fs-xs); cursor: pointer;
+  background: var(--surface-2);
+}
+.save-toggle input { margin: 0; accent-color: var(--brand); }
+.feed-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 8px 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+}
+.feed-row:last-of-type { border-bottom: 0; }
+.feed-row span { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.feed-row strong { color: var(--slate); font-size: var(--fs-sm); }
+.feed-row small { color: var(--text-muted); font-size: 10px; }
+.feed-row .btn-secondary { width: auto; margin: 0; padding: 7px 12px; white-space: nowrap; }
+.current-event-card {
+  margin-top: 12px; padding: 13px;
+  border-radius: var(--r-lg);
+  border: 1px solid color-mix(in srgb, var(--brand) 18%, var(--border));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--surface) 88%, transparent), color-mix(in srgb, var(--brand-tint) 55%, transparent));
+  box-shadow: var(--shadow-sm);
+}
+.current-event-card.active { box-shadow: var(--brand-glow), var(--shadow-md); }
+.current-label { font-family: var(--font-mono); font-size: 9px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--copper); }
+.current-main { margin-top: 5px; color: var(--slate); font-size: 18px; font-weight: 850; letter-spacing: -.45px; }
+.current-meta { margin-top: 3px; color: var(--text-muted); font-size: var(--fs-xs); line-height: 1.35; }
+.current-pills { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+.current-pills span {
+  padding: 3px 7px; border-radius: 999px;
+  background: color-mix(in srgb, var(--brand) 13%, transparent);
+  color: var(--brand); font-size: 10px; font-weight: 700;
 }
 
 /* Buttons share press + focus behavior */
@@ -284,6 +349,12 @@ input:focus-visible { border-color: var(--brand); }
 }
 .evt:active { transform: translateY(0); box-shadow: var(--shadow-sm); }
 .evt-head { display: flex; align-items: center; gap: 6px; font-size: var(--fs-base); }
+.evt-mag-swatch {
+  width: 10px; height: 10px; border-radius: 2px;
+  background: var(--evt-mag-color, var(--brand));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--evt-mag-color, var(--brand)) 35%, transparent);
+  flex: none;
+}
 .evt-mag { font-family: var(--font-mono); font-weight: 700; font-size: 16px; letter-spacing: -.4px;
            color: var(--brand); font-variant-numeric: tabular-nums; }
 .evt-magtype { font-family: var(--font-sans); font-weight: 400; color: var(--text-muted); font-size: 10px; }
