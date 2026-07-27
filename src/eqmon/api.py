@@ -5,14 +5,13 @@ import csv
 import io
 import logging
 import os
-import secrets
 import threading
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field, field_validator
 
@@ -35,6 +34,7 @@ logger = logging.getLogger("uvicorn.error")
 _ingest_scheduler_thread: threading.Thread | None = None
 _STOP_SCHEDULER = False
 _pmd_tick_counter = 0
+_INGEST_LOCK = threading.Lock()
 
 
 def _ingest_sources() -> list[tuple[object, str]]:
@@ -80,9 +80,20 @@ def _raise_ingest_error(exc: RuntimeError) -> None:
     raise HTTPException(status_code=502, detail=str(exc))
 
 
+def _acquire_ingest_or_409() -> None:
+    if not _INGEST_LOCK.acquire(blocking=False):
+        raise HTTPException(
+            status_code=409,
+            detail="another ingest is already running; try again shortly",
+        )
+
+
 def _ingest_tick() -> None:
     """One ingest cycle across all sources. A single source failing (network,
     parse, or DB) is logged and skipped so it never starves the others."""
+    if not _INGEST_LOCK.acquire(blocking=False):
+        logger.info("[scheduler] ingest skipped; another ingest is already running")
+        return
     try:
         with db.get_conn() as conn:
             for source, sync_key in _ingest_sources():
@@ -92,6 +103,8 @@ def _ingest_tick() -> None:
                     logger.exception("[scheduler] %s ingest failed", source.name)
     except Exception:
         logger.exception("[scheduler] ingest failed")
+    finally:
+        _INGEST_LOCK.release()
 
 
 def _scheduler_loop(interval_sec: float) -> None:
@@ -133,18 +146,6 @@ async def _lifespan(_app):
 app = FastAPI(title="Earthquake Intensity Platform", lifespan=_lifespan)
 
 
-def _check_admin_key(x_admin_api_key: str | None) -> None:
-    expected = os.environ.get("EQMON_ADMIN_API_KEY")
-    if not expected:
-        raise HTTPException(status_code=503, detail="admin API key is not configured")
-    if x_admin_api_key is None or not secrets.compare_digest(x_admin_api_key, expected):
-        raise HTTPException(status_code=401, detail="invalid admin API key")
-
-
-def require_admin(x_admin_api_key: str | None = Header(default=None)) -> None:
-    _check_admin_key(x_admin_api_key)
-
-
 def _vs30_path() -> Path:
     return Path(os.environ.get("EQMON_VS30_TIF", str(config.VS30_TIF)))
 
@@ -184,8 +185,7 @@ class EventRequest(BaseModel):
 
 
 @app.post("/intensity")
-def intensity(req: EventRequest,
-              x_admin_api_key: str | None = Header(default=None)) -> JSONResponse:
+def intensity(req: EventRequest) -> JSONResponse:
     grid = get_grid()
     mmi = compute_mmi_grid(
         grid.lon, grid.lat, grid.vs30,
@@ -197,7 +197,6 @@ def intensity(req: EventRequest,
     # "what-if" calculations from cluttering the event catalog. Best-effort —
     # intensity bands render either way.
     if req.save_to_catalog:
-        _check_admin_key(x_admin_api_key)
         try:
             with db.get_conn() as conn:
                 row = create_manual_event(conn, magnitude=req.magnitude,
@@ -254,7 +253,7 @@ class ManualEvent(BaseModel):
 
 
 @app.post("/events")
-def create_event(ev: ManualEvent, _admin: None = Depends(require_admin)):
+def create_event(ev: ManualEvent):
     with db.get_conn() as conn:
         row = create_manual_event(conn, magnitude=ev.magnitude, depth_km=ev.depth_km,
                                   lon=ev.lon, lat=ev.lat, occurred_at=ev.occurred_at)
@@ -263,35 +262,42 @@ def create_event(ev: ManualEvent, _admin: None = Depends(require_admin)):
 
 
 @app.post("/events/ingest")
-def ingest_events(min_magnitude: float | None = None,
-                  _admin: None = Depends(require_admin)):
-    with db.get_conn() as conn:
-        updatedafter = None
-        row = conn.execute(
-            "SELECT value FROM _sync_state WHERE key = 'usgs_last_sync'"
-        ).fetchone()
-        if row is not None:
-            updatedafter = datetime.fromisoformat(row[0])
-        result = ingest(conn, USGSSource(min_magnitude=min_magnitude),
-                        updatedafter=updatedafter)
-        try:
-            _commit_successful_ingest(conn, "usgs_last_sync", result)
-        except RuntimeError as exc:
-            _raise_ingest_error(exc)
+def ingest_events(min_magnitude: float | None = None):
+    _acquire_ingest_or_409()
+    try:
+        with db.get_conn() as conn:
+            updatedafter = None
+            row = conn.execute(
+                "SELECT value FROM _sync_state WHERE key = 'usgs_last_sync'"
+            ).fetchone()
+            if row is not None:
+                updatedafter = datetime.fromisoformat(row[0])
+            result = ingest(conn, USGSSource(min_magnitude=min_magnitude),
+                            updatedafter=updatedafter)
+            try:
+                _commit_successful_ingest(conn, "usgs_last_sync", result)
+            except RuntimeError as exc:
+                _raise_ingest_error(exc)
+    finally:
+        _INGEST_LOCK.release()
     return result.__dict__
 
 
 @app.post("/events/ingest/pmd")
-def ingest_pmd_events(_admin: None = Depends(require_admin)):
+def ingest_pmd_events():
     """Manually pull the PMD (Primary) feed. PMD returns the
     full catalog each call; ingest() upserts and re-clusters (PMD wins as
     canonical over USGS for shared quakes)."""
-    with db.get_conn() as conn:
-        result = ingest(conn, PMDSource())
-        try:
-            _commit_successful_ingest(conn, "pmd_last_sync", result)
-        except RuntimeError as exc:
-            _raise_ingest_error(exc)
+    _acquire_ingest_or_409()
+    try:
+        with db.get_conn() as conn:
+            result = ingest(conn, PMDSource())
+            try:
+                _commit_successful_ingest(conn, "pmd_last_sync", result)
+            except RuntimeError as exc:
+                _raise_ingest_error(exc)
+    finally:
+        _INGEST_LOCK.release()
     return result.__dict__
 
 
@@ -342,8 +348,7 @@ def export_events(format: str = "csv",
                   source: str | None = None,
                   search: str | None = None,
                   occurred_after: datetime | None = None,
-                  occurred_before: datetime | None = None,
-                  _admin: None = Depends(require_admin)):
+                  occurred_before: datetime | None = None):
     with db.get_conn() as conn:
         evs = list_events(conn, min_magnitude=min_magnitude,
                           max_magnitude=max_magnitude, source=source,
@@ -537,7 +542,7 @@ def event_impact(event_id: int):
 
 
 @app.post("/events/{event_id}/refresh-from-usgs")
-def refresh_from_usgs(event_id: int, _admin: None = Depends(require_admin)):
+def refresh_from_usgs(event_id: int):
     with db.get_conn() as conn:
         event = get_event(conn, event_id)
         if event is None:
@@ -565,8 +570,7 @@ class EventUpdate(BaseModel):
 
 
 @app.put("/events/{event_id}")
-def edit_event(event_id: int, body: EventUpdate,
-               _admin: None = Depends(require_admin)):
+def edit_event(event_id: int, body: EventUpdate):
     with db.get_conn() as conn:
         event = get_event(conn, event_id)
         if event is None:
@@ -580,7 +584,7 @@ def edit_event(event_id: int, body: EventUpdate,
 
 
 @app.delete("/events/{event_id}")
-def remove_event(event_id: int, _admin: None = Depends(require_admin)):
+def remove_event(event_id: int):
     with db.get_conn() as conn:
         event = get_event(conn, event_id)
         if event is None:

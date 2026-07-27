@@ -143,14 +143,15 @@ BASEMAPS["OpenStreetMap"].addTo(map); // default basemap
 // `dataLayer` MUST equal the tippecanoe -l layer id used in scripts/build_tiles.py.
 
 const OVERLAY_CONFIG = {
-  National:        { id: "national",         color: "#444",   width: 1.5, defaultOn: true, opacity: 1 },
-  Provinces:       { id: "provinces",        color: "#666",   width: 1.0, defaultOn: true, opacity: 1 },
-  Districts:       { id: "districts",        color: "#999",   width: 0.6, defaultOn: false, opacity: 0.8 },
-  Tehsils:         { id: "tehsils",          color: "#bbb",   width: 0.4, defaultOn: false, opacity: 0.7 },
+  National:        { id: "national",         color: "#444",   width: 1.5, defaultOn: true, opacity: 1, hoverFields: ["Name", "name", "NAME"], hoverTolerancePx: 16 },
+  Provinces:       { id: "provinces",        color: "#666",   width: 1.0, defaultOn: true, opacity: 1, hoverFields: ["Name", "name", "NAME", "province", "PROVINCE"], hoverTolerancePx: 16 },
+  Districts:       { id: "districts",        color: "#999",   width: 0.6, defaultOn: false, opacity: 0.8, hoverFields: ["Name", "name", "NAME", "district", "DISTRICT"], hoverTolerancePx: 16 },
+  Tehsils:         { id: "tehsils",          color: "#bbb",   width: 0.4, defaultOn: false, opacity: 0.7, hoverFields: ["Name", "name", "NAME", "tehsil", "TEHSIL"], hoverTolerancePx: 16 },
   "Global Faults": { id: "faults",           color: "#dc2626", width: 0.8, defaultOn: false, lineOnly: true, faultStyle: true, opacity: 0.9, hoverTolerancePx: 12 },
   "Plate boundaries": { id: "plate_boundaries", color: "#f59e0b", width: 1.6, defaultOn: false, lineOnly: true, opacity: 0.85, hoverFields: ["Name_Full", "Name"], hoverTolerancePx: 12 },
-  "Pakistan Major": { id: "pak_faults_major", color: "#dc2626", width: 0.9, defaultOn: false, lineOnly: true, faultStyle: true, opacity: 0.9, hoverFields: ["Name"], hoverTolerancePx: 12 },
-  "Pakistan Minor": { id: "pak_faults_minor", color: "#dc2626", width: 1.1, defaultOn: true, lineOnly: true, faultStyle: true, opacity: 0.9, hoverFields: ["Name"], hoverTolerancePx: 12 },
+  "Pakistan Major": { id: "pak_faults_major", color: "#dc2626", width: 1.1, defaultOn: true, lineOnly: true, faultStyle: true, opacity: 0.9, hoverFields: ["Name", "Symbols", "Type"], hoverTolerancePx: 12 },
+  "Pakistan Minor": { id: "pak_faults_minor", color: "#dc2626", width: 1.1, defaultOn: false, lineOnly: true, faultStyle: true, opacity: 0.9, hoverFields: ["Name", "Symbols", "Lables"], hoverTolerancePx: 12,
+                      note: "Source currently contains one feature: Karakuram Fault." },
   "Tectonic Zones":{ id: "pak_tectonic_zones", color: "#6366f1", width: 0.5, defaultOn: false,
                      fillColor: "#6366f1", fillOpacity: 0.3, opacity: 0.7 },
 };
@@ -489,6 +490,12 @@ function buildConfigPanel() {
     controls.appendChild(o);
     row.append(cb, sw, txt, controls);
     ovEl.appendChild(row);
+    if (c.note) {
+      const note = document.createElement("div");
+      note.className = "cfg-note overlay-note";
+      note.textContent = c.note;
+      ovEl.appendChild(note);
+    }
   });
 
   const bmEl = document.getElementById("basemap-list");
@@ -693,6 +700,7 @@ function onMmiFeature(f, l) {
 
 let intensityLayer = null;
 let epicenterMarker = null;
+let _mmiVisible = true;
 const statusEl = document.getElementById("status");
 // --- Comparison mode state ---
 let _compareMode = false;
@@ -701,22 +709,13 @@ let _compLayers = [];
 let _cmpLegendCtrl = null;
 let _timelineExpanded = true;
 
-function ensureAdminKey() {
-  let key = localStorage.getItem("eqmon.adminApiKey") || "";
-  if (key) return key;
-  key = prompt("Admin API key required for catalog mutations and ingest:") || "";
-  key = key.trim();
-  if (key) localStorage.setItem("eqmon.adminApiKey", key);
-  return key || null;
+async function fetchAdmin(url, options = {}) {
+  return fetch(url, options);
 }
 
-async function fetchAdmin(url, options = {}) {
-  const key = ensureAdminKey();
-  if (!key) throw new Error("Admin API key required");
-  const headers = { ...(options.headers || {}), "X-Admin-API-Key": key };
-  const resp = await fetch(url, { ...options, headers });
-  if (resp.status === 401) localStorage.removeItem("eqmon.adminApiKey");
-  return resp;
+function ingestErrorMessage(response, body) {
+  if (response.status === 409) return "Another ingest is already running. Try again shortly.";
+  return typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail ?? body);
 }
 
 function style(feature) {
@@ -739,6 +738,37 @@ function makeEpicenterMarker(lat, lon, color, popupText) {
   return L.marker([lat, lon], { icon }).bindPopup(popupText);
 }
 
+function syncMmiToggle() {
+  const toggle = document.getElementById("current-mmi-toggle");
+  if (toggle) toggle.checked = _mmiVisible;
+}
+
+function renderCurrentMmiLayer(fc) {
+  _lastFc = fc;
+  _mmiLayers = {};
+  _selectedMmiLevel = null;
+  if (intensityLayer) {
+    map.removeLayer(intensityLayer);
+    intensityLayer = null;
+  }
+  if (!_mmiVisible) {
+    _hideLegend();
+    syncMmiToggle();
+    return null;
+  }
+  intensityLayer = L.geoJSON(fc, { style, onEachFeature: onMmiFeature }).addTo(map);
+  if (fc.features.length > 0) _showLegend(fc);
+  else _hideLegend();
+  syncMmiToggle();
+  return intensityLayer;
+}
+
+function setCurrentMmiVisible(visible) {
+  _mmiVisible = visible;
+  if (_lastFc) renderCurrentMmiLayer(_lastFc);
+  else syncMmiToggle();
+}
+
 async function calculate() {
   const payload = {
     magnitude: parseFloat(document.getElementById("magnitude").value),
@@ -749,18 +779,9 @@ async function calculate() {
   };
   statusEl.innerHTML = spinnerHTML() + " Calculating…";
   try {
-    const headers = { "Content-Type": "application/json" };
-    if (payload.save_to_catalog) {
-      const key = ensureAdminKey();
-      if (!key) {
-        statusEl.textContent = "";
-        toast("Admin API key required to save events", "warn");
-        return;
-      }
-      headers["X-Admin-API-Key"] = key;
-    }
     const resp = await fetch("/intensity", {
-      method: "POST", headers,
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
     if (!resp.ok) {
@@ -770,21 +791,14 @@ async function calculate() {
       return;
     }
     const fc = await resp.json();
-    _mmiLayers = {};
-    _selectedMmiLevel = null;
-    _lastFc = fc;
-    if (intensityLayer) map.removeLayer(intensityLayer);
-    intensityLayer = L.geoJSON(fc, {
-      style,
-      onEachFeature: onMmiFeature,
-    }).addTo(map);
-    _showLegend(fc);
+    renderCurrentMmiLayer(fc);
 
     if (epicenterMarker) map.removeLayer(epicenterMarker);
     epicenterMarker = makeEpicenterMarker(payload.lat, payload.lon, "#000000", "Epicenter").addTo(map);
 
     statusEl.textContent = `${fc.features.length} intensity bands`;
-    if (intensityLayer.getBounds().isValid()) map.fitBounds(intensityLayer.getBounds());
+    if (intensityLayer && intensityLayer.getBounds().isValid()) map.fitBounds(intensityLayer.getBounds());
+    else map.setView([payload.lat, payload.lon], 7);
     if (fc.event_id) { toast("Event saved to catalog", "success"); refreshEvents(); }
   } catch (e) {
     statusEl.textContent = "";
@@ -793,6 +807,8 @@ async function calculate() {
 }
 
 document.getElementById("calc").addEventListener("click", calculate);
+document.getElementById("current-mmi-toggle")?.addEventListener("change", (e) =>
+  setCurrentMmiVisible(e.target.checked));
 
 // --- Event catalog (Plan B) ---
 const eventsEl = document.getElementById("events");
@@ -973,14 +989,9 @@ async function showImpact(id) {
   const evt = evtResp.ok ? await evtResp.json() : null;
   const data = await impactResp.json();
   // Render intensity bands on map
-  _mmiLayers = {};
-  if (intensityLayer) map.removeLayer(intensityLayer);
-  intensityLayer = L.geoJSON(data.bands, { style, onEachFeature: onMmiFeature }).addTo(map);
+  renderCurrentMmiLayer(data.bands);
   const hasBands = data.bands.features.length > 0;
-  if (hasBands) {
-    _showLegend(data.bands);
-  } else {
-    _hideLegend();
+  if (!hasBands) {
     // Deep and/or small events produce surface shaking below MMI 2, so there
     // are no bands to draw. Center on the epicenter and explain the blank map
     // rather than leaving the user to wonder if rendering failed.
@@ -991,8 +1002,10 @@ async function showImpact(id) {
     if (epicenterMarker) map.removeLayer(epicenterMarker);
     epicenterMarker = makeEpicenterMarker(evt.lat, evt.lon, "#000000", `Epicenter — M${evt.magnitude.toFixed(1)}`).addTo(map);
   }
-  if (hasBands && intensityLayer.getBounds().isValid()) {
+  if (hasBands && intensityLayer && intensityLayer.getBounds().isValid()) {
     map.fitBounds(intensityLayer.getBounds());
+  } else if (evt && evt.lat != null && evt.lon != null) {
+    map.setView([evt.lat, evt.lon], 7);
   }
   // Render USGS detail card
   renderDetail(evt);
@@ -1350,7 +1363,7 @@ document.getElementById("ingest").addEventListener("click", async (e) => {
   try {
     const r = await fetchAdmin(url, { method: "POST" });
     const res = await r.json();
-    if (!r.ok) throw new Error(JSON.stringify(res.detail ?? res));
+    if (!r.ok) throw new Error(ingestErrorMessage(r, res));
     statusEl.textContent = "";
     toast(`Ingested ${res.inserted} new event${res.inserted === 1 ? "" : "s"} of ${res.fetched} fetched`,
           res.inserted > 0 ? "success" : "info");
@@ -1374,7 +1387,7 @@ document.getElementById("ingest-pmd").addEventListener("click", async (e) => {
   try {
     const r = await fetchAdmin("/events/ingest/pmd", { method: "POST" });
     const res = await r.json();
-    if (!r.ok) throw new Error(JSON.stringify(res.detail ?? res));
+    if (!r.ok) throw new Error(ingestErrorMessage(r, res));
     statusEl.textContent = "";
     toast(`Ingested ${res.inserted} new event${res.inserted === 1 ? "" : "s"} of ${res.fetched} fetched`,
           res.inserted > 0 ? "success" : "info");
@@ -1406,25 +1419,41 @@ refreshEvents();
 let _mapEventsLayer = null;
 let _mapEventsLoaded = false;
 
+function _magRadius(mag) {
+  // Quadratic scaling for area proportional to energy release (~10^(1.5*M))
+  // Area scales with magnitude^3 roughly, so radius ~ magnitude^1.5
+  const m = Math.max(0, mag || 0);
+  return Math.max(3, Math.min(24, 2.5 + Math.pow(m, 1.5) * 1.1));
+}
+
 function _quakeMarker(event) {
-  const isPMD = event.source === "PMD";
-  const color = isPMD ? "#60a5fa" : "#ff5a1f";
-  const radius = Math.max(3, Math.min(9, 2 + Math.max(0, event.magnitude || 0)));
+  const mag = Math.max(0, event.magnitude || 0);
+  const color = _magColor(mag);
+  const radius = _magRadius(mag);
   const marker = L.circleMarker([event.lat, event.lon], {
     radius,
-    color,
-    weight: 1,
+    color: "#fff",
+    weight: 1.2,
     fillColor: color,
-    fillOpacity: 0.72,
+    fillOpacity: 0.85,
     opacity: 0.95,
     className: "quake-scatter-point",
   });
   marker.bindPopup(
-    `<strong>${escapeHtml(event.source)} M${Number(event.magnitude).toFixed(1)}</strong><br>` +
+    `<strong>M${Number(event.magnitude).toFixed(1)}</strong><br>` +
     `${escapeHtml(event.place || "Unknown location")}<br>` +
     `<span style="color:#64748B">${new Date(event.occurred_at).toLocaleString()}</span>`
   );
   return marker;
+}
+
+function _magColor(mag) {
+  if (mag >= 7.1) return "#dc2626";   // red
+  if (mag >= 6.1) return "#ea580c";   // dark orange
+  if (mag >= 5.1) return "#eab308";   // yellow
+  if (mag >= 4.1) return "#3b82f6";   // blue
+  if (mag >= 3.1) return "#a855f7";   // purple
+  return "#16a34a";                   // green (≤ 3.0)
 }
 
 async function loadMapEvents({ fit = true } = {}) {
@@ -1443,10 +1472,6 @@ async function loadMapEvents({ fit = true } = {}) {
   if (status) status.textContent = "Loading recent earthquakes…";
 
   try {
-    if (intensityLayer) { map.removeLayer(intensityLayer); intensityLayer = null; }
-    if (epicenterMarker) { map.removeLayer(epicenterMarker); epicenterMarker = null; }
-    _hideLegend();
-
     let url = `/events?limit=${encodeURIComponent(limit)}&orderby=time`;
     if (minmag) url += `&min_magnitude=${encodeURIComponent(minmag)}`;
     const resp = await fetch(url);
@@ -1525,11 +1550,13 @@ function renderRailIcons() {
     const section = b.dataset.section;
     const icon = b.dataset.icon || (section && RAIL_GLYPH[section]);
     if (icon) {
-      if (section && LORD_ICONS[section] && LORD_ICONS[section].src) {
-        b.innerHTML = railIconMarkup(section, icon, b.classList.contains("active"));
-      } else {
-        b.innerHTML = svgIcon(icon, 20);
-      }
+      const label = b.dataset.label;
+      const iconHtml = section && LORD_ICONS[section] && LORD_ICONS[section].src
+        ? railIconMarkup(section, icon, b.classList.contains("active"))
+        : svgIcon(icon, 20);
+      b.innerHTML = label
+        ? `${iconHtml}<span class="rail-label">${escapeHtml(label)}</span>`
+        : iconHtml;
     }
     if (!b.getAttribute("aria-label")) b.setAttribute("aria-label", b.title || section || icon);
   });

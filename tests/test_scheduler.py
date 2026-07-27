@@ -86,6 +86,24 @@ def test_ingest_tick_skips_pmd_on_non_multiple(monkeypatch):
     assert seen == ["USGS"]
 
 
+def test_ingest_tick_skips_when_another_ingest_is_running(monkeypatch):
+    seen = []
+
+    def fake_ingest(conn, source, updatedafter=None):
+        seen.append(source.name)
+        return _fake_result()
+
+    monkeypatch.setattr(api.db, "get_conn", lambda: _FakeConnCtx())
+    monkeypatch.setattr(api, "ingest", fake_ingest)
+    assert api._INGEST_LOCK.acquire(blocking=False)
+    try:
+        api._ingest_tick()
+    finally:
+        api._INGEST_LOCK.release()
+
+    assert seen == []
+
+
 def test_commit_successful_ingest_uses_upstream_watermark():
     conn = _FakeConn()
     watermark = datetime(2026, 1, 1, 12, 30, tzinfo=timezone.utc)

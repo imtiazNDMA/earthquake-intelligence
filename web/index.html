@@ -44,12 +44,12 @@
   </div>
   <div id="sidebar">
     <div class="rail">
-      <button class="rail-ic active" data-section="event" title="Event input" data-icon="plus"></button>
-      <button class="rail-ic" data-section="catalog" title="Catalog" data-icon="list"></button>
-      <button class="rail-ic" data-section="mapEvents" title="Earthquake map" data-icon="pin"></button>
-      <button class="rail-ic" data-section="aftershock" title="Aftershock" data-icon="target"></button>
-      <button class="rail-ic" data-section="dashboard" title="Analytics" data-icon="chart"></button>
-      <button class="rail-ic" data-section="config" title="Map config" data-icon="settings"></button>
+      <button class="rail-ic active" data-section="event" title="Event input" data-icon="plus" data-label="Event"></button>
+      <button class="rail-ic" data-section="catalog" title="Catalog" data-icon="list" data-label="Catalog"></button>
+      <button class="rail-ic" data-section="mapEvents" title="Earthquake map" data-icon="pin" data-label="Quakes"></button>
+      <button class="rail-ic" data-section="aftershock" title="Aftershock" data-icon="target" data-label="Aftershock"></button>
+      <button class="rail-ic" data-section="dashboard" title="Analytics" data-icon="chart" data-label="Analytics"></button>
+      <button class="rail-ic" data-section="config" title="Map config" data-icon="settings" data-label="Config"></button>
       <button id="theme-toggle" class="rail-ic" style="margin-top:auto" title="Toggle dark mode" data-icon="moon"></button>
       <button id="rail-collapse" class="rail-ic rail-collapse" title="Collapse" data-icon="chevron-left"></button>
     </div>
@@ -128,10 +128,17 @@
         </div>
         <button id="map-events-refresh" class="btn-primary">Show earthquakes</button>
         <div id="map-events-status" role="status" aria-live="polite"></div>
-        <div class="map-events-legend">
-          <div><span class="quake-dot usgs"></span>USGS event</div>
-          <div><span class="quake-dot pmd"></span>PMD event</div>
-          <div class="map-events-hint">Scatter points are source-colored and sized lightly by magnitude. Click a point for event metadata.</div>
+        <div class="map-events-legend" id="map-events-legend">
+          <div style="font-size:11px;font-weight:600;color:var(--slate);margin-bottom:4px">Magnitude</div>
+          <div style="display:flex;flex-direction:column;gap:3px">
+            <div style="display:flex;align-items:center;gap:6px"><span class="quake-legend-swatch" style="background:#16a34a"></span><span style="font-size:11px;color:var(--text-muted)">≤ 3.0</span></div>
+            <div style="display:flex;align-items:center;gap:6px"><span class="quake-legend-swatch" style="background:#a855f7"></span><span style="font-size:11px;color:var(--text-muted)">3.1 – 4.0</span></div>
+            <div style="display:flex;align-items:center;gap:6px"><span class="quake-legend-swatch" style="background:#3b82f6"></span><span style="font-size:11px;color:var(--text-muted)">4.1 – 5.0</span></div>
+            <div style="display:flex;align-items:center;gap:6px"><span class="quake-legend-swatch" style="background:#eab308"></span><span style="font-size:11px;color:var(--text-muted)">5.1 – 6.0</span></div>
+            <div style="display:flex;align-items:center;gap:6px"><span class="quake-legend-swatch" style="background:#ea580c"></span><span style="font-size:11px;color:var(--text-muted)">6.1 – 7.0</span></div>
+            <div style="display:flex;align-items:center;gap:6px"><span class="quake-legend-swatch" style="background:#dc2626"></span><span style="font-size:11px;color:var(--text-muted)">≥ 7.1</span></div>
+          </div>
+          <div class="map-events-hint">Bubble size & color reflect magnitude. Click a point for event details.</div>
         </div>
       </section>
       <section id="sec-aftershock">
@@ -174,6 +181,11 @@
       </section>
       <section id="sec-config">
         <h4>Map configuration</h4>
+        <div class="cfg-group"><div class="field-label">Current earthquake</div>
+          <label class="cfg-row"><input id="current-mmi-toggle" type="checkbox" checked />
+            <span class="ov-name">Show MMI polygons</span></label>
+          <div class="cfg-note">Epicenter stays visible; toggle the shaking footprint when you need a cleaner map.</div>
+        </div>
         <div class="cfg-group"><div class="field-label">Overlays</div>
           <div id="overlay-list"></div></div>
         <div class="cfg-group"><div class="field-label">Basemap</div>

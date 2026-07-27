@@ -69,7 +69,6 @@ def test_intensity_persists_when_save_to_catalog_true(tmp_path, monkeypatch):
     tif = tmp_path / "Vs30.tif"
     _make_grid_tif(tif)
     monkeypatch.setenv("EQMON_VS30_TIF", str(tif))
-    monkeypatch.setenv("EQMON_ADMIN_API_KEY", "secret")
     from eqmon import api
     api.reset_grid_cache()
 
@@ -90,51 +89,42 @@ def test_intensity_persists_when_save_to_catalog_true(tmp_path, monkeypatch):
     resp = client.post("/intensity", json={
         "magnitude": 6.5, "depth_km": 10.0, "lat": 30.0, "lon": 70.0,
         "save_to_catalog": True,
-    }, headers={"X-Admin-API-Key": "secret"})
+    })
     assert resp.status_code == 200
     assert resp.json().get("event_id") == 999  # saved
 
 
-def test_intensity_save_to_catalog_requires_admin_key(tmp_path, monkeypatch):
+def test_intensity_save_to_catalog_without_admin_key(tmp_path, monkeypatch):
     tif = tmp_path / "Vs30.tif"
     _make_grid_tif(tif)
     monkeypatch.setenv("EQMON_VS30_TIF", str(tif))
-    monkeypatch.setenv("EQMON_ADMIN_API_KEY", "secret")
     from eqmon import api
     api.reset_grid_cache()
+
+    import contextlib
+
+    class _FakeConn:
+        def commit(self):
+            pass
+
+    @contextlib.contextmanager
+    def _fake_get_conn():
+        yield _FakeConn()
+
+    monkeypatch.setattr(api.db, "get_conn", _fake_get_conn)
+    monkeypatch.setattr(api, "create_manual_event", lambda conn, **k: {"id": 999})
 
     client = TestClient(api.app)
     resp = client.post("/intensity", json={
         "magnitude": 6.5, "depth_km": 10.0, "lat": 30.0, "lon": 70.0,
         "save_to_catalog": True,
     })
-    assert resp.status_code == 401
+    assert resp.status_code == 200
+    assert resp.json().get("event_id") == 999
 
 
-def test_protected_event_routes_fail_closed_when_admin_key_unset(monkeypatch):
+def test_event_routes_do_not_require_admin_key(monkeypatch):
     monkeypatch.delenv("EQMON_ADMIN_API_KEY", raising=False)
-    from eqmon import api
-
-    client = TestClient(api.app)
-    resp = client.post("/events", json={
-        "magnitude": 6.1, "depth_km": 10, "lat": 34.0, "lon": 72.5,
-    })
-    assert resp.status_code == 503
-
-
-def test_protected_event_routes_reject_bad_admin_key(monkeypatch):
-    monkeypatch.setenv("EQMON_ADMIN_API_KEY", "secret")
-    from eqmon import api
-
-    client = TestClient(api.app)
-    resp = client.post("/events", json={
-        "magnitude": 6.1, "depth_km": 10, "lat": 34.0, "lon": 72.5,
-    }, headers={"X-Admin-API-Key": "wrong"})
-    assert resp.status_code == 401
-
-
-def test_protected_event_routes_accept_admin_key(monkeypatch):
-    monkeypatch.setenv("EQMON_ADMIN_API_KEY", "secret")
     from eqmon import api
 
     import contextlib
@@ -153,7 +143,7 @@ def test_protected_event_routes_accept_admin_key(monkeypatch):
     client = TestClient(api.app)
     resp = client.post("/events", json={
         "magnitude": 6.1, "depth_km": 10, "lat": 34.0, "lon": 72.5,
-    }, headers={"X-Admin-API-Key": "secret"})
+    })
     assert resp.status_code == 200
     assert resp.json()["id"] == 123
 

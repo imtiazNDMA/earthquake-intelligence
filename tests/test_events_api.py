@@ -16,7 +16,6 @@ pytestmark = pytest.mark.skipif(
 def client(monkeypatch):
     # point the app pool at the test DB
     monkeypatch.setenv("DATABASE_URL", os.environ["DATABASE_URL_TEST"])
-    monkeypatch.setenv("EQMON_ADMIN_API_KEY", "test-admin-key")
     from eqmon import api, db
     db._pool = None  # force pool recreation against the test DB
     db.init_schema()
@@ -33,8 +32,7 @@ def client(monkeypatch):
 
 def test_manual_event_create_and_get(client):
     r = client.post("/events", json={"magnitude": 6.1, "depth_km": 10,
-                                     "lat": 34.0, "lon": 72.5},
-                    headers={"X-Admin-API-Key": "test-admin-key"})
+                                     "lat": 34.0, "lon": 72.5})
     assert r.status_code == 200
     eid = r.json()["id"]
     g = client.get(f"/events/{eid}")
@@ -43,8 +41,7 @@ def test_manual_event_create_and_get(client):
 
 def test_manual_event_out_of_region_rejected(client):
     r = client.post("/events", json={"magnitude": 6.1, "depth_km": 10,
-                                     "lat": 0.0, "lon": 0.0},
-                    headers={"X-Admin-API-Key": "test-admin-key"})
+                                     "lat": 0.0, "lon": 0.0})
     assert r.status_code == 422
 
 
@@ -66,8 +63,7 @@ def test_ingest_pmd_endpoint_ingests_and_records_sync(client, monkeypatch):
     monkeypatch.setattr("eqmon.events.sources.httpx.get",
                         lambda url, headers=None, timeout=None: _Resp())
 
-    r = client.post("/events/ingest/pmd",
-                    headers={"X-Admin-API-Key": "test-admin-key"})
+    r = client.post("/events/ingest/pmd")
     assert r.status_code == 200
     body = r.json()
     assert body["source"] == "PMD"
