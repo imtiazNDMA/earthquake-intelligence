@@ -49,7 +49,9 @@ SHP_LAYERS = [
     ("plate_boundaries",    "data/Tectonic Plate Boundaries/Tectonic_Plate_Boundaries.shp",                  ["-z8"]),
     ("plates",              "data/Tectonic Plates/Tectonic_Plates.shp",                                      ["-z6"]),
     ("pak_faults_major",    "data/PAK_Faults/Major_Faults.shp",                                              ["-z12", "--drop-densest-as-needed"]),
-    ("pak_faults_minor",    "data/PAK_Faults/Minor_Faults.shp",                                              ["-z12"]),
+    # Minor_Faults.shp is not tiled: the source holds a single feature (the
+    # Karakuram Fault), which did not justify an overlay toggle of its own. The
+    # shapefile stays under data/ in case it is ever filled out.
     # 34 named faults carrying Mmax and slip rate. Distinct from pak_faults_major
     # above, which has finer geometry but almost no populated attributes.
     ("major_faults",        "data/Major Faults/Fault_type.shp",                                              ["-z12"]),

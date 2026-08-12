@@ -162,8 +162,6 @@ const OVERLAY_CONFIG = {
   "Global Faults": { id: "faults",           color: "#C42A2E", width: 0.8, defaultOn: false, lineOnly: true, faultStyle: true, opacity: 0.9, hoverTolerancePx: 12 },
   "Plate boundaries": { id: "plate_boundaries", color: "#D8B22C", width: 1.6, defaultOn: false, lineOnly: true, opacity: 0.85, hoverFields: ["Name_Full", "Name"], hoverTolerancePx: 12 },
   "Pakistan Major": { id: "pak_faults_major", color: "#C42A2E", width: 1.1, defaultOn: true, lineOnly: true, faultStyle: true, opacity: 0.9, hoverFields: ["Name", "Symbols", "Type"], hoverTolerancePx: 12 },
-  "Pakistan Minor": { id: "pak_faults_minor", color: "#C42A2E", width: 1.1, defaultOn: false, lineOnly: true, faultStyle: true, opacity: 0.9, hoverFields: ["Name", "Symbols", "Lables"], hoverTolerancePx: 12,
-                      note: "Source currently contains one feature: Karakuram Fault." },
   // 34 named faults characterised with Mmax and slip rate — the hazard-relevant
   // attributes. "Pakistan Major" above has finer geometry but its Type/Symbols
   // columns are almost entirely empty, so the two complement rather than repeat.
