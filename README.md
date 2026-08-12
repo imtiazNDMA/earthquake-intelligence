@@ -186,3 +186,28 @@ The response leads with `at_min_mmi` (exposure at or above `EXPOSURE_MIN_MMI`,
 default 6). `totals` covers the whole footprint down to MMI 2 — for a large
 event that is most of the country and a nine-figure population, so it is
 reference data, not a headline.
+
+## Seismic hazard (PGA) overlays
+
+The Layers panel carries probabilistic peak ground acceleration for the region
+at four return periods — 95, 475, 975 and 2475 years (41%, 10%, 5% and 2%
+probability of exceedance in 50 years). This is the long-run hazard at a place,
+independent of whatever event is on the map, so it renders *underneath* the MMI
+footprint and carries its own legend.
+
+Source grids live in `data/PGA/` as float32 GeoTIFFs in g. Browsers cannot read
+a GeoTIFF, and at 347×250 the grids are far too small to be worth tiling, so
+each is classified into its five published bands and written as an RGBA PNG:
+
+```bash
+uv run python scripts/build_pga_overlays.py   # -> web/pga/ (gitignored)
+```
+
+**The class breaks are not computed.** They are transcribed from
+`data/PGA/PGA_Return_Period_Legend.png`, the legend shipped with the data, and
+each return period has its own breaks over a shared five-step ramp. Re-deriving
+them (equal interval, quantile, Jenks) would produce a map that disagrees with
+the published hazard maps these grids came from.
+
+`data/PGA/PGA.shp` (the five-zone building-code zonation) and `PGAstyles.sld`
+are also in the drop but are not yet surfaced in the UI.

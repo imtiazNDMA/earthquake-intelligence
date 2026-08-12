@@ -28,6 +28,9 @@ data/_tiles_src/
 # Generated vector tiles (regenerate via scripts/build_tiles.py)
 web/tiles/
 
+# Generated PGA hazard overlays (regenerate via scripts/build_pga_overlays.py)
+web/pga/
+
 # Local secrets / connection strings
 .env
 # API-client exports (Postman etc.) can embed live bearer tokens
