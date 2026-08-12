@@ -838,9 +838,14 @@ lord-icon { display: inline-block; }
 
 /* ---- Aftershock — expanded full-screen view ---- */
 #as-expanded-view {
-   display: none; position: absolute; inset: 52px 0 var(--strip-h, 0px) 0; overflow-y: auto;
+  display: none; position: absolute; inset: 52px 0 var(--strip-h, 0px) 0; overflow-y: auto;
   background: var(--bg); z-index: 500; font-family: var(--font-sans);
+  /* Clear of the sidebar, same as #arc-view and #dashboard-view: the map is
+     meant to run under the panel, a centred document is not. */
+  left: calc(var(--rail-w) + var(--panel-w));
+  transition: left var(--dur-slow) var(--ease);
 }
+body:has(#sidebar.collapsed) #as-expanded-view { left: var(--rail-w); }
 #as-expanded-view.open { display: block; }
 #as-expanded-inner { max-width: 960px; margin: 0 auto; padding: 20px 24px; }
 #as-expanded-header {
