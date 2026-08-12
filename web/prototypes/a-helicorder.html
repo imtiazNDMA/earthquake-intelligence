@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Prototype A — Helicorder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Anybody:wdth,wght@75..125,400..900&family=Archivo:wght@400;500;600;700&family=Martian+Mono:wght@400;600&display=swap" rel="stylesheet" />
+<style>
+:root{
+  --ink:#14161A; --ink-2:#1B1E24; --ink-3:#252A32;
+  --paper:#E9E3D5; --paper-2:#DBD3C1; --paper-3:#CBC2AC;
+  --pen:#C0402A;              /* seismograph pen ink */
+  --graphite:#5A616C;
+  --mmi-2:#BFE9E7; --mmi-4:#8FE0A6; --mmi-5:#F2E663; --mmi-6:#F5C44A;
+  --mmi-7:#F09040; --mmi-8:#E0562F; --mmi-9:#B3272B; --mmi-10:#7A1B3F;
+  --disp:"Anybody",system-ui,sans-serif;
+  --body:"Archivo",system-ui,sans-serif;
+  --data:"Martian Mono",ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--ink);color:var(--paper);font-family:var(--body);
+  -webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:2px solid var(--pen);outline-offset:2px}
+
+/* ---------- app frame ---------- */
+.app{position:fixed;inset:0;display:grid;grid-template-rows:96px 1fr;grid-template-columns:92px 372px 1fr}
+.drum{grid-column:1/-1;position:relative;background:var(--ink-2);border-bottom:1px solid #000;overflow:hidden}
+.rail{grid-row:2;background:var(--ink);border-right:1px solid var(--ink-3);
+  display:flex;flex-direction:column;padding:14px 8px;gap:2px}
+.sheet{grid-row:2;background:var(--paper);color:var(--ink);overflow-y:auto;
+  border-right:1px solid #000;box-shadow:14px 0 40px rgba(0,0,0,.45);position:relative}
+.stage{grid-row:2;position:relative;background:#0E1013;overflow:hidden}
+
+/* ---------- SIGNATURE: helicorder ribbon ---------- */
+.drum-label{position:absolute;left:14px;top:9px;z-index:3;font-family:var(--data);font-size:9px;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--graphite)}
+.drum-label b{color:var(--paper);font-weight:600}
+.drum-scale{position:absolute;inset:auto 0 6px 0;z-index:3;display:flex;justify-content:space-between;
+  padding:0 14px;font-family:var(--data);font-size:8.5px;color:var(--graphite);letter-spacing:.1em}
+.drum svg{position:absolute;inset:0;width:100%;height:100%}
+.trace{fill:none;stroke:var(--paper-3);stroke-width:1;vector-effect:non-scaling-stroke;opacity:.55}
+.trace-live{stroke:var(--pen);opacity:1;stroke-width:1.2}
+.drum-gridline{stroke:#2C313A;stroke-width:1}
+.spike{cursor:pointer}
+.spike line{stroke:var(--pen);stroke-width:1.6}
+.spike circle{fill:var(--pen)}
+.spike:hover circle{r:5}
+.spike.sel circle{fill:var(--paper);stroke:var(--pen);stroke-width:2}
+.drum::after{content:"";position:absolute;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(0deg,rgba(0,0,0,.16) 0 1px,transparent 1px 3px)}
+
+/* ---------- rail ---------- */
+.rail button{width:100%;background:none;border:0;padding:10px 4px 8px;border-radius:3px;
+  display:grid;justify-items:center;gap:5px;color:var(--graphite);
+  font-family:var(--data);font-size:8.5px;letter-spacing:.08em;text-transform:uppercase}
+.rail button svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:1.6}
+.rail button:hover{color:var(--paper-2);background:var(--ink-2)}
+.rail button[aria-current="true"]{color:var(--ink);background:var(--paper)}
+.rail .spacer{flex:1}
+.rail .mark{font-family:var(--disp);font-variation-settings:"wdth" 82,"wght" 800;
+  font-size:15px;letter-spacing:-.02em;color:var(--pen);text-align:center;padding:4px 0 14px;line-height:1}
+.rail .mark span{display:block;font-family:var(--data);font-size:7.5px;letter-spacing:.16em;
+  color:var(--graphite);font-weight:400;margin-top:3px}
+
+/* ---------- sheet (chart-paper panel) ---------- */
+.sheet::before{content:"";position:absolute;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(90deg,rgba(20,22,26,.045) 0 1px,transparent 1px 26px)}
+.sheet-in{position:relative;padding:22px 24px 40px}
+.eyebrow{font-family:var(--data);font-size:9px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--pen);margin:0 0 7px}
+h1{font-family:var(--disp);font-variation-settings:"wdth" 88,"wght" 800;
+  font-size:29px;line-height:.98;letter-spacing:-.02em;margin:0 0 8px;color:var(--ink)}
+.lede{margin:0 0 20px;font-size:12.5px;line-height:1.5;color:#4A5058;max-width:31ch}
+
+/* active event readout */
+.readout{border-top:2px solid var(--ink);border-bottom:1px solid var(--paper-3);padding:12px 0 14px;margin-bottom:18px}
+.readout .mag{font-family:var(--disp);font-variation-settings:"wdth" 78,"wght" 900;
+  font-size:64px;line-height:.82;letter-spacing:-.035em;color:var(--ink);display:flex;align-items:baseline;gap:6px}
+.readout .mag em{font-family:var(--data);font-size:11px;font-style:normal;letter-spacing:.1em;color:var(--pen);align-self:flex-start;margin-top:6px}
+.readout .place{font-size:14px;font-weight:600;margin:6px 0 10px;color:var(--ink)}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--paper-3);border:1px solid var(--paper-3)}
+.facts div{background:var(--paper);padding:7px 9px}
+.facts dt{font-family:var(--data);font-size:8px;letter-spacing:.13em;text-transform:uppercase;color:#7A7263;margin:0 0 3px}
+.facts dd{margin:0;font-family:var(--data);font-size:12px;color:var(--ink)}
+
+/* form */
+fieldset{border:0;padding:0;margin:0 0 16px}
+legend{font-family:var(--data);font-size:9px;letter-spacing:.14em;text-transform:uppercase;
+  color:#7A7263;padding:0 0 8px;width:100%;border-bottom:1px solid var(--paper-3);margin-bottom:11px}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:9px}
+label{display:block;font-family:var(--data);font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:#7A7263;margin-bottom:4px}
+input[type=number],input[type=text]{width:100%;background:#F3EEE2;border:1px solid var(--paper-3);
+  border-bottom:2px solid var(--graphite);border-radius:0;padding:8px 9px;
+  font-family:var(--data);font-size:13px;color:var(--ink)}
+input:focus{border-bottom-color:var(--pen);outline:none;background:#fff}
+.btn{width:100%;background:var(--ink);color:var(--paper);border:0;padding:13px;
+  font-family:var(--disp);font-variation-settings:"wdth" 84,"wght" 700;font-size:13px;
+  letter-spacing:.03em;text-transform:uppercase;transition:background .15s}
+.btn:hover{background:var(--pen)}
+.btn-ghost{background:none;color:var(--ink);border:1px solid var(--ink);padding:7px 12px;width:auto;font-size:11px}
+.btn-ghost:hover{background:var(--ink);color:var(--paper)}
+.feed{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--paper-3)}
+.feed b{font-size:13px}
+.feed small{display:block;font-family:var(--data);font-size:8.5px;letter-spacing:.08em;color:#7A7263;text-transform:uppercase}
+
+/* catalog rows */
+.rows{margin-top:4px}
+.row{display:grid;grid-template-columns:46px 1fr auto;gap:10px;align-items:center;
+  padding:9px 0;border-bottom:1px solid var(--paper-3);cursor:pointer}
+.row:hover{background:#F3EEE2;box-shadow:-24px 0 0 #F3EEE2,24px 0 0 #F3EEE2}
+.row .m{font-family:var(--disp);font-variation-settings:"wdth" 78,"wght" 800;font-size:19px;color:var(--ink);line-height:1}
+.row .p{display:block;font-size:12px;font-weight:600;margin-bottom:2px}
+.row .t{display:block;font-family:var(--data);font-size:8.5px;color:#7A7263;letter-spacing:.06em}
+.row .src{font-family:var(--data);font-size:8px;letter-spacing:.1em;padding:3px 5px;border:1px solid var(--paper-3);color:#7A7263}
+.row .src.pmd{border-color:var(--pen);color:var(--pen)}
+
+/* ---------- map stage ---------- */
+.stage svg.map{position:absolute;inset:0;width:100%;height:100%}
+.land{fill:#171A1F;stroke:#333B46;stroke-width:1.1;vector-effect:non-scaling-stroke}
+.fault{fill:none;stroke:var(--pen);stroke-width:1.1;stroke-dasharray:5 3;vector-effect:non-scaling-stroke;opacity:.75}
+.faultlbl{font-family:var(--data);font-size:1.5px;fill:#8C5647;letter-spacing:.14em}
+.citylbl{font-family:var(--data);font-size:1.7px;fill:#7C8492;letter-spacing:.1em}
+.city{fill:#7C8492}
+.epi{fill:none;stroke:var(--pen);stroke-width:1.4;vector-effect:non-scaling-stroke}
+.mmi-band{stroke:none;opacity:.34}
+.mmi-line{fill:none;stroke-width:.9;vector-effect:non-scaling-stroke;opacity:.9}
+.mmi-num{font-family:var(--disp);font-variation-settings:"wdth" 80,"wght" 800;font-size:2.6px;letter-spacing:.02em}
+
+/* legend card over map */
+.legend{position:absolute;right:16px;bottom:16px;background:rgba(20,22,26,.92);
+  border:1px solid var(--ink-3);padding:12px 13px 11px;min-width:186px;backdrop-filter:blur(6px)}
+.legend h3{margin:0 0 9px;font-family:var(--data);font-size:8.5px;letter-spacing:.15em;
+  text-transform:uppercase;color:var(--graphite);font-weight:400}
+.legend .lrow{display:grid;grid-template-columns:26px 1fr auto;gap:8px;align-items:center;padding:2.5px 0}
+.legend .sw{height:12px}
+.legend .rn{font-family:var(--disp);font-variation-settings:"wdth" 80,"wght" 800;font-size:11px;color:var(--paper)}
+.legend .lb{font-size:10px;color:var(--graphite);text-align:right;font-family:var(--data);font-size:8.5px}
+.exposure{position:absolute;right:16px;top:16px;background:rgba(20,22,26,.92);border:1px solid var(--ink-3);padding:13px 15px}
+.exposure .big{font-family:var(--disp);font-variation-settings:"wdth" 80,"wght" 900;font-size:34px;line-height:1;color:var(--paper)}
+.exposure .cap{font-family:var(--data);font-size:8.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--graphite);margin-top:5px}
+.exposure hr{border:0;border-top:1px solid var(--ink-3);margin:11px 0}
+
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media (max-width:900px){
+  .app{grid-template-columns:72px 1fr;grid-template-rows:78px 1fr}
+  .sheet{position:absolute;inset:78px 0 0 72px;z-index:5}
+  .stage{display:none}
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ============ SIGNATURE: 24-hour helicorder ribbon ============ -->
+  <div class="drum">
+    <div class="drum-label">Drum record · Pakistan network · <b>last 24 h</b> · 41 events</div>
+    <svg id="drum" viewBox="0 0 1200 96" preserveAspectRatio="none" aria-label="24 hour seismic drum record"></svg>
+    <div class="drum-scale"><span>03:42 PKT — 11 AUG</span><span>18:00</span><span>12:00</span><span>06:00</span><span>NOW</span></div>
+  </div>
+
+  <!-- ============ rail ============ -->
+  <nav class="rail" aria-label="Sections">
+    <div class="mark">EQ<span>NDMA</span></div>
+    <button aria-current="true"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Start</button>
+    <button><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>Events</button>
+    <button><svg viewBox="0 0 24 24"><path d="M12 21s7-6.3 7-11a7 7 0 1 0-14 0c0 4.7 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>Map</button>
+    <button><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg>Forecast</button>
+    <button><svg viewBox="0 0 24 24"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg>Insights</button>
+    <button><svg viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/></svg>Layers</button>
+    <div class="spacer"></div>
+    <button><svg viewBox="0 0 24 24"><path d="M20 13.5A8 8 0 1 1 10.5 4a6.5 6.5 0 0 0 9.5 9.5z"/></svg>Dark</button>
+  </nav>
+
+  <!-- ============ chart-paper sheet ============ -->
+  <div class="sheet">
+   <div class="sheet-in">
+    <p class="eyebrow">Station log — active record</p>
+    <h1>Start with an<br />earthquake</h1>
+    <p class="lede">Enter an event by hand or pull the PMD and USGS feeds, then draw the shaking footprint.</p>
+
+    <div class="readout">
+      <div class="mag">6.5<em>M<sub>w</sub></em></div>
+      <div class="place">18 km NE of Mansehra, Khyber Pakhtunkhwa</div>
+      <dl class="facts">
+        <div><dt>Origin</dt><dd>03:42:11 PKT</dd></div>
+        <div><dt>Depth</dt><dd>10 km</dd></div>
+        <div><dt>Epicentre</dt><dd>34.00 N 72.50 E</dd></div>
+        <div><dt>Source</dt><dd>PMD</dd></div>
+      </dl>
+    </div>
+
+    <fieldset>
+      <legend>Manual earthquake</legend>
+      <div class="pair">
+        <div><label for="a1">Magnitude</label><input id="a1" type="number" value="6.5" step="0.1" /></div>
+        <div><label for="a2">Depth km</label><input id="a2" type="number" value="10" /></div>
+      </div>
+      <div class="pair">
+        <div><label for="a3">Latitude</label><input id="a3" type="number" value="34.00" step="0.01" /></div>
+        <div><label for="a4">Longitude</label><input id="a4" type="number" value="72.50" step="0.01" /></div>
+      </div>
+      <button class="btn">Draw shaking footprint</button>
+    </fieldset>
+
+    <fieldset>
+      <legend>Live feeds</legend>
+      <div class="feed"><span><b>PMD</b><small>Primary source</small></span><button class="btn btn-ghost">Pull PMD</button></div>
+      <div class="feed"><span><b>USGS</b><small>Secondary source</small></span><button class="btn btn-ghost">Pull USGS</button></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Recent catalog</legend>
+      <div class="rows">
+        <div class="row"><span class="m">6.5</span><span><span class="p">18 km NE of Mansehra</span><span class="t">11 AUG · 03:42</span></span><span class="src pmd">PMD</span></div>
+        <div class="row"><span class="m">4.8</span><span><span class="p">Hindu Kush region</span><span class="t">11 AUG · 01:07</span></span><span class="src">USGS</span></div>
+        <div class="row"><span class="m">3.9</span><span><span class="p">62 km W of Quetta</span><span class="t">10 AUG · 22:15</span></span><span class="src pmd">PMD</span></div>
+        <div class="row"><span class="m">3.2</span><span><span class="p">Makran coast</span><span class="t">10 AUG · 19:48</span></span><span class="src">USGS</span></div>
+      </div>
+    </fieldset>
+   </div>
+  </div>
+
+  <!-- ============ map stage ============ -->
+  <div class="stage">
+    <svg class="map" viewBox="598 102 188 148" preserveAspectRatio="xMidYMid meet" aria-label="Map of Pakistan">
+      <g stroke="#1E242C" stroke-width=".35" vector-effect="non-scaling-stroke">
+        <path d="M620,100v152M640,100v152M660,100v152M680,100v152M700,100v152M720,100v152M740,100v152M760,100v152"/>
+        <path d="M598,120h190M598,140h190M598,160h190M598,180h190M598,200h190M598,220h190M598,240h190"/>
+      </g>
+      <defs>
+        <clipPath id="pk"><polygon points="610,230 664,230 682,243 706,203 718,201 734,181 746,170 745,155 753,157 743,133 769,125 760,116 745,110 725,112 712,119 715,128 709,140 699,149 703,160 693,163 682,162 664,181 641,185 625,186 609,182 618,218 616,228"/></clipPath>
+      </defs>
+      <polygon class="land" points="610,230 664,230 682,243 706,203 718,201 734,181 746,170 745,155 753,157 743,133 769,125 760,116 745,110 725,112 712,119 715,128 709,140 699,149 703,160 693,163 682,162 664,181 641,185 625,186 609,182 618,218 616,228"/>
+      <!-- MMI isoseismals, clipped to land -->
+      <g clip-path="url(#pk)">
+        <circle class="mmi-band" cx="725" cy="140" r="34" fill="var(--mmi-4)"/>
+        <circle class="mmi-band" cx="725" cy="140" r="25" fill="var(--mmi-5)"/>
+        <circle class="mmi-band" cx="725" cy="140" r="17" fill="var(--mmi-6)"/>
+        <circle class="mmi-band" cx="725" cy="140" r="11" fill="var(--mmi-7)"/>
+        <circle class="mmi-band" cx="725" cy="140" r="6"  fill="var(--mmi-8)"/>
+        <circle class="mmi-line" cx="725" cy="140" r="34" stroke="var(--mmi-4)"/>
+        <circle class="mmi-line" cx="725" cy="140" r="25" stroke="var(--mmi-5)"/>
+        <circle class="mmi-line" cx="725" cy="140" r="17" stroke="var(--mmi-6)"/>
+        <circle class="mmi-line" cx="725" cy="140" r="11" stroke="var(--mmi-7)"/>
+        <circle class="mmi-line" cx="725" cy="140" r="6"  stroke="var(--mmi-8)"/>
+      </g>
+      <text class="mmi-num" x="725" y="108" fill="var(--mmi-4)" text-anchor="middle">IV</text>
+      <text class="mmi-num" x="725" y="117" fill="var(--mmi-5)" text-anchor="middle">V</text>
+      <text class="mmi-num" x="725" y="126" fill="var(--mmi-6)" text-anchor="middle">VI</text>
+      <text class="mmi-num" x="738" y="141" fill="var(--mmi-8)">VIII</text>
+      <!-- faults -->
+      <path class="fault" d="M655,192 C660,178 663,166 668,155 C672,146 682,138 692,132"/>
+      <text class="faultlbl" x="646" y="196" transform="rotate(-68 646 196)">CHAMAN FAULT</text>
+      <path class="fault" d="M700,152 C714,146 730,142 748,138 C758,136 764,133 770,129"/>
+      <text class="faultlbl" x="731" y="150">MAIN BOUNDARY THRUST</text>
+      <path class="fault" d="M612,236 C632,233 652,232 674,234"/>
+      <text class="faultlbl" x="622" y="241">MAKRAN SUBDUCTION ZONE</text>
+      <!-- cities -->
+      <circle class="city" cx="730" cy="145" r="1.1"/><text class="citylbl" x="733" y="146">ISLAMABAD</text>
+      <circle class="city" cx="741" cy="161" r="1"/><text class="citylbl" x="744" y="162">LAHORE</text>
+      <circle class="city" cx="670" cy="228" r="1"/><text class="citylbl" x="654" y="234">KARACHI</text>
+      <circle class="city" cx="670" cy="180" r="1"/><text class="citylbl" x="655" y="177">QUETTA</text>
+      <circle class="city" cx="713" cy="141" r="1"/><text class="citylbl" x="697" y="139">PESHAWAR</text>
+      <!-- epicentre -->
+      <circle class="epi" cx="725" cy="140" r="3"/>
+      <circle class="epi" cx="725" cy="140" r="7" opacity=".5"/>
+      <path class="epi" d="M725,131v-5M725,149v5M716,140h-5M734,140h5"/>
+    </svg>
+
+    <div class="exposure">
+      <div class="big">2.4 M</div>
+      <div class="cap">People at MMI VI+</div>
+      <hr />
+      <div class="big">318 K</div>
+      <div class="cap">Buildings in footprint</div>
+    </div>
+
+    <div class="legend">
+      <h3>Modified Mercalli</h3>
+      <div class="lrow"><span class="sw" style="background:var(--mmi-8)"></span><span class="rn">VIII</span><span class="lb">Severe</span></div>
+      <div class="lrow"><span class="sw" style="background:var(--mmi-7)"></span><span class="rn">VII</span><span class="lb">Very strong</span></div>
+      <div class="lrow"><span class="sw" style="background:var(--mmi-6)"></span><span class="rn">VI</span><span class="lb">Strong</span></div>
+      <div class="lrow"><span class="sw" style="background:var(--mmi-5)"></span><span class="rn">V</span><span class="lb">Moderate</span></div>
+      <div class="lrow"><span class="sw" style="background:var(--mmi-4)"></span><span class="rn">IV</span><span class="lb">Light</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* Draw the helicorder: a continuous 24 h trace with real events as pen spikes. */
+(function(){
+  const svg = document.getElementById('drum');
+  const W = 1200, H = 96, mid = H/2 + 6;
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const events = [ {x:0.06,a:30,m:'6.5',sel:true}, {x:0.17,a:16,m:'4.8'},
+                   {x:0.34,a:11,m:'3.9'}, {x:0.47,a:8,m:'3.2'},
+                   {x:0.62,a:13,m:'4.1'}, {x:0.78,a:7,m:'3.0'}, {x:0.9,a:9,m:'3.4'} ];
+  let ns = '';
+  for (let i=1;i<5;i++) ns += `<line class="drum-gridline" x1="${W*i/5}" y1="0" x2="${W*i/5}" y2="${H}"/>`;
+  // microseismic background
+  function noiseAt(x){
+    let v = Math.sin(x*0.09)*2 + Math.sin(x*0.31)*1.4 + Math.sin(x*0.77)*0.9;
+    for (const e of events){
+      const d = x - (1-e.x)*W;
+      v += e.a * Math.exp(-Math.abs(d)/9) * Math.sin(d*0.9);
+    }
+    return v;
+  }
+  let d = `M0,${mid}`;
+  for (let x=1;x<=W;x+=2) d += ` L${x},${(mid + noiseAt(x)).toFixed(1)}`;
+  ns += `<path class="trace" d="${d}"/>`;
+  ns += `<path class="trace trace-live" d="${d}" stroke-dasharray="${W*3} ${W*3}" stroke-dashoffset="${reduce?0:W*3}"><animate attributeName="stroke-dashoffset" from="${W*3}" to="0" dur="2.4s" fill="freeze" ${reduce?'begin="indefinite"':''}/></path>`;
+  for (const e of events){
+    const x = (1-e.x)*W;
+    ns += `<g class="spike${e.sel?' sel':''}" tabindex="0" role="button" aria-label="M ${e.m}">
+      <line x1="${x}" y1="${mid-e.a-6}" x2="${x}" y2="${mid+e.a+6}"/>
+      <circle cx="${x}" cy="${mid-e.a-11}" r="3.4"/>
+      <text x="${x}" y="${mid-e.a-17}" text-anchor="middle" font-family="Martian Mono, monospace" font-size="9" fill="#C0402A">${e.m}</text></g>`;
+  }
+  svg.innerHTML = ns;
+})();
+</script>
+</body>
+</html>

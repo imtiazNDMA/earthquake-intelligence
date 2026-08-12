@@ -122,3 +122,101 @@ Pakistan MET feed (Primary) is a documented stub (`METSource`) pending its
 format. **Dedup:** feed events within 60 s / 50 km cluster; the higher-priority
 source (MET > USGS) is canonical. **The Vs30 grid stays a GeoTIFF — it is not in
 the database.**
+
+## Infra Vulnerability layer (building footprints)
+
+The **Infra** panel renders Pakistan building footprints, banded by height, from
+an external [TileServerGL](https://github.com/maptiler/tileserver-gl) instance
+serving one vector dataset per district (161 `.mbtiles`, layer id `buildings`).
+Height is the only usable attribute in those tiles — it stands in for
+vulnerability and is **not** a calculated risk score; the legend says so.
+
+The tile server is not part of this repo. Point the app at a running instance:
+
+```
+BUILDINGS_TILE_URL=http://172.19.119.216:8081   # .env; defaults to http://172.19.112.1:8081
+```
+
+That host is typically a WSL IP, which changes between reboots — hence the env
+var rather than a baked-in frontend URL. To serve the datasets:
+
+```bash
+npm install -g tileserver-gl-light
+cd <mbtiles-dir> && tileserver-gl --config config.json -p 8081 --bind 0.0.0.0
+```
+
+FastAPI proxies both the catalog and the tiles (`src/eqmon/buildings.py`) so the
+frontend stays same-origin; `dataset` is checked against the cached catalog
+before any upstream request, so the proxy cannot be pointed at arbitrary paths.
+Buildings render only at zoom ≥ 12 and only for districts intersecting the
+viewport — typically 1–4 live sources instead of all 161.
+
+## Elements at risk (ARC)
+
+`POST /events/{id}/exposure` and `POST /exposure/analyze` report what sits under
+each MMI band — population, settlements, hospitals, schools, roads, bridges,
+airports — by handing our band layer to **ARC**, an external elements-at-risk
+service (`API.md` documents ARC's own API).
+
+This complements `/events/{id}/impact` rather than replacing it: impact rolls up
+*which admin units* shake from PostGIS, exposure counts *what is inside* the
+shaking. They are computed independently, and ARC being down never affects
+impact.
+
+```
+ARC_URL=http://172.18.0.12:5002    # .env; the service moves with its container
+ARC_TIMEOUT_S=180                  # a full scan is ~12 s, roads is ~375k features
+```
+
+Pass `layers` to narrow the scan when only some are needed — population and
+hospitals alone returns in ~2 s instead of ~12 s.
+
+**Two things the adapter (`src/eqmon/exposure.py`) is careful about:**
+
+- **Band vocabulary.** ARC dissolves on `mmi_high`; our domain name is
+  `mmi_upper` (`contours.py`). `to_arc_bands()` is the only place that
+  translation lives — ARC's field names never enter the rest of the codebase.
+- **What "MMI 6 and above" means.** ARC keys `cumulative[].mmi_min` on a band's
+  *upper* bound, so its `mmi_min: 6` row includes the 5–6 band, which this
+  platform labels MMI V. The headline is therefore summed from the bands
+  (ARC guarantees they are mutually exclusive), not read from `cumulative`. On a
+  real M7 the difference is 9.4M people versus 17.4M.
+
+The response leads with `at_min_mmi` (exposure at or above `EXPOSURE_MIN_MMI`,
+default 6). `totals` covers the whole footprint down to MMI 2 — for a large
+event that is most of the country and a nine-figure population, so it is
+reference data, not a headline.
+
+## Seismic hazard (PGA) overlays
+
+The Layers panel carries probabilistic peak ground acceleration for the region
+at four return periods — 95, 475, 975 and 2475 years (41%, 10%, 5% and 2%
+probability of exceedance in 50 years). This is the long-run hazard at a place,
+independent of whatever event is on the map, so it renders *underneath* the MMI
+footprint and carries its own legend.
+
+Source grids live in `data/PGA/` as float32 GeoTIFFs in g. Browsers cannot read
+a GeoTIFF, and at 347×250 the grids are far too small to be worth tiling, so
+each is classified into its five published bands and written as an RGBA PNG:
+
+```bash
+uv run python scripts/build_pga_overlays.py   # -> web/pga/ (gitignored)
+```
+
+**The class breaks are not computed.** They are transcribed from
+`data/PGA/PGA_Return_Period_Legend.png`, the legend shipped with the data, and
+each return period has its own breaks over a shared five-step ramp. Re-deriving
+them (equal interval, quantile, Jenks) would produce a map that disagrees with
+the published hazard maps these grids came from.
+
+### Zonation
+
+`data/PGA/PGA.shp` is the five-zone building-code seismic zonation (Zone 1, 2A,
+2B, 3, 4). It tiles like every other vector overlay (`scripts/build_tiles.py`)
+and appears in the Overlays list with its class key beneath it; hovering a zone
+names it.
+
+Its fills come from `data/PGA/PGAstyles.sld`, the style shipped with the data,
+not from a palette chosen here — same rule as the raster breaks. Note the ramp
+is not monotonic in lightness (Zone 2A is darker than Zone 1); that is what the
+source says, and reproducing a published map faithfully beats making it prettier.

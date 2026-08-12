@@ -1,0 +1,1129 @@
+{
+  "type": "FeatureCollection",
+  "metadata": {
+    "gcop_export_scope": "loaded-map-tiles",
+    "gcop_notice": "This vector tile source does not expose a full browser-side dataset endpoint; exported features are from currently loaded map tiles."
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          71.7132568359375,
+          29.34387539941801
+        ]
+      },
+      "properties": {
+        "city": "Bahawalpur",
+        "iata": "BHV",
+        "icao": "OPBW",
+        "name": "Bahawalpur Airport",
+        "type": "International Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          73.0975341796875,
+          33.614619292333785
+        ]
+      },
+      "properties": {
+        "city": "Islamabad",
+        "iata": "ISB",
+        "icao": "OPRN",
+        "name": "Benazir Bhutto International Airport",
+        "type": "International Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          74.0863037109375,
+          35.42486791930558
+        ]
+      },
+      "properties": {
+        "city": "Chilas",
+        "iata": "CHB",
+        "icao": "OPCL",
+        "name": "Chilas Airport",
+        "type": "Domestic Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          71.8011474609375,
+          35.88459964717596
+        ]
+      },
+      "properties": {
+        "city": "Chitral",
+        "iata": "CJL",
+        "icao": "OPCH",
+        "name": "Chitral Airport",
+        "type": "Domestic Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          70.48828125,
+          29.95969381418452
+        ]
+      },
+      "properties": {
+        "city": "Dera Ghazi Khan",
+        "iata": "DEA",
+        "icao": "OPDG",
+        "name": "Dera Ghazi Khan International Airport",
+        "type": "International Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          70.894775390625,
+          31.910204597744382
+        ]
+      },
+      "properties": {
+        "city": "Dera Ismail Khan",
+        "iata": "DSK",
+        "icao": "OPDI",
+        "name": "Dera Ismail Khan Airport",
+        "type": "Domestic Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          72.9931640625,
+          31.363018491291186
+        ]
+      },
+      "properties": {
+        "city": "Faisalabad",
+        "iata": "LYP",
+        "icao": "OPFA",
+        "name": "Faisalabad International Airport",
+        "type": "International Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          74.3389892578125,
+          35.93798832265392
+        ]
+      },
+      "properties": {
+        "city": "Gilgit",
+        "iata": "GIL",
+        "icao": "OPGT",
+        "name": "Gilgit Airport",
+        "type": "Domestic Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          74.06982421875,
+          32.63474905974431
+        ]
+      },
+      "properties": {
+        "city": "Gujrat",
+        "iata": "GJT",
+        "icao": "OPGJ",
+        "name": "Gujrat Airport",
+        "type": "Domestic Airport",
+        "usage": "Public non-commercial",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          68.367919921875,
+          25.31920114076412
+        ]
+      },
+      "properties": {
+        "city": "Hyderabad",
+        "iata": "HDD",
+        "icao": "OPKD",
+        "name": "Hyderabad Airport",
+        "type": "Domestic Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          67.1759033203125,
+          24.976099493695415
+        ]
+      },
+      "properties": {
+        "city": "Karachi",
+        "iata": "KHI",
+        "icao": "OPKC",
+        "name": "Karachi Jinnah International Airport",
+        "type": "International Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          74.4049072265625,
+          31.52236147042143
+        ]
+      },
+      "properties": {
+        "city": "Lahore",
+        "iata": "LHE",
+        "icao": "OPLA",
+        "name": "Lahore Allama Iqbal International Airport",
+        "type": "International Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          68.1427001953125,
+          27.337614909451986
+        ]
+      },
+      "properties": {
+        "city": "Larkana",
+        "iata": "MJD",
+        "icao": "OPMJ",
+        "name": "Moenjodaro Airport",
+        "type": "Domestic Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          71.4166259765625,
+          30.202113679097238
+        ]
+      },
+      "properties": {
+        "city": "Multan",
+        "iata": "MUX",
+        "icao": "OPMT",
+        "name": "Multan International Airport",
+        "type": "International Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          73.509521484375,
+          34.338900400404995
+        ]
+      },
+      "properties": {
+        "city": "Muzaffarabad",
+        "iata": "MFG",
+        "icao": "OPMF",
+        "name": "Muzaffarabad Airport",
+        "type": "Domestic Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          68.389892578125,
+          26.21951908908396
+        ]
+      },
+      "properties": {
+        "city": "Nawabshah",
+        "iata": "WNS",
+        "icao": "OPNH",
+        "name": "Nawabshah Airport",
+        "type": "Domestic Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          70.07080078125,
+          33.90233640448068
+        ]
+      },
+      "properties": {
+        "city": "Parachinar",
+        "iata": "PAJ",
+        "icao": "OPPC",
+        "name": "Parachinar Airport",
+        "type": "Domestic Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          71.5155029296875,
+          33.993472995119674
+        ]
+      },
+      "properties": {
+        "city": "Peshawar",
+        "iata": "PEW",
+        "icao": "OPPS",
+        "name": "Peshawar Bacha Khan International Airport",
+        "type": "International Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          67.03857421875,
+          30.320729603696023
+        ]
+      },
+      "properties": {
+        "city": "Quetta / Samungli Airbase",
+        "iata": "UET",
+        "icao": "OPQT",
+        "name": "Quetta International Airport",
+        "type": "International Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          73.8006591796875,
+          33.84760762988742
+        ]
+      },
+      "properties": {
+        "city": "Rawalakot",
+        "iata": "RAZ",
+        "icao": "OPRT",
+        "name": "Rawalakot Airport",
+        "type": "Domestic Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          72.3504638671875,
+          34.813803317113155
+        ]
+      },
+      "properties": {
+        "city": "Saidu Sharif",
+        "iata": "SDT",
+        "icao": "OPSS",
+        "name": "Saidu Sharif Airport",
+        "type": "Domestic Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          68.873291015625,
+          26.961245770526972
+        ]
+      },
+      "properties": {
+        "city": "Sawan Gas Field",
+        "iata": "RZS",
+        "icao": "OPSW",
+        "name": "Sawan Airport",
+        "type": "Domestic Airport",
+        "usage": "Private",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          67.7197265625,
+          26.475490196773805
+        ]
+      },
+      "properties": {
+        "city": "Sehwan Sharif",
+        "iata": "SYW",
+        "icao": "OPSN",
+        "name": "Sehwan Sharif Airport",
+        "type": "Domestic Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          70.279541015625,
+          28.381735043223088
+        ]
+      },
+      "properties": {
+        "city": "Rahim Yar Khan",
+        "iata": "RYK",
+        "icao": "OPRK",
+        "name": "Shaikh Zayed International Airport",
+        "type": "International Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          74.366455078125,
+          32.537551746769
+        ]
+      },
+      "properties": {
+        "city": "Sialkot",
+        "iata": "SKT",
+        "icao": "OPST",
+        "name": "Sialkot International Airport",
+        "type": "International Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          67.840576171875,
+          29.573457073017565
+        ]
+      },
+      "properties": {
+        "city": "Sibi",
+        "iata": "SBQ",
+        "icao": "OPSB",
+        "name": "Sibi Airport",
+        "type": "Domestic Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          69.071044921875,
+          25.65143034703975
+        ]
+      },
+      "properties": {
+        "city": "Sindhri",
+        "iata": "MPD",
+        "icao": "OPMP",
+        "name": "Sindhri Airport",
+        "type": "Domestic Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          69.1754150390625,
+          28.647210004919998
+        ]
+      },
+      "properties": {
+        "city": "Sui",
+        "iata": "SUL",
+        "icao": "OPSU",
+        "name": "Sui Airport",
+        "type": "Domestic Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          68.7908935546875,
+          27.72243591897343
+        ]
+      },
+      "properties": {
+        "city": "Sukkur",
+        "iata": "SKZ",
+        "icao": "OPSK",
+        "name": "Sukkur Begum Nusrat Bhutto Airport",
+        "type": "Domestic Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          72.6141357421875,
+          33.979808728724564
+        ]
+      },
+      "properties": {
+        "city": "Tarbela Dam",
+        "iata": "TLB",
+        "icao": "OPTA",
+        "name": "Tarbela Dam Airport",
+        "type": "Domestic Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          69.4775390625,
+          31.37708906055049
+        ]
+      },
+      "properties": {
+        "city": "Zhob",
+        "iata": "PZH",
+        "icao": "OPZB",
+        "name": "Zhob Airport",
+        "type": "Domestic Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          72.8338623046875,
+          33.55512901742287
+        ]
+      },
+      "properties": {
+        "city": "Islamabad",
+        "iata": "ISB",
+        "icao": "OPRN",
+        "name": "Islamabad International Airport",
+        "type": "International Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          71.4605712890625,
+          32.426340161546406
+        ]
+      },
+      "properties": {
+        "city": "Chashma",
+        "iata": "None",
+        "icao": "OP19",
+        "name": "Chashma Airport",
+        "type": "Domestic Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          69.158935546875,
+          27.20578572438332
+        ]
+      },
+      "properties": {
+        "city": "Kadanwari",
+        "iata": "KCF",
+        "icao": "OPKW",
+        "name": "Kadanwari Airport",
+        "type": "Domestic Airport",
+        "usage": "Private",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          73.0316162109375,
+          33.56428403679499
+        ]
+      },
+      "properties": {
+        "city": "Dhamial",
+        "iata": "None",
+        "icao": "None",
+        "name": "Dhamial",
+        "type": "Military Airbase",
+        "usage": "Military Base",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          67.1209716796875,
+          24.87148631935797
+        ]
+      },
+      "properties": {
+        "city": "Faisal",
+        "iata": "None",
+        "icao": "None",
+        "name": "Faisal",
+        "type": "Military Airbase",
+        "usage": "Military Base",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          73.6083984375,
+          32.884200285405484
+        ]
+      },
+      "properties": {
+        "city": "Guraha Salim",
+        "iata": "None",
+        "icao": "None",
+        "name": "Guraha Salim",
+        "type": "Military Airbase",
+        "usage": "Military Base",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          73.8226318359375,
+          32.477329196399424
+        ]
+      },
+      "properties": {
+        "city": "Chandhar",
+        "iata": "None",
+        "icao": "None",
+        "name": "Chandhar",
+        "type": "Military Airbase",
+        "usage": "Military Base",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          68.4503173828125,
+          28.285033294640684
+        ]
+      },
+      "properties": {
+        "city": "Jacobabad",
+        "iata": "JAG",
+        "icao": "OPJA",
+        "name": "Jacobabad",
+        "type": "Military Airbase",
+        "usage": "Public / Military",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          73.6358642578125,
+          33.050112271849656
+        ]
+      },
+      "properties": {
+        "city": "Mangla",
+        "iata": "XJM",
+        "icao": "OPMA",
+        "name": "Mangla",
+        "type": "Domestic Airport",
+        "usage": "Public / Military",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          71.4385986328125,
+          33.57343808567735
+        ]
+      },
+      "properties": {
+        "city": "Kohat",
+        "iata": "None",
+        "icao": "None",
+        "name": "Kohat",
+        "type": "Military Airbase",
+        "usage": "Military Base",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          71.575927734375,
+          32.56533316084101
+        ]
+      },
+      "properties": {
+        "city": "Mianwali",
+        "iata": "None",
+        "icao": "None",
+        "name": "Mianwali",
+        "type": "Military Airbase",
+        "usage": "Military Base",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          72.410888671875,
+          33.86129311351553
+        ]
+      },
+      "properties": {
+        "city": "Minhas",
+        "iata": "None",
+        "icao": "None",
+        "name": "Minhas",
+        "type": "Military Airbase",
+        "usage": "Military Base",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          72.7734375,
+          32.91187391621321
+        ]
+      },
+      "properties": {
+        "city": "Murid",
+        "iata": "None",
+        "icao": "None",
+        "name": "Murid",
+        "type": "Military Airbase",
+        "usage": "Military Base",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          72.674560546875,
+          32.04067655771746
+        ]
+      },
+      "properties": {
+        "city": "Mushaf",
+        "iata": "None",
+        "icao": "None",
+        "name": "Mushaf",
+        "type": "Military Airbase",
+        "usage": "Military Base",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          74.68505859375,
+          32.24997445586331
+        ]
+      },
+      "properties": {
+        "city": "Pasrur Airbase",
+        "iata": "None",
+        "icao": "None",
+        "name": "Pasrur",
+        "type": "Military Airbase",
+        "usage": "Military Base",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          72.2900390625,
+          30.75127777625781
+        ]
+      },
+      "properties": {
+        "city": "Rafiqui",
+        "iata": "None",
+        "icao": "None",
+        "name": "Rafiqui",
+        "type": "Military Airbase",
+        "usage": "Military Base",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          71.982421875,
+          34.079962308658736
+        ]
+      },
+      "properties": {
+        "city": "Risalpur",
+        "iata": "None",
+        "icao": "None",
+        "name": "Risalpur",
+        "type": "Military Airbase",
+        "usage": "Military Base",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          64.40185546875,
+          28.873539463162686
+        ]
+      },
+      "properties": {
+        "city": "Dalbandin",
+        "iata": "DBA",
+        "icao": "OPDB",
+        "name": "Dalbandin Airport",
+        "type": "Domestic Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          62.3309326171875,
+          25.23475847023373
+        ]
+      },
+      "properties": {
+        "city": "Gwadar",
+        "iata": "GWD",
+        "icao": "OPGD",
+        "name": "Gwadar International Airport",
+        "type": "International Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          61.8035888671875,
+          25.065697185535882
+        ]
+      },
+      "properties": {
+        "city": "Jiwani",
+        "iata": "JIW",
+        "icao": "OPJI",
+        "name": "Jiwani Airport",
+        "type": "Domestic Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          66.6375732421875,
+          27.795350689749114
+        ]
+      },
+      "properties": {
+        "city": "Khuzdar",
+        "iata": "KDD",
+        "icao": "OPKH",
+        "name": "Khuzdar Airport",
+        "type": "Domestic Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          64.588623046875,
+          25.27450351782018
+        ]
+      },
+      "properties": {
+        "city": "Ormara",
+        "iata": "ORW",
+        "icao": "OPOR",
+        "name": "Ormara Airport",
+        "type": "Domestic Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          64.1326904296875,
+          26.956349533411867
+        ]
+      },
+      "properties": {
+        "city": "Panjgur",
+        "iata": "PJG",
+        "icao": "OPPG",
+        "name": "Panjgur Airport",
+        "type": "Domestic Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          63.028564453125,
+          25.98767485238497
+        ]
+      },
+      "properties": {
+        "city": "Turbat",
+        "iata": "TUK",
+        "icao": "OPTU",
+        "name": "Turbat International Airport",
+        "type": "International Airport",
+        "usage": "Public",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          66.95068359375,
+          24.896402266558724
+        ]
+      },
+      "properties": {
+        "city": "Masroor",
+        "iata": "None",
+        "icao": "None",
+        "name": "Masroor",
+        "type": "Military Airbase",
+        "usage": "Military Base",
+        "gcop_source_layer": "airports",
+        "gcop_map_layer": "airports_label"
+      }
+    }
+  ]
+}

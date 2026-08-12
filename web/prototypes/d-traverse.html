@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Prototype D — Traverse</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Inter+Tight:wght@400;500;600;700&family=Azeret+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<style>
+:root{
+  --night:#15132C;          /* indigo basalt */
+  --night-2:#1D1A3B;
+  --night-3:#282450;
+  --line:#332E63;
+  --sand:#EFE7DA;
+  --sand-2:#A9A2C4;
+  --sand-3:#726C96;
+  --gold:#D9A441;           /* the only non-hazard chroma */
+  --mmi-3:#A9D8E8; --mmi-4:#7FD6A6; --mmi-5:#E9DC63; --mmi-6:#F0BE52;
+  --mmi-7:#EB8C42; --mmi-8:#D9522F; --mmi-9:#AB2434;
+  --disp:"Syne",system-ui,sans-serif;
+  --body:"Inter Tight",system-ui,sans-serif;
+  --data:"Azeret Mono",ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--night);color:var(--sand);font-family:var(--body);
+  -webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer;background:none;border:0}
+:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+
+.app{position:fixed;inset:0;display:flex;flex-direction:column}
+
+/* ============ SIGNATURE: the traverse bar ============
+   Five stages of the actual workflow, left to right, each carrying its own
+   live value — so one horizontal line reads as the whole situation.        */
+.traverse{display:flex;align-items:stretch;background:var(--night-2);
+  border-bottom:1px solid var(--line);position:relative;z-index:20;flex:none}
+.mark{display:flex;align-items:center;gap:10px;padding:0 22px;border-right:1px solid var(--line)}
+.mark b{font-family:var(--disp);font-weight:800;font-size:19px;letter-spacing:-.03em;line-height:1}
+.mark span{font-family:var(--data);font-size:8px;letter-spacing:.18em;color:var(--sand-3);line-height:1.3}
+
+.stages{display:flex;flex:1;position:relative}
+.stages::before{content:"";position:absolute;left:0;right:0;top:29px;height:1px;background:var(--line)}
+.stage{flex:1;position:relative;padding:15px 20px 13px;text-align:left;min-width:0;
+  border-right:1px solid var(--line);transition:background .18s}
+.stage:hover{background:var(--night-3)}
+.stage .no{font-family:var(--data);font-size:9px;letter-spacing:.16em;color:var(--sand-3);display:block}
+.stage .nm{font-family:var(--disp);font-weight:700;font-size:13.5px;letter-spacing:.01em;
+  display:block;margin:9px 0 4px;color:var(--sand-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stage .val{font-family:var(--data);font-size:11px;color:var(--sand-3);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;display:block}
+/* the node sitting on the connecting rule */
+.stage .node{position:absolute;left:20px;top:25px;width:9px;height:9px;border-radius:50%;
+  background:var(--night-2);border:1.5px solid var(--sand-3);transition:.18s}
+.stage[aria-expanded=true]{background:var(--night-3)}
+.stage[aria-expanded=true] .no{color:var(--gold)}
+.stage[aria-expanded=true] .nm{color:var(--sand)}
+.stage[aria-expanded=true] .val{color:var(--sand-2)}
+.stage[aria-expanded=true] .node{background:var(--gold);border-color:var(--gold);
+  box-shadow:0 0 0 4px rgba(217,164,65,.18)}
+.stage.done .node{background:var(--sand-2);border-color:var(--sand-2)}
+.stage[aria-expanded=true]::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--gold)}
+
+.clock{display:flex;align-items:center;gap:20px;padding:0 22px;border-left:1px solid var(--line);
+  font-family:var(--data);font-size:10px;color:var(--sand-3);white-space:nowrap}
+.clock b{color:var(--sand);font-weight:500}
+.clock .alert{display:inline-flex;align-items:center;gap:7px;color:var(--mmi-8);
+  font-family:var(--disp);font-weight:700;font-size:11px;letter-spacing:.1em;text-transform:uppercase}
+.clock .alert i{width:7px;height:7px;border-radius:50%;background:var(--mmi-8);animation:blip 2.4s infinite}
+@keyframes blip{0%,100%{opacity:1}50%{opacity:.2}}
+
+/* ============ drawer: opens down over the map, never permanent ============ */
+.drawer{background:var(--night-2);border-bottom:1px solid var(--line);flex:none;
+  box-shadow:0 22px 40px -18px rgba(0,0,0,.65);position:relative;z-index:15}
+.drawer[hidden]{display:none}
+.drawer-in{padding:20px 22px 22px;display:flex;gap:34px;align-items:flex-start}
+.dgroup{flex:none}
+.dgroup > h2{font-family:var(--data);font-size:9px;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--sand-3);margin:0 0 12px;font-weight:400}
+.fields{display:flex;gap:12px}
+label{display:block;font-family:var(--data);font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--sand-3);margin-bottom:6px}
+input{width:104px;background:var(--night);border:1px solid var(--line);border-radius:4px;padding:9px 10px;
+  font-family:var(--data);font-size:13px;color:var(--sand)}
+input:focus{outline:none;border-color:var(--gold)}
+.btn{background:var(--gold);color:#1A1533;border-radius:4px;padding:11px 20px;
+  font-family:var(--disp);font-weight:700;font-size:12.5px;letter-spacing:.02em;transition:filter .15s}
+.btn:hover{filter:brightness(1.09)}
+.btn.ghost{background:none;color:var(--sand);border:1px solid var(--line);font-family:var(--body);
+  font-weight:600;font-size:12px;padding:9px 14px}
+.btn.ghost:hover{border-color:var(--sand-2);filter:none}
+.feeds{display:flex;gap:10px}
+.feed{border:1px solid var(--line);border-radius:5px;padding:10px 13px;display:flex;
+  align-items:center;gap:14px}
+.feed b{font-size:13px;display:block}
+.feed small{font-family:var(--data);font-size:8.5px;letter-spacing:.08em;color:var(--sand-3);text-transform:uppercase}
+.sep{width:1px;align-self:stretch;background:var(--line)}
+.push{margin-left:auto;align-self:flex-end}
+
+/* catalog as a horizontal filmstrip — the layout the top bar makes possible */
+.strip-wrap{flex:1;min-width:0}
+.filmstrip{display:flex;gap:9px;overflow-x:auto;padding-bottom:8px;scrollbar-width:thin;
+  scrollbar-color:var(--line) transparent}
+.filmstrip::-webkit-scrollbar{height:5px}
+.filmstrip::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
+.ev{flex:none;width:158px;text-align:left;border:1px solid var(--line);border-radius:6px;
+  padding:11px 12px;transition:.15s;background:var(--night)}
+.ev:hover{border-color:var(--sand-3);transform:translateY(-2px)}
+.ev[aria-current=true]{border-color:var(--gold);background:var(--night-3)}
+.ev .m{font-family:var(--disp);font-weight:800;font-size:23px;line-height:1;letter-spacing:-.03em;display:block}
+.ev .p{display:block;font-size:12px;font-weight:600;margin:7px 0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ev .t{display:block;font-family:var(--data);font-size:8.5px;color:var(--sand-3);letter-spacing:.05em}
+.ev .t i{font-style:normal;color:var(--gold)}
+
+/* ============ full-bleed map ============ */
+.field{flex:1;position:relative;overflow:hidden;background:#100E23}
+.field svg.map{position:absolute;inset:0;width:100%;height:100%}
+.land{fill:#191634;stroke:#332E63;stroke-width:1;vector-effect:non-scaling-stroke}
+.grat{stroke:#221E45;stroke-width:.35;vector-effect:non-scaling-stroke}
+.fault{fill:none;stroke:#6E5A7E;stroke-width:1;stroke-dasharray:4 3;vector-effect:non-scaling-stroke}
+.faultlbl{font-family:var(--data);font-size:1.5px;fill:#6E5A7E;letter-spacing:.14em}
+.citylbl{font-family:var(--data);font-size:1.6px;fill:#8C86AE;letter-spacing:.1em}
+.city{fill:#8C86AE}
+.mmi{opacity:.5}
+.mmiline{fill:none;stroke-width:.7;vector-effect:non-scaling-stroke;opacity:.85}
+.epi{fill:none;stroke:var(--gold);stroke-width:1.4;vector-effect:non-scaling-stroke}
+
+/* chromeless readout — type on a scrim, no card */
+.scrim{position:absolute;inset:auto 0 0 0;height:250px;pointer-events:none;
+  background:linear-gradient(0deg,rgba(16,14,35,.94) 12%,rgba(16,14,35,.55) 52%,transparent)}
+.readout{position:absolute;left:30px;bottom:30px;max-width:64ch}
+.readout .k{font-family:var(--data);font-size:9.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--gold)}
+.readout h1{font-family:var(--disp);font-weight:800;font-size:52px;line-height:.95;letter-spacing:-.035em;
+  margin:9px 0 0;display:flex;align-items:baseline;gap:14px}
+.readout h1 em{font-family:var(--data);font-style:normal;font-size:13px;letter-spacing:.08em;color:var(--sand-2)}
+.readout .sub{font-size:16px;font-weight:600;margin-top:5px}
+.readout .meta{font-family:var(--data);font-size:10.5px;color:var(--sand-3);margin-top:9px;line-height:1.75}
+.readout .meta b{color:var(--sand-2);font-weight:400}
+
+/* exposure figures, still chromeless, aligned to the same baseline grid */
+.figures{position:absolute;right:30px;bottom:74px;display:flex;gap:38px;text-align:right}
+.figures div b{display:block;font-family:var(--disp);font-weight:800;font-size:33px;line-height:1;letter-spacing:-.035em}
+.figures div span{font-family:var(--data);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--sand-3)}
+
+/* horizontal MMI ramp along the bottom edge */
+.ramp{position:absolute;right:30px;bottom:30px;display:flex;align-items:flex-end;gap:0}
+.ramp button{width:46px;text-align:center;transition:.15s}
+.ramp button i{display:block;height:9px;transition:height .15s}
+.ramp button:hover i,.ramp button[aria-pressed=true] i{height:15px}
+.ramp button[aria-pressed=false] i{opacity:.28}
+.ramp button u{text-decoration:none;display:block;font-family:var(--disp);font-weight:700;font-size:11px;
+  margin-top:6px;color:var(--sand-2)}
+.ramp button[aria-pressed=true] u{color:var(--sand)}
+.ramp .cap{font-family:var(--data);font-size:8.5px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--sand-3);align-self:center;margin-right:12px;padding-bottom:2px}
+
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media (max-width:1200px){
+  .stage .val{display:none}
+  .figures{display:none}
+}
+@media (max-width:820px){
+  .stages{overflow-x:auto}.stage{min-width:130px}
+  .drawer-in{flex-wrap:wrap;gap:20px}
+  .readout h1{font-size:38px}
+  .ramp{display:none}
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ============ the traverse bar ============ -->
+  <div class="traverse">
+    <div class="mark"><b>EQ</b><span>NDMA<br />SEISMIC</span></div>
+
+    <div class="stages" role="tablist">
+      <button class="stage done" data-panel="p1" aria-expanded="true" role="tab">
+        <span class="node"></span>
+        <span class="no">01</span><span class="nm">Event</span>
+        <span class="val">M 6.5 · Mansehra · PMD</span>
+      </button>
+      <button class="stage done" data-panel="p2" aria-expanded="false" role="tab">
+        <span class="node"></span>
+        <span class="no">02</span><span class="nm">Footprint</span>
+        <span class="val">MMI VIII peak · Vs30 corrected</span>
+      </button>
+      <button class="stage done" data-panel="p3" aria-expanded="false" role="tab">
+        <span class="node"></span>
+        <span class="no">03</span><span class="nm">Exposure</span>
+        <span class="val">2.41 M people · 14 districts</span>
+      </button>
+      <button class="stage" data-panel="p4" aria-expanded="false" role="tab">
+        <span class="node"></span>
+        <span class="no">04</span><span class="nm">Forecast</span>
+        <span class="val">Not calculated</span>
+      </button>
+      <button class="stage" data-panel="p5" aria-expanded="false" role="tab">
+        <span class="node"></span>
+        <span class="no">05</span><span class="nm">Export</span>
+        <span class="val">Shapefile · CSV · report</span>
+      </button>
+    </div>
+
+    <div class="clock">
+      <span class="alert"><i></i>Orange</span>
+      <span>ELAPSED <b id="el">00:02:19</b></span>
+      <span>03:44 PKT · 11 AUG 2026</span>
+    </div>
+  </div>
+
+  <!-- ============ drawers ============ -->
+  <div class="drawer" id="p1">
+    <div class="drawer-in">
+      <div class="dgroup">
+        <h2>Manual earthquake</h2>
+        <div class="fields">
+          <div><label for="d1">Magnitude</label><input id="d1" type="number" value="6.5" step="0.1" /></div>
+          <div><label for="d2">Depth km</label><input id="d2" type="number" value="10" /></div>
+          <div><label for="d3">Latitude</label><input id="d3" type="number" value="34.00" step="0.01" /></div>
+          <div><label for="d4">Longitude</label><input id="d4" type="number" value="72.50" step="0.01" /></div>
+          <div style="align-self:flex-end"><button class="btn">Draw shaking footprint</button></div>
+        </div>
+      </div>
+      <div class="sep"></div>
+      <div class="dgroup">
+        <h2>Live feeds</h2>
+        <div class="feeds">
+          <div class="feed"><span><b>PMD</b><small>Primary</small></span><button class="btn ghost">Pull</button></div>
+          <div class="feed"><span><b>USGS</b><small>Secondary</small></span><button class="btn ghost">Pull</button></div>
+        </div>
+      </div>
+      <div class="sep"></div>
+      <div class="dgroup strip-wrap">
+        <h2>Catalog · 41 events in 24 h</h2>
+        <div class="filmstrip">
+          <button class="ev" aria-current="true"><span class="m">6.5</span><span class="p">18 km NE of Mansehra</span><span class="t">11 AUG 03:42 · <i>PMD</i></span></button>
+          <button class="ev"><span class="m">4.8</span><span class="p">Hindu Kush region</span><span class="t">11 AUG 01:07 · USGS</span></button>
+          <button class="ev"><span class="m">3.9</span><span class="p">62 km W of Quetta</span><span class="t">10 AUG 22:15 · <i>PMD</i></span></button>
+          <button class="ev"><span class="m">3.2</span><span class="p">Makran coast</span><span class="t">10 AUG 19:48 · USGS</span></button>
+          <button class="ev"><span class="m">3.0</span><span class="p">Gilgit-Baltistan</span><span class="t">10 AUG 16:02 · USGS</span></button>
+          <button class="ev"><span class="m">2.8</span><span class="p">28 km S of Chitral</span><span class="t">10 AUG 14:20 · <i>PMD</i></span></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="drawer" id="p2" hidden>
+    <div class="drawer-in">
+      <div class="dgroup">
+        <h2>Intensity bands drawn</h2>
+        <div class="fields">
+          <div><label>Peak intensity</label><input value="MMI VIII" readonly /></div>
+          <div><label>Bands</label><input value="IV – VIII" readonly /></div>
+          <div><label>Site model</label><input value="Vs30 1 km" readonly /></div>
+          <div style="align-self:flex-end"><button class="btn ghost">Save to catalog</button></div>
+        </div>
+      </div>
+      <div class="sep"></div>
+      <div class="dgroup">
+        <h2>Overlays</h2>
+        <div class="feeds">
+          <div class="feed"><b>Faults</b><button class="btn ghost">On</button></div>
+          <div class="feed"><b>Buildings</b><button class="btn ghost">Off</button></div>
+          <div class="feed"><b>Districts</b><button class="btn ghost">On</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="drawer" id="p3" hidden>
+    <div class="drawer-in">
+      <div class="dgroup">
+        <h2>People shaken, by intensity band</h2>
+        <div class="fields">
+          <div><label>MMI IV</label><input value="5.10 M" readonly /></div>
+          <div><label>MMI V</label><input value="3.80 M" readonly /></div>
+          <div><label>MMI VI</label><input value="1.60 M" readonly /></div>
+          <div><label>MMI VII</label><input value="640 K" readonly /></div>
+          <div><label>MMI VIII</label><input value="172 K" readonly /></div>
+        </div>
+      </div>
+      <div class="sep"></div>
+      <div class="dgroup">
+        <h2>Buildings</h2>
+        <div class="fields">
+          <div><label>In footprint</label><input value="318,400" readonly /></div>
+          <div><label>At VII+</label><input value="41,900" readonly /></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="drawer" id="p4" hidden>
+    <div class="drawer-in">
+      <div class="dgroup">
+        <h2>Aftershock probability</h2>
+        <div class="fields">
+          <div><label for="d5">Mainshock</label><input id="d5" value="M 6.5" readonly /></div>
+          <div><label for="d6">Window days</label><input id="d6" type="number" value="7" /></div>
+          <div><label for="d7">Threshold</label><input id="d7" type="number" value="5.0" step="0.1" /></div>
+          <div style="align-self:flex-end"><button class="btn">Calculate probability</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="drawer" id="p5" hidden>
+    <div class="drawer-in">
+      <div class="dgroup">
+        <h2>Export this event</h2>
+        <div class="feeds">
+          <div class="feed"><span><b>Shapefile</b><small>MMI bands</small></span><button class="btn ghost">Download</button></div>
+          <div class="feed"><span><b>CSV</b><small>Exposure table</small></span><button class="btn ghost">Download</button></div>
+          <div class="feed"><span><b>Situation report</b><small>PDF</small></span><button class="btn ghost">Generate</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ full-bleed map ============ -->
+  <div class="field">
+    <svg class="map" viewBox="598 102 188 148" preserveAspectRatio="xMidYMid meet" aria-label="Map of Pakistan">
+      <defs><clipPath id="pk4"><polygon points="610,230 664,230 682,243 706,203 718,201 734,181 746,170 745,155 753,157 743,133 769,125 760,116 745,110 725,112 712,119 715,128 709,140 699,149 703,160 693,163 682,162 664,181 641,185 625,186 609,182 618,218 616,228"/></clipPath></defs>
+      <g class="grat">
+        <path d="M620,100v152M640,100v152M660,100v152M680,100v152M700,100v152M720,100v152M740,100v152M760,100v152"/>
+        <path d="M598,120h190M598,140h190M598,160h190M598,180h190M598,200h190M598,220h190M598,240h190"/>
+      </g>
+      <polygon class="land" points="610,230 664,230 682,243 706,203 718,201 734,181 746,170 745,155 753,157 743,133 769,125 760,116 745,110 725,112 712,119 715,128 709,140 699,149 703,160 693,163 682,162 664,181 641,185 625,186 609,182 618,218 616,228"/>
+      <g clip-path="url(#pk4)">
+        <circle class="mmi" cx="725" cy="140" r="34" fill="var(--mmi-4)"/>
+        <circle class="mmi" cx="725" cy="140" r="25" fill="var(--mmi-5)"/>
+        <circle class="mmi" cx="725" cy="140" r="17" fill="var(--mmi-6)"/>
+        <circle class="mmi" cx="725" cy="140" r="11" fill="var(--mmi-7)"/>
+        <circle class="mmi" cx="725" cy="140" r="6"  fill="var(--mmi-8)"/>
+        <circle class="mmiline" cx="725" cy="140" r="34" stroke="var(--mmi-4)"/>
+        <circle class="mmiline" cx="725" cy="140" r="25" stroke="var(--mmi-5)"/>
+        <circle class="mmiline" cx="725" cy="140" r="17" stroke="var(--mmi-6)"/>
+        <circle class="mmiline" cx="725" cy="140" r="11" stroke="var(--mmi-7)"/>
+        <circle class="mmiline" cx="725" cy="140" r="6"  stroke="var(--mmi-8)"/>
+      </g>
+      <path class="fault" d="M655,192 C660,178 663,166 668,155 C672,146 682,138 692,132"/>
+      <text class="faultlbl" x="647" y="197" transform="rotate(-68 647 197)">CHAMAN FAULT</text>
+      <path class="fault" d="M700,152 C714,146 730,142 748,138 C758,136 764,133 770,129"/>
+      <text class="faultlbl" x="733" y="151">MAIN BOUNDARY THRUST</text>
+      <path class="fault" d="M612,236 C632,233 652,232 674,234"/>
+      <text class="faultlbl" x="623" y="241">MAKRAN SUBDUCTION ZONE</text>
+      <circle class="city" cx="730" cy="145" r=".9"/><text class="citylbl" x="732" y="146">ISLAMABAD</text>
+      <circle class="city" cx="741" cy="161" r=".8"/><text class="citylbl" x="743" y="162">LAHORE</text>
+      <circle class="city" cx="670" cy="228" r=".8"/><text class="citylbl" x="655" y="233">KARACHI</text>
+      <circle class="city" cx="670" cy="180" r=".8"/><text class="citylbl" x="656" y="177">QUETTA</text>
+      <circle class="city" cx="713" cy="141" r=".8"/><text class="citylbl" x="697" y="139">PESHAWAR</text>
+      <circle class="epi" cx="725" cy="140" r="2.8"/>
+      <path class="epi" d="M725,132v-4M725,148v4M717,140h-4M733,140h4"/>
+    </svg>
+
+    <div class="scrim"></div>
+
+    <div class="readout">
+      <div class="k">Active event · PMD primary</div>
+      <h1>6.5<em>M<sub>w</sub> · 10 KM DEEP</em></h1>
+      <div class="sub">18 km NE of Mansehra, Khyber Pakhtunkhwa</div>
+      <div class="meta">34.00° N &nbsp; 72.50° E · Origin <b>03:42:11 PKT</b> · Peak intensity <b>MMI VIII</b></div>
+    </div>
+
+    <div class="figures">
+      <div><b>2.41 M</b><span>People at VI+</span></div>
+      <div><b>318 K</b><span>Buildings</span></div>
+      <div><b>14</b><span>Districts</span></div>
+    </div>
+
+    <div class="ramp" role="group" aria-label="Intensity bands shown">
+      <span class="cap">Mercalli</span>
+      <button aria-pressed="true"><i style="background:var(--mmi-4)"></i><u>IV</u></button>
+      <button aria-pressed="true"><i style="background:var(--mmi-5)"></i><u>V</u></button>
+      <button aria-pressed="true"><i style="background:var(--mmi-6)"></i><u>VI</u></button>
+      <button aria-pressed="true"><i style="background:var(--mmi-7)"></i><u>VII</u></button>
+      <button aria-pressed="true"><i style="background:var(--mmi-8)"></i><u>VIII</u></button>
+      <button aria-pressed="false"><i style="background:var(--mmi-9)"></i><u>IX</u></button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* Stages open one drawer at a time; clicking the open stage collapses it,
+   handing the whole screen back to the map. */
+const stages = [...document.querySelectorAll('.stage')];
+stages.forEach(s => s.addEventListener('click', () => {
+  const open = s.getAttribute('aria-expanded') === 'true';
+  stages.forEach(x => {
+    x.setAttribute('aria-expanded','false');
+    document.getElementById(x.dataset.panel).hidden = true;
+  });
+  if (!open){
+    s.setAttribute('aria-expanded','true');
+    document.getElementById(s.dataset.panel).hidden = false;
+  }
+}));
+document.querySelectorAll('.ramp button').forEach(b => b.addEventListener('click', () => {
+  b.setAttribute('aria-pressed', b.getAttribute('aria-pressed')==='true'?'false':'true');
+}));
+let s=139; setInterval(()=>{s++;const p=n=>String(n).padStart(2,'0');
+  document.getElementById('el').textContent=`${p(Math.floor(s/3600))}:${p(Math.floor(s/60)%60)}:${p(s%60)}`;},1000);
+</script>
+</body>
+</html>

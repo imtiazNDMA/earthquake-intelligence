@@ -1,8 +1,35 @@
 """Shared constants. Domain language follows CONTEXT.md."""
+import os
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 VS30_TIF = PROJECT_ROOT / "data" / "Vs30.tif"
+
+# TileServerGL instance serving per-district building footprints (one .mbtiles
+# per district, vector layer id "buildings"). Typically a WSL host IP, which
+# moves between machines and reboots — hence env-configurable rather than baked
+# into the frontend. See src/eqmon/buildings.py.
+BUILDINGS_TILE_URL = os.getenv("BUILDINGS_TILE_URL", "http://172.19.112.1:8081").rstrip("/")
+
+# Buildings render only at/above this zoom. A national view of all 161 districts
+# is millions of polygons; this floor is the load-bearing guard against it.
+BUILDINGS_MIN_ZOOM = 12
+
+# ARC — the external elements-at-risk service (population, settlements,
+# hospitals, schools, roads, bridges, airports under each MMI band). Same
+# reasoning as BUILDINGS_TILE_URL: it lives on a container IP that moves, and
+# its own docs disagree with its runtime port. See src/eqmon/exposure.py.
+ARC_URL = os.getenv("ARC_URL", "http://172.18.0.12:5002").rstrip("/")
+
+# A full analysis scans every element layer — roads alone is ~375k features —
+# and measured ~11 s for a M7 footprint. This is a job timeout, not a hop.
+ARC_TIMEOUT_S = float(os.getenv("ARC_TIMEOUT_S", "180"))
+
+# Headline exposure threshold. Our bands run down to MMI 2, which for a large
+# event covers most of the country: the honest whole-footprint total is a
+# nine-figure number nobody can act on. MMI 6 (Strong) is where damage starts
+# and matches the framing the exposure strip already uses for admin units.
+EXPOSURE_MIN_MMI = 6
 
 # Default Site Condition (CONTEXT.md): used where the Vs30 grid has no value.
 DEFAULT_VS30 = 760.0
@@ -42,5 +69,16 @@ def mmi_class_label(level: int) -> str:
     roman, name = MMI_CLASSES.get(int(level), (str(level), ""))
     return f"{roman} ({name})" if name else roman
 
-# Automated ingest interval (minutes).
-INGEST_INTERVAL_MINUTES = 15
+# Automated ingest intervals. Base tick runs every 1 min; PMD (full-catalog)
+# is ingested every 5th tick since it has no incremental API.
+INGEST_INTERVAL_MINUTES = 1
+PMD_INTERVAL_MULTIPLIER = 5
+
+# --- Seismicity analytics tunables ---
+GRID_CELL_DEG = 0.25              # hotspot grid cell size (degrees)
+MC_MIN_N = 50                     # min events to estimate Mc
+BVALUE_MIN_N = 50                 # min events (>= Mc) to report a b-value
+MC_CORRECTION = 0.2               # MAXC completeness correction
+MAG_BIN_WIDTH = 0.1               # magnitude bin width
+DEPTH_CRUSTAL_MAX_KM = 35.0       # crustal < 35 km
+DEPTH_INTERMEDIATE_MAX_KM = 70.0  # intermediate 35-70 km; deep > 70 km

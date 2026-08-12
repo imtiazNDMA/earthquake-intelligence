@@ -32,6 +32,10 @@ _Avoid_: Hard clip policy, map cutoff
 The site parameter used when no Vs30 polygon value is available for a location during intensity calculation. For version 1, this uses a fixed Vs30 value of 760 m/s.
 _Avoid_: Random fallback, unknown soil default
 
+**Source Ingestion Cycle**:
+A coordinated run that retrieves and incorporates available earthquake events from the Primary Seismic Source and Secondary Seismic Source, preserving each source's independent progress and outcome.
+_Avoid_: Ingest tick, feed loop
+
 ## Example dialogue
 
 Dev: Does this event appear in the platform if it is in Iran?

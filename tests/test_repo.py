@@ -61,3 +61,23 @@ def test_update_event_no_changes_returns_event(db_conn):
     updated = update_event(db_conn, ev["id"])
     assert updated is not None
     assert updated["id"] == ev["id"]
+
+
+def _insert(conn, sid, mag, lon, lat, when):
+    conn.execute(
+        "INSERT INTO seismic_event (source, source_event_id, occurred_at, magnitude, "
+        "depth_km, geom, is_canonical, is_mainshock) VALUES "
+        "('USGS', %s, %s, %s, 10, ST_SetSRID(ST_MakePoint(%s,%s),4326), TRUE, TRUE)",
+        (sid, when, mag, lon, lat))
+
+
+def test_analytics_rows_filters_mag_and_gate(db_conn):
+    from eqmon.events.repo import analytics_rows
+    t = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    _insert(db_conn, "a", 5.0, 72.0, 34.0, t)
+    _insert(db_conn, "b", 2.0, 72.0, 34.0, t)   # below min_mag
+    _insert(db_conn, "c", 317.0, 72.0, 34.0, t)  # quality-gated out
+    rows = analytics_rows(db_conn, datetime(2025, 1, 1, tzinfo=timezone.utc),
+                          datetime(2027, 1, 1, tzinfo=timezone.utc), min_mag=3.0)
+    mags = {r["magnitude"] for r in rows}
+    assert 5.0 in mags and 2.0 not in mags and 317.0 not in mags

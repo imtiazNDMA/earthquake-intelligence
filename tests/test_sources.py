@@ -5,12 +5,12 @@ from pathlib import Path
 
 from eqmon.events.sources import (
     parse_usgs, RawEvent, fdsn_query_params, USGSSource, FDSN_QUERY_URL, USGS_FEED_URL,
-    parse_met, METSource, PMD_API_URL, _parse_coord,
+    parse_pmd, PMDSource, PMD_API_URL, _parse_coord,
 )
 from eqmon.config import COVERAGE_BBOX
 
 FIXTURE = Path(__file__).parent / "fixtures" / "usgs_sample.json"
-MET_FIXTURE = Path(__file__).parent / "fixtures" / "met_sample.json"
+PMD_FIXTURE = Path(__file__).parent / "fixtures" / "pmd_sample.json"
 
 
 def test_parse_usgs_maps_fields_and_filters_region():
@@ -280,7 +280,7 @@ def test_fetch_event_returns_none_on_error(monkeypatch):
     assert USGSSource().fetch_event("bad") is None
 
 
-# --- Pakistan MET Department source -----------------------------------------
+# --- PMD source -------------------------------------------------------------
 
 def test_parse_coord_handles_hemispheres_and_dirty_values():
     # clean values with hemisphere suffix
@@ -301,9 +301,9 @@ def test_parse_coord_handles_hemispheres_and_dirty_values():
     assert _parse_coord(None, is_lat=True) is None
 
 
-def test_parse_met_maps_fields_and_filters_region():
-    data = json.loads(MET_FIXTURE.read_text())
-    events = parse_met(data)
+def test_parse_pmd_maps_fields_and_filters_region():
+    data = json.loads(PMD_FIXTURE.read_text())
+    events = parse_pmd(data)
     # Kept: in-region + parseable rows (17316, 1001-1004, 1009).
     # Dropped: Alaska (W lon, out of region), Indonesia (S lat, out of region),
     # lat=607 (out of range), magnitude="M" (unparseable), magnitude=317 (out
@@ -312,7 +312,7 @@ def test_parse_met_maps_fields_and_filters_region():
         ["1001", "1002", "1003", "1004", "1009", "17316"]
     ev = next(e for e in events if e.source_event_id == "17316")
     assert isinstance(ev, RawEvent)
-    assert ev.source == "MET"
+    assert ev.source == "PMD"
     assert ev.magnitude == 4.5
     assert ev.depth_km == 13.0
     assert ev.lon == 63.18 and ev.lat == 24.87
@@ -321,34 +321,34 @@ def test_parse_met_maps_fields_and_filters_region():
     assert ev.event_type == "Automatic"
 
 
-def test_parse_met_parses_dirty_coordinates_in_region():
-    data = json.loads(MET_FIXTURE.read_text())
-    events = {e.source_event_id: e for e in parse_met(data)}
+def test_parse_pmd_parses_dirty_coordinates_in_region():
+    data = json.loads(PMD_FIXTURE.read_text())
+    events = {e.source_event_id: e for e in parse_pmd(data)}
     assert events["1001"].lat == 30.50 and events["1001"].lon == 70.00
     assert events["1002"].lat == 30.05 and events["1002"].lon == 70.10
     assert events["1003"].lon == 73.20  # comma decimal
     assert events["1004"].lat == 36.5202 and events["1004"].lon == 71.2628
 
 
-def test_parse_met_skips_unparseable_and_out_of_range_rows():
-    data = json.loads(MET_FIXTURE.read_text())
-    ids = {e.source_event_id for e in parse_met(data)}
+def test_parse_pmd_skips_unparseable_and_out_of_range_rows():
+    data = json.loads(PMD_FIXTURE.read_text())
+    ids = {e.source_event_id for e in parse_pmd(data)}
     assert "1006" not in ids  # latitude 607 out of range
     assert "1007" not in ids  # magnitude "M" unparseable
     assert "1008" not in ids  # magnitude 317 (swapped mag/depth) out of range
 
 
-def test_parse_met_clamps_implausible_depth_to_zero():
-    data = json.loads(MET_FIXTURE.read_text())
-    events = {e.source_event_id for e in parse_met(data)}
+def test_parse_pmd_clamps_implausible_depth_to_zero():
+    data = json.loads(PMD_FIXTURE.read_text())
+    events = {e.source_event_id for e in parse_pmd(data)}
     assert "1009" in events  # kept: magnitude is valid
-    ev = next(e for e in parse_met(data) if e.source_event_id == "1009")
+    ev = next(e for e in parse_pmd(data) if e.source_event_id == "1009")
     assert ev.magnitude == 4.5
     assert ev.depth_km == 0.0  # depth 1010 km is implausible → treated as unknown
 
 
-def test_met_source_fetch_sends_bearer_and_parses(monkeypatch):
-    payload = json.loads(MET_FIXTURE.read_text())
+def test_pmd_source_fetch_sends_bearer_and_parses(monkeypatch):
+    payload = json.loads(PMD_FIXTURE.read_text())
     calls = []
 
     def fake_get(url, headers=None, timeout=None):
@@ -356,9 +356,9 @@ def test_met_source_fetch_sends_bearer_and_parses(monkeypatch):
         return _FakeResp(payload)
 
     monkeypatch.setattr("eqmon.events.sources.httpx.get", fake_get)
-    src = METSource(url=PMD_API_URL, token="tok123")
+    src = PMDSource(url=PMD_API_URL, token="tok123")
     events = src.fetch()
-    assert src.name == "MET"
+    assert src.name == "PMD"
     assert len(calls) == 1
     url, headers = calls[0]
     assert url == PMD_API_URL
@@ -367,8 +367,8 @@ def test_met_source_fetch_sends_bearer_and_parses(monkeypatch):
     assert len(events) == 6
 
 
-def test_met_source_does_not_send_bearer_over_plaintext_http(monkeypatch):
-    payload = json.loads(MET_FIXTURE.read_text())
+def test_pmd_source_does_not_send_bearer_over_plaintext_http(monkeypatch):
+    payload = json.loads(PMD_FIXTURE.read_text())
     captured = {}
 
     def fake_get(url, headers=None, timeout=None):
@@ -377,20 +377,20 @@ def test_met_source_does_not_send_bearer_over_plaintext_http(monkeypatch):
 
     monkeypatch.setattr("eqmon.events.sources.httpx.get", fake_get)
     # An http:// override must never leak the credential.
-    METSource(url="http://weather.gov.pk/api/seismic-events", token="secret").fetch()
+    PMDSource(url="http://weather.gov.pk/api/seismic-events", token="secret").fetch()
     assert "Authorization" not in captured["headers"]
 
 
-def test_met_source_fetch_returns_empty_on_http_error(monkeypatch):
+def test_pmd_source_fetch_returns_empty_on_http_error(monkeypatch):
     def fake_get(url, headers=None, timeout=None):
         raise httpx.ConnectError("boom")
 
     monkeypatch.setattr("eqmon.events.sources.httpx.get", fake_get)
-    assert METSource(url=PMD_API_URL, token="tok").fetch() == []
+    assert PMDSource(url=PMD_API_URL, token="tok").fetch() == []
 
 
-def test_met_source_fetch_postfilters_since(monkeypatch):
-    payload = json.loads(MET_FIXTURE.read_text())
+def test_pmd_source_fetch_postfilters_since(monkeypatch):
+    payload = json.loads(PMD_FIXTURE.read_text())
 
     def fake_get(url, headers=None, timeout=None):
         return _FakeResp(payload)
@@ -398,6 +398,6 @@ def test_met_source_fetch_postfilters_since(monkeypatch):
     monkeypatch.setattr("eqmon.events.sources.httpx.get", fake_get)
     # 17316 occurred 2026-04-18; the 1001-1004 rows are in June 2026.
     since = datetime(2026, 5, 1, tzinfo=timezone.utc)
-    events = METSource(url=PMD_API_URL, token="tok").fetch(since=since)
+    events = PMDSource(url=PMD_API_URL, token="tok").fetch(since=since)
     assert "17316" not in {e.source_event_id for e in events}
     assert len(events) == 5

@@ -1,6 +1,6 @@
-"""Seismic event sources. USGSSource (Secondary) and METSource (Primary, the
-Pakistan MET Department feed) are both implemented behind the SeismicSource
-protocol. parse_usgs and parse_met are pure (no network) for testability."""
+"""Seismic event sources. USGSSource (Secondary) and PMDSource (Primary, the
+PMD feed) are both implemented behind the SeismicSource
+protocol. parse_usgs and parse_pmd are pure (no network) for testability."""
 from __future__ import annotations
 import logging
 import math
@@ -20,7 +20,7 @@ USGS_FEED_URL = (
     "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson"
 )
 
-# Pakistan MET Department seismic catalog (full catalog per call, bearer auth).
+# PMD seismic catalog (full catalog per call, bearer auth).
 # HTTPS so the bearer token is never sent in cleartext.
 PMD_API_URL = "https://weather.gov.pk/api/seismic-events"
 
@@ -116,8 +116,8 @@ def parse_usgs(geojson: dict) -> list[RawEvent]:
 _NUM = re.compile(r"-?\d+(?:\.\d+)?")
 
 # Plausible bounds for sanity-checking PMD's dirty numeric fields.
-_MET_MAG_MIN, _MET_MAG_MAX = -1.0, 10.0
-_MET_DEPTH_MAX = 800.0  # km; deepest recorded earthquakes are ~700 km
+_PMD_MAG_MIN, _PMD_MAG_MAX = -1.0, 10.0
+_PMD_DEPTH_MAX = 800.0  # km; deepest recorded earthquakes are ~700 km
 
 
 def _parse_coord(raw, is_lat: bool) -> float | None:
@@ -162,7 +162,7 @@ def _parse_float(raw) -> float | None:
         return None
 
 
-def _met_datetime(date_str, time_str) -> datetime | None:
+def _pmd_datetime(date_str, time_str) -> datetime | None:
     """Combine PMD ``event_date`` + ``event_time`` into a UTC datetime.
 
     PMD origin times carry no tz marker but are UTC (confirmed by cross-checking
@@ -180,7 +180,7 @@ def _met_datetime(date_str, time_str) -> datetime | None:
     return None
 
 
-def parse_met(payload: dict) -> list[RawEvent]:
+def parse_pmd(payload: dict) -> list[RawEvent]:
     """Map the PMD ``{status, message, data: [...]}`` response into RawEvents.
 
     Defensive by necessity (the feed has malformed coordinates, magnitudes, and
@@ -201,19 +201,19 @@ def parse_met(payload: dict) -> list[RawEvent]:
         # Plausible magnitude range. PMD occasionally swaps the magnitude and
         # depth fields (e.g. magnitude="317", depth="4.4"); such rows are not
         # trustworthy, so skip them rather than ingest a bogus magnitude.
-        if not (_MET_MAG_MIN <= mag <= _MET_MAG_MAX):
+        if not (_PMD_MAG_MIN <= mag <= _PMD_MAG_MAX):
             continue
         if not _in_region(lon, lat):
             continue
-        occurred_at = _met_datetime(r.get("event_date"), r.get("event_time"))
+        occurred_at = _pmd_datetime(r.get("event_date"), r.get("event_time"))
         if occurred_at is None:
             continue
         depth = _parse_float(r.get("depth"))
         # Implausible depth (also from swapped/garbled fields) → unknown (0.0).
-        if depth is None or not (0.0 <= depth <= _MET_DEPTH_MAX):
+        if depth is None or not (0.0 <= depth <= _PMD_DEPTH_MAX):
             depth = 0.0
         out.append(RawEvent(
-            source="MET",
+            source="PMD",
             source_event_id=str(eid),
             occurred_at=occurred_at,
             magnitude=float(mag),
@@ -359,14 +359,14 @@ class USGSSource:
         return all_events
 
 
-class METSource:
-    """Primary Seismic Source (Pakistan MET Department).
+class PMDSource:
+    """Primary Seismic Source (PMD).
 
     Fetches the full PMD catalog (bearer-authenticated) each call and maps it via
-    parse_met. URL/token default to the PMD_API_URL/PMD_API_TOKEN environment
+    parse_pmd. URL/token default to the PMD_API_URL/PMD_API_TOKEN environment
     variables (loaded from .env) so credentials stay out of the codebase.
     """
-    name = "MET"
+    name = "PMD"
 
     def __init__(self, url: str | None = None, token: str | None = None,
                  timeout: float = 15.0):
@@ -391,11 +391,11 @@ class METSource:
                 headers["Authorization"] = f"Bearer {self.token}"
             else:
                 logger.warning(
-                    "MET token not sent: %s is not HTTPS", self.url)
+                    "PMD token not sent: %s is not HTTPS", self.url)
         try:
             resp = httpx.get(self.url, headers=headers, timeout=self.timeout)
             resp.raise_for_status()
-            events = parse_met(resp.json())
+            events = parse_pmd(resp.json())
         except httpx.HTTPError:
             return []
         if since is not None:

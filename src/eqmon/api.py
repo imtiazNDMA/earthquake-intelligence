@@ -12,18 +12,19 @@ from functools import lru_cache
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse, Response
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field, field_validator
 
-from . import config, db
+from . import aftershock as ashock
+from . import analytics as ana
+from . import buildings, config, db, exposure
 from .contours import mmi_to_geojson
 from .export import featurecollection_to_shapefile_zip
 from .events.ingest import ingest
-from .events.repo import (count_events, create_manual_event, delete_event,
-                           get_event, get_event_stats, list_events,
-                           update_event, update_usgs_detail)
-from .events.sources import METSource, USGSSource
+from .events.repo import (analytics_rows, catalog_max_time, count_events,
+                           create_manual_event, delete_event, get_event,
+                           list_events, update_event, update_usgs_detail)
+from .events.sources import PMDSource, USGSSource
 from .impact import compute_event_impact
 from .intensity import compute_mmi_grid
 from .vs30 import Grid, load_grid
@@ -32,12 +33,21 @@ logger = logging.getLogger("uvicorn.error")
 
 _ingest_scheduler_thread: threading.Thread | None = None
 _STOP_SCHEDULER = False
+_pmd_tick_counter = 0
+_INGEST_LOCK = threading.Lock()
 
 
 def _ingest_sources() -> list[tuple[object, str]]:
-    """Sources ingested each tick, in priority order. MET (Primary) goes first
-    so it lands as the canonical row when it shares a quake with USGS."""
-    return [(METSource(), "met_last_sync"), (USGSSource(), "usgs_last_sync")]
+    """Sources for this tick. USGS runs every tick (1 min). PMD (full-catalog)
+    runs every Nth tick (config.PMD_INTERVAL_MULTIPLIER). PMD goes first when it
+    runs so it lands as the canonical row when it shares a quake with USGS."""
+    global _pmd_tick_counter
+    _pmd_tick_counter = (_pmd_tick_counter + 1) % 1_000_000
+    sources: list[tuple[object, str]] = []
+    if _pmd_tick_counter % config.PMD_INTERVAL_MULTIPLIER == 0:
+        sources.append((PMDSource(), "pmd_last_sync"))
+    sources.append((USGSSource(), "usgs_last_sync"))
+    return sources
 
 
 def _ingest_source(conn, source, sync_key: str) -> None:
@@ -47,21 +57,43 @@ def _ingest_source(conn, source, sync_key: str) -> None:
     ).fetchone()
     updatedafter = datetime.fromisoformat(row[0]) if row is not None else None
     result = ingest(conn, source, updatedafter=updatedafter)
-    conn.commit()
-    now_iso = datetime.now(timezone.utc).isoformat()
+    _commit_successful_ingest(conn, sync_key, result)
+    logger.info("[scheduler] %s ingest: %d new, %d fetched",
+                source.name, result.inserted, result.fetched)
+
+
+def _commit_successful_ingest(conn, sync_key: str, result) -> None:
+    if result.errors:
+        conn.rollback()
+        raise RuntimeError("ingest failed: " + "; ".join(result.errors))
+    sync_dt = getattr(result, "watermark", None) or datetime.now(timezone.utc)
+    sync_iso = sync_dt.isoformat()
     conn.execute(
         "INSERT INTO _sync_state (key, value) VALUES (%s, %s) "
         "ON CONFLICT (key) DO UPDATE SET value = %s, updated_at = now()",
-        (sync_key, now_iso, now_iso),
+        (sync_key, sync_iso, sync_iso),
     )
     conn.commit()
-    logger.info("[scheduler] %s ingest: %d new, %d fetched",
-                source.name, result.inserted, result.fetched)
+
+
+def _raise_ingest_error(exc: RuntimeError) -> None:
+    raise HTTPException(status_code=502, detail=str(exc))
+
+
+def _acquire_ingest_or_409() -> None:
+    if not _INGEST_LOCK.acquire(blocking=False):
+        raise HTTPException(
+            status_code=409,
+            detail="another ingest is already running; try again shortly",
+        )
 
 
 def _ingest_tick() -> None:
     """One ingest cycle across all sources. A single source failing (network,
     parse, or DB) is logged and skipped so it never starves the others."""
+    if not _INGEST_LOCK.acquire(blocking=False):
+        logger.info("[scheduler] ingest skipped; another ingest is already running")
+        return
     try:
         with db.get_conn() as conn:
             for source, sync_key in _ingest_sources():
@@ -71,6 +103,8 @@ def _ingest_tick() -> None:
                     logger.exception("[scheduler] %s ingest failed", source.name)
     except Exception:
         logger.exception("[scheduler] ingest failed")
+    finally:
+        _INGEST_LOCK.release()
 
 
 def _scheduler_loop(interval_sec: float) -> None:
@@ -92,7 +126,7 @@ def start_ingest_scheduler(interval_minutes: int = config.INGEST_INTERVAL_MINUTE
         target=_scheduler_loop, args=(interval_minutes * 60,), daemon=True,
     )
     _ingest_scheduler_thread.start()
-    logger.info("[scheduler] started; ingesting MET+USGS every %d min",
+    logger.info("[scheduler] started; ingesting PMD+USGS every %d min",
                 interval_minutes)
 
 
@@ -107,9 +141,16 @@ async def _lifespan(_app):
     start_ingest_scheduler()
     yield
     stop_ingest_scheduler()
+    await buildings.aclose()
+    await exposure.aclose()
 
 
 app = FastAPI(title="Earthquake Intensity Platform", lifespan=_lifespan)
+
+# Registered here — well above the /{full_path:path} SPA fallback at the bottom
+# of this module, which would otherwise swallow /buildings/* and /exposure/*.
+app.include_router(buildings.router)
+app.include_router(exposure.router)
 
 
 def _vs30_path() -> Path:
@@ -229,41 +270,41 @@ def create_event(ev: ManualEvent):
 
 @app.post("/events/ingest")
 def ingest_events(min_magnitude: float | None = None):
-    with db.get_conn() as conn:
-        updatedafter = None
-        row = conn.execute(
-            "SELECT value FROM _sync_state WHERE key = 'usgs_last_sync'"
-        ).fetchone()
-        if row is not None:
-            updatedafter = datetime.fromisoformat(row[0])
-        result = ingest(conn, USGSSource(min_magnitude=min_magnitude),
-                        updatedafter=updatedafter)
-        conn.commit()
-        now_iso = datetime.now(timezone.utc).isoformat()
-        conn.execute(
-            "INSERT INTO _sync_state (key, value) VALUES ('usgs_last_sync', %s) "
-            "ON CONFLICT (key) DO UPDATE SET value = %s, updated_at = now()",
-            (now_iso, now_iso),
-        )
-        conn.commit()
+    _acquire_ingest_or_409()
+    try:
+        with db.get_conn() as conn:
+            updatedafter = None
+            row = conn.execute(
+                "SELECT value FROM _sync_state WHERE key = 'usgs_last_sync'"
+            ).fetchone()
+            if row is not None:
+                updatedafter = datetime.fromisoformat(row[0])
+            result = ingest(conn, USGSSource(min_magnitude=min_magnitude),
+                            updatedafter=updatedafter)
+            try:
+                _commit_successful_ingest(conn, "usgs_last_sync", result)
+            except RuntimeError as exc:
+                _raise_ingest_error(exc)
+    finally:
+        _INGEST_LOCK.release()
     return result.__dict__
 
 
-@app.post("/events/ingest/met")
-def ingest_met_events():
-    """Manually pull the Pakistan MET Department (Primary) feed. PMD returns the
-    full catalog each call; ingest() upserts and re-clusters (MET wins as
+@app.post("/events/ingest/pmd")
+def ingest_pmd_events():
+    """Manually pull the PMD (Primary) feed. PMD returns the
+    full catalog each call; ingest() upserts and re-clusters (PMD wins as
     canonical over USGS for shared quakes)."""
-    with db.get_conn() as conn:
-        result = ingest(conn, METSource())
-        conn.commit()
-        now_iso = datetime.now(timezone.utc).isoformat()
-        conn.execute(
-            "INSERT INTO _sync_state (key, value) VALUES ('met_last_sync', %s) "
-            "ON CONFLICT (key) DO UPDATE SET value = %s, updated_at = now()",
-            (now_iso, now_iso),
-        )
-        conn.commit()
+    _acquire_ingest_or_409()
+    try:
+        with db.get_conn() as conn:
+            result = ingest(conn, PMDSource())
+            try:
+                _commit_successful_ingest(conn, "pmd_last_sync", result)
+            except RuntimeError as exc:
+                _raise_ingest_error(exc)
+    finally:
+        _INGEST_LOCK.release()
     return result.__dict__
 
 
@@ -272,13 +313,13 @@ def ingest_status():
     with db.get_conn() as conn:
         rows = dict(conn.execute(
             "SELECT key, value FROM _sync_state "
-            "WHERE key IN ('usgs_last_sync', 'met_last_sync')"
+            "WHERE key IN ('usgs_last_sync', 'pmd_last_sync')"
         ).fetchall())
         usgs = rows.get("usgs_last_sync")
-        met = rows.get("met_last_sync")
+        pmd = rows.get("pmd_last_sync")
         # last_sync = most recent across sources (kept for the existing UI label)
-        last = max([t for t in (usgs, met) if t], default=None)
-        return {"last_sync": last, "usgs_last_sync": usgs, "met_last_sync": met}
+        last = max([t for t in (usgs, pmd) if t], default=None)
+        return {"last_sync": last, "usgs_last_sync": usgs, "pmd_last_sync": pmd}
 
 @app.get("/events")
 def get_events(since: datetime | None = None,
@@ -362,10 +403,129 @@ def export_events(format: str = "csv",
     )
 
 
-@app.get("/events/stats")
-def event_stats():
+@app.get("/zones")
+def zones():
     with db.get_conn() as conn:
-        return get_event_stats(conn)
+        rows = conn.execute(
+            "SELECT id, name, ST_AsGeoJSON(geom) FROM tectonic_zone"
+        ).fetchall()
+    import json
+    return {"type": "FeatureCollection", "features": [
+        {"type": "Feature", "properties": {"zone_id": r[0], "name": r[1]},
+         "geometry": json.loads(r[2])} for r in rows]}
+
+
+@app.get("/analytics")
+def analytics(window: str = "1y", min_mag: str = "mc",
+              zone_id: int | None = None, bbox: str | None = None):
+    with db.get_conn() as conn:
+        anchor = catalog_max_time(conn)
+        if anchor is None:
+            raise HTTPException(status_code=404, detail="empty catalog")
+        try:
+            from_dt, to_dt = ana.parse_window(window, anchor)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        box = None
+        if bbox:
+            try:
+                box = tuple(float(x) for x in bbox.split(","))
+                assert len(box) == 4
+            except Exception:
+                raise HTTPException(status_code=400, detail="bad bbox")
+
+        # First pass with a floor of -1 (the quality-gate minimum) to
+        # estimate Mc from the full catalog slice; then honour min_mag.
+        rows = analytics_rows(conn, from_dt, to_dt, min_mag=-1,
+                              zone_id=zone_id, bbox=box)
+        mags = [r["magnitude"] for r in rows]
+        mc = ana.mc_maxc(mags)
+        if min_mag == "mc":
+            floor = mc if mc is not None else -1.0
+        else:
+            try:
+                floor = float(min_mag)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="bad min_mag")
+        used = [r for r in rows if r["magnitude"] >= floor]
+
+        b = ana.b_value_aki([r["magnitude"] for r in used], mc) if mc is not None else None
+        n_years = max((to_dt - from_dt).days / 365.25, 1e-9)
+        mains = [r for r in used if r["is_mainshock"]]
+        largest = max(used, key=lambda r: r["magnitude"], default=None)
+        seqs = {r["sequence_id"] for r in used
+                if not r["is_mainshock"] and r.get("sequence_id")}
+        magtypes: dict[str, int] = {}
+        for r in used:
+            key = r.get("mag_type") or "unknown"
+            magtypes[key] = magtypes.get(key, 0) + 1
+
+        # Per-zone rollup (only when not already drilled into one zone).
+        zone_rows = []
+        if zone_id is None:
+            zmap: dict[int, list] = {}
+            for r in used:
+                if r.get("zone_id"):
+                    zmap.setdefault(r["zone_id"], []).append(r)
+            znames = dict(conn.execute("SELECT id, name FROM tectonic_zone").fetchall())
+            for zid, zr in zmap.items():
+                zmags = [x["magnitude"] for x in zr]
+                zmc = ana.mc_maxc(zmags)
+                zb = ana.b_value_aki(zmags, zmc) if zmc is not None else None
+                depths = sorted(x["depth_km"] for x in zr)
+                zone_rows.append({
+                    "zone_id": zid, "name": znames.get(zid, f"Zone {zid}"),
+                    "n": len(zr), "b": zb[0] if zb else None,
+                    "sigma": zb[1] if zb else None,
+                    "mc": zmc, "median_depth": depths[len(depths) // 2],
+                    "max_mag": max(zmags),
+                    "pct_aftershocks": round(
+                        1 - sum(1 for x in zr if x["is_mainshock"]) / len(zr), 2),
+                })
+            zone_rows.sort(key=lambda z: z["n"], reverse=True)
+
+        return {
+            "provenance": {
+                "from": from_dt.isoformat(), "to": to_dt.isoformat(),
+                "n_used": len(used), "n_excluded": len(rows) - len(used),
+                "mag_types": magtypes,
+            },
+            "kpis": {
+                "b": b[0] if b else None, "b_sigma": b[1] if b else None,
+                "b_n": b[2] if b else None, "mc": mc,
+                "background_rate": round(len(mains) / n_years, 1),
+                "total_rate": round(len(used) / n_years, 1),
+                "pct_aftershocks": round(1 - (len(mains) / len(used)), 2) if used else None,
+                "active_sequences": len(seqs),
+                "largest": None if largest is None else {
+                    "magnitude": largest["magnitude"], "place": largest.get("place"),
+                    "occurred_at": largest["occurred_at"].isoformat()},
+            },
+            "grid": ana.spatial_grid(used),
+            "zones": zone_rows,
+            "fmd": _fmd_payload(used, mc),
+            "depth": {"regimes": ana.depth_regime_split(used),
+                      "scatter": [{"mag": r["magnitude"], "depth": r["depth_km"]}
+                                  for r in used[:1000]]},
+            "rate": ana.rate_series(used),
+        }
+
+
+def _fmd_payload(rows, mc):
+    """Cumulative + incremental FMD for the Gutenberg-Richter plot."""
+    import numpy as np
+    if not rows:
+        return {"bins": [], "incremental": [], "cumulative": [], "mc": mc}
+    width = config.MAG_BIN_WIDTH
+    mags = np.asarray([r["magnitude"] for r in rows], dtype=float)
+    lo = np.floor(mags.min() / width) * width
+    edges = np.arange(lo, mags.max() + width, width)
+    inc, _ = np.histogram(mags, bins=edges)
+    cum = inc[::-1].cumsum()[::-1]
+    centers = [round(float(e + width / 2), 2) for e in edges[:-1]]
+    return {"bins": centers, "incremental": inc.tolist(),
+            "cumulative": cum.tolist(), "mc": mc}
+
 
 @app.get("/events/{event_id}")
 def event_detail(event_id: int):
@@ -386,6 +546,35 @@ def event_impact(event_id: int):
         # inside compute_event_impact is reclaimed by the pool's commit-on-exit.
         impact = compute_event_impact(conn, event, get_grid())
     return impact
+
+
+class ExposureQuery(BaseModel):
+    layers: list[str] | None = Field(
+        None, description="Element layers to count; omit for all of them")
+
+
+@app.post("/events/{event_id}/exposure")
+async def event_exposure(event_id: int, req: ExposureQuery | None = None):
+    """Elements at risk under a catalog event's shaking footprint.
+
+    Deliberately separate from /impact: that one answers "which admin units
+    shake" from PostGIS, this one answers "what is inside the shaking" from ARC.
+    They are computed independently and one being unavailable must not take the
+    other down.
+    """
+    with db.get_conn() as conn:
+        event = get_event(conn, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="event not found")
+
+    grid = get_grid()
+    mmi = compute_mmi_grid(
+        grid.lon, grid.lat, grid.vs30,
+        mag=event["magnitude"], depth_km=event["depth_km"],
+        epi_lon=event["lon"], epi_lat=event["lat"],
+    )
+    bands = mmi_to_geojson(mmi, grid.transform, levels=config.MMI_BAND_LEVELS)
+    return await exposure.analyze(bands, req.layers if req else None)
 
 
 @app.post("/events/{event_id}/refresh-from-usgs")
@@ -443,7 +632,88 @@ def remove_event(event_id: int):
     return {"deleted": True, "id": event_id}
 
 
-# serve the Leaflet frontend (built in a later task) at /
+class AftershockRequest(BaseModel):
+    event_id: int | None = None
+    magnitude: float | None = None
+    lat: float | None = None
+    lon: float | None = None
+
+
+@app.post("/aftershock")
+def aftershock_endpoint(req: AftershockRequest) -> JSONResponse:
+    """Compute aftershock probabilities for a given event.
+
+    Provide *event_id* (fetched from catalog) **or** inline
+    *magnitude* + *lat* + *lon*.  Region is auto-detected from
+    the tectonic-zone spatial lookup, falling back to lat bands.
+    """
+    if req.event_id is not None:
+        with db.get_conn() as conn:
+            event = get_event(conn, req.event_id)
+        if event is None:
+            raise HTTPException(status_code=404, detail="event not found")
+        main_mag = event["magnitude"]
+        lat = event["lat"]
+        lon = event["lon"]
+        event_info = {
+            "id": event["id"], "magnitude": event["magnitude"],
+            "lat": event["lat"], "lon": event["lon"],
+            "place": event.get("place"),
+            "occurred_at": event["occurred_at"].isoformat() if event.get("occurred_at") else None,
+        }
+    elif req.magnitude is not None and req.lat is not None and req.lon is not None:
+        main_mag = req.magnitude
+        lat = req.lat
+        lon = req.lon
+        event_info = None
+    else:
+        raise HTTPException(status_code=400, detail="provide event_id or magnitude+lat+lon")
+
+    # Detect region — first try tectonic-zone spatial lookup.
+    zone_name: str | None = None
+    try:
+        with db.get_conn() as conn:
+            row = conn.execute(
+                "SELECT name FROM tectonic_zone "
+                "WHERE ST_Contains(geom, ST_SetSRID(ST_MakePoint(%s, %s), 4326)) "
+                "LIMIT 1",
+                (lon, lat),
+            ).fetchone()
+            if row is not None:
+                zone_name = row[0]
+    except Exception:
+        pass  # fall through to lat-band heuristic
+
+    region = ashock.detect_region(lat, lon, zone_name=zone_name)
+    result = ashock.compute_table(main_mag, region)
+
+    result["event"] = event_info
+    if zone_name:
+        result["zone_name"] = zone_name
+    return JSONResponse(result)
+
+
+# Serve static frontend files — defined AFTER all API routes so they take priority.
 _web = Path(__file__).resolve().parents[2] / "web"
+
+
+def _serve_file(path: str) -> FileResponse:
+    """Resolve a path under the web root, falling back only for SPA routes."""
+    root = _web.resolve()
+    cleaned = path.replace("\\", "/").lstrip("/")
+    candidate = (root / cleaned).resolve()
+    if not candidate.is_relative_to(root):
+        raise HTTPException(status_code=404, detail="not found")
+    if candidate.exists() and candidate.is_file():
+        return FileResponse(str(candidate))
+
+    first_segment = cleaned.split("/", 1)[0]
+    if first_segment in {"assets", "tiles"} or Path(cleaned).suffix:
+        raise HTTPException(status_code=404, detail="not found")
+    return FileResponse(str(root / "index.html"))
+
+
 if _web.exists():
-    app.mount("/", StaticFiles(directory=str(_web), html=True), name="web")
+    @app.get("/{full_path:path}")
+    def spa_fallback(full_path: str = ""):
+        return _serve_file(full_path)

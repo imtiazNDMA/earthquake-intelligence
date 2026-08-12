@@ -29,15 +29,55 @@ def test_ingest_inserts_and_is_idempotent(db_conn):
     assert len(list_events(db_conn)) == 1
 
 
-def test_dedup_clusters_close_events_and_prefers_met(db_conn):
+def test_ingest_updates_existing_event_when_upstream_revision_is_newer(db_conn):
+    original = RawEvent("USGS", "u-revised", T0, 5.0, 20, 72.5, 34.0,
+                        place="original", updated_at=T0)
+    revised = RawEvent("USGS", "u-revised", T0 + timedelta(seconds=5), 6.2, 12,
+                       72.7, 34.2, place="revised",
+                       updated_at=T0 + timedelta(minutes=10))
+
+    assert ingest(db_conn, _FakeSource([original])).inserted == 1
+    assert ingest(db_conn, _FakeSource([revised])).inserted == 0
+
+    row = db_conn.execute(
+        "SELECT magnitude, depth_km, ST_X(geom), ST_Y(geom), place, updated_at "
+        "FROM seismic_event WHERE source='USGS' AND source_event_id='u-revised'"
+    ).fetchone()
+    assert row[0] == 6.2
+    assert row[1] == 12
+    assert round(row[2], 1) == 72.7
+    assert round(row[3], 1) == 34.2
+    assert row[4] == "revised"
+    assert row[5] == T0 + timedelta(minutes=10)
+
+
+def test_ingest_does_not_overwrite_with_older_upstream_revision(db_conn):
+    newer = RawEvent("USGS", "u-older", T0, 6.0, 10, 72.5, 34.0,
+                     place="newer", updated_at=T0 + timedelta(minutes=10))
+    older = RawEvent("USGS", "u-older", T0, 5.0, 10, 72.5, 34.0,
+                     place="older", updated_at=T0)
+
+    ingest(db_conn, _FakeSource([newer]))
+    ingest(db_conn, _FakeSource([older]))
+
+    row = db_conn.execute(
+        "SELECT magnitude, place, updated_at FROM seismic_event "
+        "WHERE source='USGS' AND source_event_id='u-older'"
+    ).fetchone()
+    assert row[0] == 6.0
+    assert row[1] == "newer"
+    assert row[2] == T0 + timedelta(minutes=10)
+
+
+def test_dedup_clusters_close_events_and_prefers_pmd(db_conn):
     usgs = _FakeSource([RawEvent("USGS", "u1", T0, 5.5, 10, 72.50, 34.00)])
-    met = _FakeSource([RawEvent("MET", "m1", T0 + timedelta(seconds=30), 5.6, 10, 72.55, 34.02)])
+    pmd = _FakeSource([RawEvent("PMD", "m1", T0 + timedelta(seconds=30), 5.6, 10, 72.55, 34.02)])
     ingest(db_conn, usgs)
-    ingest(db_conn, met)
+    ingest(db_conn, pmd)
     canonical = list_events(db_conn)
-    # one cluster -> one canonical event, and MET (Primary) wins
+    # one cluster -> one canonical event, and PMD (Primary) wins
     assert len(canonical) == 1
-    assert canonical[0]["source"] == "MET"
+    assert canonical[0]["source"] == "PMD"
 
 
 def test_far_apart_events_are_separate_clusters(db_conn):
@@ -46,3 +86,32 @@ def test_far_apart_events_are_separate_clusters(db_conn):
     ingest(db_conn, a)
     ingest(db_conn, b)
     assert len(list_events(db_conn)) == 2
+
+
+def test_ingest_sets_mainshock_and_sequence(db_conn):
+    from eqmon.events.ingest import ingest
+    main = _FakeSource([RawEvent("USGS", "m", T0, 6.0, 10, 72.0, 34.0)])
+    after = _FakeSource([RawEvent("USGS", "a", T0 + timedelta(hours=2), 4.0, 10, 72.05, 34.05)])
+    ingest(db_conn, main)
+    ingest(db_conn, after)
+    rows = db_conn.execute(
+        "SELECT source_event_id, is_mainshock, sequence_id FROM seismic_event "
+        "WHERE source='USGS' ORDER BY magnitude DESC"
+    ).fetchall()
+    # largest is a mainshock; the smaller one is its aftershock (shares sequence)
+    assert rows[0][1] is True
+    assert rows[1][1] is False
+    assert rows[1][2] == rows[0][2]
+
+
+def test_ingest_assigns_zone_id(db_conn):
+    from eqmon.events.ingest import ingest
+    db_conn.execute(
+        "INSERT INTO tectonic_zone (name, geom) VALUES ('Z', "
+        "ST_SetSRID(ST_GeomFromText('MULTIPOLYGON(((71 33,73 33,73 35,71 35,71 33)))'),4326))"
+    )
+    ingest(db_conn, _FakeSource([RawEvent("USGS", "z", T0, 5.0, 10, 72.0, 34.0)]))
+    zone = db_conn.execute(
+        "SELECT zone_id FROM seismic_event WHERE source_event_id='z'"
+    ).fetchone()[0]
+    assert zone is not None
