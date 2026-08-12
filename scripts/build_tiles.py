@@ -50,6 +50,9 @@ SHP_LAYERS = [
     ("plates",              "data/Tectonic Plates/Tectonic_Plates.shp",                                      ["-z6"]),
     ("pak_faults_major",    "data/PAK_Faults/Major_Faults.shp",                                              ["-z12", "--drop-densest-as-needed"]),
     ("pak_faults_minor",    "data/PAK_Faults/Minor_Faults.shp",                                              ["-z12"]),
+    # 34 named faults carrying Mmax and slip rate. Distinct from pak_faults_major
+    # above, which has finer geometry but almost no populated attributes.
+    ("major_faults",        "data/Major Faults/Fault_type.shp",                                              ["-z12"]),
     ("pak_tectonic_zones",  "data/PAK_Tectoniz_Zones/PAK_Tectonic_Zones.shp",                                ["-z10"]),
 ]
 

@@ -164,6 +164,17 @@ const OVERLAY_CONFIG = {
   "Pakistan Major": { id: "pak_faults_major", color: "#C42A2E", width: 1.1, defaultOn: true, lineOnly: true, faultStyle: true, opacity: 0.9, hoverFields: ["Name", "Symbols", "Type"], hoverTolerancePx: 12 },
   "Pakistan Minor": { id: "pak_faults_minor", color: "#C42A2E", width: 1.1, defaultOn: false, lineOnly: true, faultStyle: true, opacity: 0.9, hoverFields: ["Name", "Symbols", "Lables"], hoverTolerancePx: 12,
                       note: "Source currently contains one feature: Karakuram Fault." },
+  // 34 named faults characterised with Mmax and slip rate — the hazard-relevant
+  // attributes. "Pakistan Major" above has finer geometry but its Type/Symbols
+  // columns are almost entirely empty, so the two complement rather than repeat.
+  "Major Faults": { id: "major_faults", color: "#A67C1F", width: 1.4, defaultOn: false,
+                    lineOnly: true, faultStyle: true, opacity: 0.95,
+                    hoverFields: ["FAULTNAME", "Fault_Type", "Mmax", "Slip_rate"],
+                    // null label = the name is the tooltip's heading, not a field.
+                    hoverLabels: { FAULTNAME: null, Fault_Type: "Type", Mmax: "Mmax",
+                                   Slip_rate: "Slip rate" },
+                    hoverUnits: { Slip_rate: "mm/yr" },
+                    hoverTolerancePx: 12 },
   "Tectonic Zones":{ id: "pak_tectonic_zones", color: "#8C5A3C", width: 0.5, defaultOn: false,
                      fillColor: "#8C5A3C", fillOpacity: 0.3, opacity: 0.7 },
 };
@@ -314,13 +325,22 @@ function _setupFaultHover() {
           for (const picked of features) {
             if (picked.layerName !== c.id) continue;
             const props = picked.feature.props;
+            const labels = c.hoverLabels || {};
+            const units = c.hoverUnits || {};
             const lines = [];
             for (const k of hoverFields) {
-              if (props[k] != null && props[k] !== "") lines.push(`${k.replace(/_/g, " ")}: ${props[k]}`);
+              if (props[k] == null || props[k] === "") continue;
+              // A configured label wins; otherwise fall back to the raw column
+              // name, de-underscored. An explicit null means "no label" — the
+              // value stands on its own as the tooltip's heading.
+              const label = k in labels ? labels[k] : k.replace(/_/g, " ");
+              const unit = units[k] ? ` ${escapeHtml(units[k])}` : "";
+              const value = escapeHtml(String(props[k])) + unit;
+              lines.push(label ? `${escapeHtml(label)}: ${value}` : `<b>${value}</b>`);
             }
-            if (lines.length === 0) lines.push(name);
+            if (lines.length === 0) lines.push(escapeHtml(name));
             const html = hoverFields.length === 1 && lines.length === 1
-              ? String(props[hoverFields[0]])
+              ? escapeHtml(String(props[hoverFields[0]]))
               : lines.join("<br>");
             found = { latlng: e.latlng, html };
             break;
