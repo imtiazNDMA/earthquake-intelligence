@@ -150,3 +150,39 @@ frontend stays same-origin; `dataset` is checked against the cached catalog
 before any upstream request, so the proxy cannot be pointed at arbitrary paths.
 Buildings render only at zoom ≥ 12 and only for districts intersecting the
 viewport — typically 1–4 live sources instead of all 161.
+
+## Elements at risk (ARC)
+
+`POST /events/{id}/exposure` and `POST /exposure/analyze` report what sits under
+each MMI band — population, settlements, hospitals, schools, roads, bridges,
+airports — by handing our band layer to **ARC**, an external elements-at-risk
+service (`API.md` documents ARC's own API).
+
+This complements `/events/{id}/impact` rather than replacing it: impact rolls up
+*which admin units* shake from PostGIS, exposure counts *what is inside* the
+shaking. They are computed independently, and ARC being down never affects
+impact.
+
+```
+ARC_URL=http://172.18.0.12:5002    # .env; the service moves with its container
+ARC_TIMEOUT_S=180                  # a full scan is ~12 s, roads is ~375k features
+```
+
+Pass `layers` to narrow the scan when only some are needed — population and
+hospitals alone returns in ~2 s instead of ~12 s.
+
+**Two things the adapter (`src/eqmon/exposure.py`) is careful about:**
+
+- **Band vocabulary.** ARC dissolves on `mmi_high`; our domain name is
+  `mmi_upper` (`contours.py`). `to_arc_bands()` is the only place that
+  translation lives — ARC's field names never enter the rest of the codebase.
+- **What "MMI 6 and above" means.** ARC keys `cumulative[].mmi_min` on a band's
+  *upper* bound, so its `mmi_min: 6` row includes the 5–6 band, which this
+  platform labels MMI V. The headline is therefore summed from the bands
+  (ARC guarantees they are mutually exclusive), not read from `cumulative`. On a
+  real M7 the difference is 9.4M people versus 17.4M.
+
+The response leads with `at_min_mmi` (exposure at or above `EXPOSURE_MIN_MMI`,
+default 6). `totals` covers the whole footprint down to MMI 2 — for a large
+event that is most of the country and a nine-figure population, so it is
+reference data, not a headline.

@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from . import aftershock as ashock
 from . import analytics as ana
-from . import buildings, config, db
+from . import buildings, config, db, exposure
 from .contours import mmi_to_geojson
 from .export import featurecollection_to_shapefile_zip
 from .events.ingest import ingest
@@ -142,13 +142,15 @@ async def _lifespan(_app):
     yield
     stop_ingest_scheduler()
     await buildings.aclose()
+    await exposure.aclose()
 
 
 app = FastAPI(title="Earthquake Intensity Platform", lifespan=_lifespan)
 
 # Registered here — well above the /{full_path:path} SPA fallback at the bottom
-# of this module, which would otherwise swallow /buildings/*.
+# of this module, which would otherwise swallow /buildings/* and /exposure/*.
 app.include_router(buildings.router)
+app.include_router(exposure.router)
 
 
 def _vs30_path() -> Path:
@@ -544,6 +546,35 @@ def event_impact(event_id: int):
         # inside compute_event_impact is reclaimed by the pool's commit-on-exit.
         impact = compute_event_impact(conn, event, get_grid())
     return impact
+
+
+class ExposureQuery(BaseModel):
+    layers: list[str] | None = Field(
+        None, description="Element layers to count; omit for all of them")
+
+
+@app.post("/events/{event_id}/exposure")
+async def event_exposure(event_id: int, req: ExposureQuery | None = None):
+    """Elements at risk under a catalog event's shaking footprint.
+
+    Deliberately separate from /impact: that one answers "which admin units
+    shake" from PostGIS, this one answers "what is inside the shaking" from ARC.
+    They are computed independently and one being unavailable must not take the
+    other down.
+    """
+    with db.get_conn() as conn:
+        event = get_event(conn, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="event not found")
+
+    grid = get_grid()
+    mmi = compute_mmi_grid(
+        grid.lon, grid.lat, grid.vs30,
+        mag=event["magnitude"], depth_km=event["depth_km"],
+        epi_lon=event["lon"], epi_lat=event["lat"],
+    )
+    bands = mmi_to_geojson(mmi, grid.transform, levels=config.MMI_BAND_LEVELS)
+    return await exposure.analyze(bands, req.layers if req else None)
 
 
 @app.post("/events/{event_id}/refresh-from-usgs")

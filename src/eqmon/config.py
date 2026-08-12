@@ -15,6 +15,22 @@ BUILDINGS_TILE_URL = os.getenv("BUILDINGS_TILE_URL", "http://172.19.112.1:8081")
 # is millions of polygons; this floor is the load-bearing guard against it.
 BUILDINGS_MIN_ZOOM = 12
 
+# ARC — the external elements-at-risk service (population, settlements,
+# hospitals, schools, roads, bridges, airports under each MMI band). Same
+# reasoning as BUILDINGS_TILE_URL: it lives on a container IP that moves, and
+# its own docs disagree with its runtime port. See src/eqmon/exposure.py.
+ARC_URL = os.getenv("ARC_URL", "http://172.18.0.12:5002").rstrip("/")
+
+# A full analysis scans every element layer — roads alone is ~375k features —
+# and measured ~11 s for a M7 footprint. This is a job timeout, not a hop.
+ARC_TIMEOUT_S = float(os.getenv("ARC_TIMEOUT_S", "180"))
+
+# Headline exposure threshold. Our bands run down to MMI 2, which for a large
+# event covers most of the country: the honest whole-footprint total is a
+# nine-figure number nobody can act on. MMI 6 (Strong) is where damage starts
+# and matches the framing the exposure strip already uses for admin units.
+EXPOSURE_MIN_MMI = 6
+
 # Default Site Condition (CONTEXT.md): used where the Vs30 grid has no value.
 DEFAULT_VS30 = 760.0
 
