@@ -14,12 +14,13 @@ def test_sparse_minor_faults_not_offered_as_an_overlay():
     assert '("pak_faults_minor"' not in build
 
 
-def test_pakistan_major_faults_is_the_default_fault_overlay():
+def test_national_faults_is_the_default_fault_overlay():
     app_js = Path("web/app.js").read_text(encoding="utf-8")
 
     # Colours are a design decision and change with the palette; what this test
-    # guards is which fault overlay is on by default.
-    assert '"Pakistan Major": { id: "pak_faults_major"' in app_js
+    # guards is which fault overlay is on by default. The tile id stays
+    # pak_faults_major — only the label the operator reads was renamed.
+    assert '"National Faults": { id: "pak_faults_major"' in app_js
     assert 'id: "pak_faults_major", color: "#' in app_js
     assert 'width: 1.1, defaultOn: true' in app_js
 

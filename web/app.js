@@ -161,7 +161,7 @@ const OVERLAY_CONFIG = {
   Tehsils:         { id: "tehsils",          color: "#bbb",   width: 0.4, defaultOn: false, opacity: 0.7, hoverFields: ["Name", "name", "NAME", "tehsil", "TEHSIL"], hoverTolerancePx: 16 },
   "Global Faults": { id: "faults",           color: "#C42A2E", width: 0.8, defaultOn: false, lineOnly: true, faultStyle: true, opacity: 0.9, hoverTolerancePx: 12 },
   "Plate boundaries": { id: "plate_boundaries", color: "#D8B22C", width: 1.6, defaultOn: false, lineOnly: true, opacity: 0.85, hoverFields: ["Name_Full", "Name"], hoverTolerancePx: 12 },
-  "Pakistan Major": { id: "pak_faults_major", color: "#C42A2E", width: 1.1, defaultOn: true, lineOnly: true, faultStyle: true, opacity: 0.9, hoverFields: ["Name", "Symbols", "Type"], hoverTolerancePx: 12 },
+  "National Faults": { id: "pak_faults_major", color: "#C42A2E", width: 1.1, defaultOn: true, lineOnly: true, faultStyle: true, opacity: 0.9, hoverFields: ["Name", "Symbols", "Type"], hoverTolerancePx: 12 },
   // 34 named faults characterised with Mmax and slip rate — the hazard-relevant
   // attributes. "Pakistan Major" above has finer geometry but its Type/Symbols
   // columns are almost entirely empty, so the two complement rather than repeat.
@@ -550,6 +550,139 @@ function buildConfigPanel() {
 }
 buildConfigPanel();
 buildMmiOpacityControl();
+
+// --- Seismic hazard: PGA return-period overlays -------------------------
+// Probabilistic peak ground acceleration, one grid per return period, rendered
+// to classified PNGs by scripts/build_pga_overlays.py. This is the long-run
+// hazard at a place — the shaking to design for — not the shaking from the
+// event currently on the map, so it sits underneath the MMI footprint and
+// carries its own legend.
+
+const PGA_PANE = "pgaPane";
+const _pga = { manifest: null, layer: null, period: 475, opacity: 0.55, enabled: false, els: {} };
+
+function _pgaEnsurePane() {
+  if (map.getPane(PGA_PANE)) return;
+  map.createPane(PGA_PANE);
+  // 330: above the basemap (200), below buildings (350), the MMI footprint
+  // (400) and the boundary overlays (410). Hazard is the backdrop an event is
+  // read against; it must never sit on top of the event.
+  map.getPane(PGA_PANE).style.zIndex = 330;
+  map.getPane(PGA_PANE).style.pointerEvents = "none";
+}
+
+function _pgaCurrent() {
+  return (_pga.manifest?.periods || []).find(p => p.return_period === _pga.period);
+}
+
+function _pgaRender() {
+  if (_pga.layer) { map.removeLayer(_pga.layer); _pga.layer = null; }
+  const entry = _pgaCurrent();
+  if (!_pga.enabled || !entry || !_pga.manifest) { _pgaRenderLegend(); return; }
+  const [w, s, e, n] = _pga.manifest.bounds;
+  _pga.layer = L.imageOverlay(entry.image, [[s, w], [n, e]], {
+    opacity: _pga.opacity, pane: PGA_PANE, interactive: false,
+    alt: `PGA, ${entry.label} return period`,
+  }).addTo(map);
+  _pgaRenderLegend();
+}
+
+function _pgaRenderLegend() {
+  const el = _pga.els.legend;
+  if (!el) return;
+  const entry = _pgaCurrent();
+  if (!_pga.enabled || !entry) { el.innerHTML = ""; return; }
+  // Breaks differ per return period, so the legend is rebuilt on every change —
+  // a stale legend here would misread the map rather than merely look wrong.
+  el.innerHTML =
+    `<div class="pga-legend-head">Peak ground acceleration (g) · ${escapeHtml(entry.exceedance)}</div>` +
+    entry.legend.map(b =>
+      `<div class="pga-legend-row"><span class="pga-swatch" style="background:${b.color}"></span>` +
+      `<span>${escapeHtml(b.label)}</span></div>`).join("");
+}
+
+function _pgaBuildPanel() {
+  const section = document.getElementById("sec-config");
+  if (!section) return;
+  const group = document.createElement("div");
+  group.className = "cfg-group";
+  group.innerHTML = `
+    <div class="field-label">Seismic hazard</div>
+    <label class="cfg-row">
+      <input id="pga-toggle" type="checkbox" />
+      <span class="ov-name">PGA return period</span>
+    </label>
+    <div id="pga-controls" style="display:none">
+      <select id="pga-period" class="as-select" aria-label="Return period"></select>
+      <label class="cfg-row"><span class="ov-name">Opacity</span>
+        <span class="ov-controls">
+          <input id="pga-opacity" class="ov-opacity" type="range" min="0" max="1" step="0.05" />
+          <span class="cfg-value" id="pga-opacity-val"></span>
+        </span>
+      </label>
+      <div class="pga-legend" id="pga-legend"></div>
+      <div class="cfg-note" id="pga-note"></div>
+    </div>`;
+  section.appendChild(group);
+
+  _pga.els = {
+    toggle: group.querySelector("#pga-toggle"),
+    controls: group.querySelector("#pga-controls"),
+    period: group.querySelector("#pga-period"),
+    opacity: group.querySelector("#pga-opacity"),
+    opacityVal: group.querySelector("#pga-opacity-val"),
+    legend: group.querySelector("#pga-legend"),
+    note: group.querySelector("#pga-note"),
+  };
+
+  _pga.els.opacity.value = String(_pga.opacity);
+  _pga.els.opacityVal.textContent = `${Math.round(_pga.opacity * 100)}%`;
+
+  _pga.els.toggle.addEventListener("change", () => {
+    _pga.enabled = _pga.els.toggle.checked;
+    _pga.els.controls.style.display = _pga.enabled ? "block" : "none";
+    _pgaRender();
+  });
+  _pga.els.period.addEventListener("change", () => {
+    _pga.period = parseInt(_pga.els.period.value, 10);
+    _pgaRender();
+  });
+  _pga.els.opacity.addEventListener("input", () => {
+    _pga.opacity = parseFloat(_pga.els.opacity.value);
+    _pga.els.opacityVal.textContent = `${Math.round(_pga.opacity * 100)}%`;
+    if (_pga.layer) _pga.layer.setOpacity(_pga.opacity);
+  });
+}
+
+async function _pgaInit() {
+  _pgaEnsurePane();
+  _pgaBuildPanel();
+  try {
+    const resp = await fetch("pga/manifest.json");
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    _pga.manifest = await resp.json();
+  } catch (err) {
+    // Derived artifacts: absent until scripts/build_pga_overlays.py is run.
+    // Say that, rather than offering a toggle that produces a blank map.
+    console.warn("PGA overlays unavailable", err);
+    if (_pga.els.toggle) {
+      _pga.els.toggle.disabled = true;
+      _pga.els.note.textContent = "Run scripts/build_pga_overlays.py to generate these overlays.";
+    }
+    return;
+  }
+  for (const p of _pga.manifest.periods) {
+    const opt = document.createElement("option");
+    opt.value = String(p.return_period);
+    opt.textContent = `${p.label} · ${p.exceedance}`;
+    _pga.els.period.appendChild(opt);
+  }
+  _pga.els.period.value = String(_pga.period);
+  // 475 yr is the code design level, so it is the one to land on.
+  _pga.els.note.textContent =
+    "Probabilistic hazard for the region, independent of the event on the map.";
+}
+_pgaInit();
 
 // MMI legend (colors mirror _MMI_COLORS in src/eqmon/contours.py).
 const MMI_PALETTE = [
