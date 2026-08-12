@@ -19,6 +19,7 @@ data/Vs30.tif.aux.xml
 
 # Raw boundary/seismotectonic source data — kept locally, loaded/tiled via scripts
 data/Boundaries_Data/
+data/DEM PK/
 data/Global_Active_Earthquake_Faults-shp/
 data/Tectonic Plate Boundaries/
 data/Tectonic Plates/

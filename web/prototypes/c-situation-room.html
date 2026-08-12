@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Prototype C — Situation Room</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<style>
+:root{
+  --steel-900:#101418; --steel-850:#141A20; --steel-800:#19212A; --steel-700:#232D38; --steel-600:#33404E;
+  --sand:#E8E2D6; --sand-dim:#9AA4AF; --sand-faint:#69737E;
+  --mmi-4:#8FD8A8; --mmi-5:#EDE06A; --mmi-6:#F3C255; --mmi-7:#EE9143; --mmi-8:#DD5730; --mmi-9:#B02830;
+  /* alert level drives the whole chrome */
+  --alert:#DD5730; --alert-dim:rgba(221,87,48,.16); --alert-name:"Orange";
+  --disp:"Archivo",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,monospace;
+}
+[data-alert=green] {--alert:#2E9E5B;--alert-dim:rgba(46,158,91,.14)}
+[data-alert=yellow]{--alert:#D8B22C;--alert-dim:rgba(216,178,44,.14)}
+[data-alert=orange]{--alert:#DD5730;--alert-dim:rgba(221,87,48,.16)}
+[data-alert=red]   {--alert:#C42A2E;--alert-dim:rgba(196,42,46,.18)}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--steel-900);color:var(--sand);font-family:var(--disp);
+  -webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:2px solid var(--alert);outline-offset:2px}
+
+/* the alert frames the whole room */
+.room{position:fixed;inset:0;border:3px solid var(--alert);display:grid;
+  grid-template-rows:52px 1fr 104px;grid-template-columns:86px 356px 1fr;transition:border-color .4s}
+.room::before{content:"";position:absolute;inset:0;pointer-events:none;z-index:40;
+  box-shadow:inset 0 0 90px -20px var(--alert-dim);transition:box-shadow .4s}
+
+/* ---------- status bar ---------- */
+.bar{grid-column:1/-1;display:flex;align-items:center;gap:0;background:var(--steel-850);
+  border-bottom:1px solid var(--steel-700);position:relative;z-index:30}
+.brand{width:86px;text-align:center;font-variation-settings:"wdth" 78,"wght" 800;font-size:16px;
+  letter-spacing:-.02em;border-right:1px solid var(--steel-700);line-height:52px}
+.alert-chip{display:flex;align-items:center;gap:9px;background:var(--alert);color:#0D1114;
+  padding:0 16px;height:100%;font-variation-settings:"wdth" 88,"wght" 800;font-size:12px;
+  letter-spacing:.14em;text-transform:uppercase;transition:background .4s}
+.alert-chip .dot{width:8px;height:8px;border-radius:50%;background:#0D1114;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+.bar .live{display:flex;gap:26px;padding:0 20px;font-family:var(--mono);font-size:10.5px;
+  letter-spacing:.06em;color:var(--sand-dim)}
+.bar .live b{color:var(--sand);font-weight:500}
+.bar .right{margin-left:auto;display:flex;align-items:center;gap:8px;padding-right:14px;
+  font-family:var(--mono);font-size:10px;color:var(--sand-faint)}
+.demo{display:flex;gap:3px;margin-right:12px}
+.demo button{width:22px;height:22px;border:1px solid var(--steel-600);background:transparent;padding:0;border-radius:2px}
+.demo button i{display:block;width:100%;height:100%}
+.demo button[aria-pressed=true]{border-color:var(--sand)}
+
+/* ---------- rail ---------- */
+.rail{background:var(--steel-850);border-right:1px solid var(--steel-700);display:flex;flex-direction:column;padding:8px 6px}
+.rail button{width:100%;background:none;border:0;padding:11px 2px 9px;display:grid;justify-items:center;gap:6px;
+  color:var(--sand-faint);font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;border-radius:3px}
+.rail button svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.6}
+.rail button:hover{color:var(--sand);background:var(--steel-800)}
+.rail button[aria-current=true]{color:var(--sand);background:var(--steel-700);box-shadow:inset 2px 0 0 var(--alert)}
+.rail .sp{flex:1}
+
+/* ---------- console panel ---------- */
+.console{background:var(--steel-850);border-right:1px solid var(--steel-700);overflow-y:auto}
+.console-in{padding:0 0 26px}
+.kicker{font-family:var(--mono);font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--alert)}
+h1{font-variation-settings:"wdth" 84,"wght" 800;font-size:24px;line-height:1.05;letter-spacing:-.02em;margin:6px 0 0}
+
+/* headline event block — the loudest thing in the room */
+.headline{padding:18px 20px 16px;background:linear-gradient(180deg,var(--alert-dim),transparent);
+  border-bottom:1px solid var(--steel-700);transition:background .4s}
+.headline .mag{display:flex;align-items:baseline;gap:10px;margin:12px 0 4px}
+.headline .mag b{font-variation-settings:"wdth" 76,"wght" 900;font-size:58px;line-height:.82;letter-spacing:-.045em}
+.headline .mag span{font-family:var(--mono);font-size:11px;color:var(--sand-dim);letter-spacing:.1em}
+.headline .place{font-size:15px;font-weight:600}
+.headline .meta{font-family:var(--mono);font-size:10.5px;color:var(--sand-dim);margin-top:7px;line-height:1.7}
+.headline .meta i{color:var(--alert);font-style:normal}
+
+.grp{padding:16px 20px;border-bottom:1px solid var(--steel-700)}
+.grp > h2{font-family:var(--mono);font-size:9px;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--sand-faint);margin:0 0 12px;display:flex;justify-content:space-between}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:10px}
+label{display:block;font-family:var(--mono);font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--sand-faint);margin-bottom:5px}
+input{width:100%;background:var(--steel-900);border:1px solid var(--steel-700);border-radius:3px;
+  padding:9px 10px;font-family:var(--mono);font-size:13px;color:var(--sand)}
+input:focus{outline:none;border-color:var(--alert);background:#0C1013}
+.btn{width:100%;background:var(--alert);color:#0D1114;border:0;border-radius:3px;padding:13px;
+  font-variation-settings:"wdth" 86,"wght" 800;font-size:12.5px;letter-spacing:.1em;text-transform:uppercase;
+  transition:filter .15s}
+.btn:hover{filter:brightness(1.12)}
+.btn.ghost{background:transparent;color:var(--sand);border:1px solid var(--steel-600);width:auto;
+  padding:7px 12px;font-size:10.5px;letter-spacing:.08em}
+.btn.ghost:hover{border-color:var(--sand);filter:none}
+.feed{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--steel-800)}
+.feed b{font-size:13px}
+.feed small{display:block;font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;color:var(--sand-faint);text-transform:uppercase}
+.row{display:grid;grid-template-columns:40px 1fr auto;gap:11px;align-items:center;padding:9px 0;
+  border-bottom:1px solid var(--steel-800);cursor:pointer}
+.row:hover{background:var(--steel-800);box-shadow:-20px 0 0 var(--steel-800),20px 0 0 var(--steel-800)}
+.row .m{font-variation-settings:"wdth" 76,"wght" 800;font-size:18px;line-height:1}
+.row b{font-size:12.5px;display:block;font-weight:600}
+.row .t{font-family:var(--mono);font-size:8.5px;color:var(--sand-faint)}
+.row .s{font-family:var(--mono);font-size:8px;letter-spacing:.1em;color:var(--sand-faint);
+  border:1px solid var(--steel-600);padding:3px 5px;border-radius:2px}
+
+/* ---------- map ---------- */
+.view{position:relative;background:#0B0E11;overflow:hidden}
+.view svg.map{position:absolute;inset:0;width:100%;height:100%}
+.land{fill:#151C23;stroke:#2C3945;stroke-width:1;vector-effect:non-scaling-stroke}
+.fault{fill:none;stroke:#6C5449;stroke-width:1;stroke-dasharray:4 3;vector-effect:non-scaling-stroke}
+.faultlbl{font-family:var(--mono);font-size:1.5px;fill:#6C5449;letter-spacing:.14em}
+.citylbl{font-family:var(--mono);font-size:1.6px;fill:#7B8794;letter-spacing:.1em}
+.city{fill:#7B8794}
+.mmi{opacity:.5}
+.mmiline{fill:none;stroke-width:.7;vector-effect:non-scaling-stroke;opacity:.85}
+.epi{fill:none;stroke:var(--alert);stroke-width:1.4;vector-effect:non-scaling-stroke}
+.ring{fill:none;stroke:var(--alert);stroke-width:1;vector-effect:non-scaling-stroke;opacity:.5}
+@keyframes ping{from{r:3;opacity:.9}to{r:24;opacity:0}}
+.ping{fill:none;stroke:var(--alert);stroke-width:1.2;vector-effect:non-scaling-stroke;animation:ping 3s ease-out infinite}
+
+.legend{position:absolute;top:14px;right:14px;background:rgba(16,20,24,.9);border:1px solid var(--steel-700);
+  border-radius:3px;padding:11px 13px;backdrop-filter:blur(6px)}
+.legend h3{margin:0 0 9px;font-family:var(--mono);font-size:8.5px;letter-spacing:.15em;
+  text-transform:uppercase;color:var(--sand-faint);font-weight:400}
+.legend div{display:grid;grid-template-columns:24px 26px auto;gap:8px;align-items:center;padding:2px 0}
+.legend i{height:11px;border-radius:1px}
+.legend u{text-decoration:none;font-variation-settings:"wdth" 78,"wght" 800;font-size:11px}
+.legend span{font-family:var(--mono);font-size:8.5px;color:var(--sand-dim)}
+
+/* ---------- SIGNATURE: exposure strip along the floor ---------- */
+.strip{grid-column:1/-1;background:var(--steel-850);border-top:1px solid var(--steel-700);
+  display:grid;grid-template-columns:auto 1fr auto;align-items:stretch}
+.strip .lead{padding:14px 22px;border-right:1px solid var(--steel-700);min-width:230px}
+.strip .lead .k{font-family:var(--mono);font-size:8.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--sand-faint)}
+.strip .lead b{display:block;font-variation-settings:"wdth" 78,"wght" 900;font-size:36px;line-height:1.05;letter-spacing:-.04em;margin-top:2px}
+.strip .lead .k2{font-family:var(--mono);font-size:9.5px;color:var(--sand-dim)}
+/* population ribbon: each segment's width is its share of the shaken population */
+.bands{display:flex;align-items:stretch;gap:2px;padding:16px 22px 14px}
+.band{display:flex;flex-direction:column;gap:7px;min-width:30px;cursor:pointer}
+.band i{display:block;height:16px;border-radius:2px;transition:transform .15s}
+.band:hover i{transform:scaleY(1.45)}
+.band .lab{display:flex;align-items:baseline;gap:7px;overflow:hidden}
+.band u{text-decoration:none;font-variation-settings:"wdth" 78,"wght" 800;font-size:12px;color:var(--sand)}
+.band span{font-family:var(--mono);font-size:9.5px;color:var(--sand-dim);white-space:nowrap}
+.strip .tail{padding:14px 22px;border-left:1px solid var(--steel-700);display:flex;gap:26px;align-items:center}
+.strip .tail div .k{font-family:var(--mono);font-size:8.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--sand-faint)}
+.strip .tail div b{display:block;font-variation-settings:"wdth" 80,"wght" 800;font-size:21px;margin-top:3px}
+
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media (max-width:1100px){
+  .room{grid-template-columns:70px 1fr;grid-template-rows:52px 1fr}
+  .view,.strip{display:none}
+}
+</style>
+</head>
+<body data-alert="orange">
+<div class="room">
+
+  <!-- status bar -->
+  <div class="bar">
+    <div class="brand">EQ</div>
+    <div class="alert-chip"><span class="dot"></span><span id="alertname">Orange alert</span></div>
+    <div class="live">
+      <span>EVENT <b>PMD-2026-0811-0342</b></span>
+      <span>ELAPSED <b id="elapsed">00:02:19</b></span>
+      <span>FEEDS <b>PMD ✓ &nbsp;USGS ✓</b></span>
+    </div>
+    <div class="right">
+      <div class="demo" role="group" aria-label="Demo: alert level">
+        <button aria-pressed="false" data-lv="green"  title="Green"><i style="background:#2E9E5B"></i></button>
+        <button aria-pressed="false" data-lv="yellow" title="Yellow"><i style="background:#D8B22C"></i></button>
+        <button aria-pressed="true"  data-lv="orange" title="Orange"><i style="background:#DD5730"></i></button>
+        <button aria-pressed="false" data-lv="red"    title="Red"><i style="background:#C42A2E"></i></button>
+      </div>
+      03:44 PKT · 11 AUG 2026
+    </div>
+  </div>
+
+  <!-- rail -->
+  <nav class="rail" aria-label="Sections">
+    <button aria-current="true"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Start</button>
+    <button><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>Events</button>
+    <button><svg viewBox="0 0 24 24"><path d="M12 21s7-6.3 7-11a7 7 0 1 0-14 0c0 4.7 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>Map</button>
+    <button><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg>Forecast</button>
+    <button><svg viewBox="0 0 24 24"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg>Insights</button>
+    <button><svg viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/></svg>Layers</button>
+    <div class="sp"></div>
+    <button><svg viewBox="0 0 24 24"><path d="M20 13.5A8 8 0 1 1 10.5 4a6.5 6.5 0 0 0 9.5 9.5z"/></svg>Light</button>
+  </nav>
+
+  <!-- console -->
+  <div class="console">
+   <div class="console-in">
+    <div class="headline">
+      <div class="kicker">Active event · PMD primary</div>
+      <div class="mag"><b>6.5</b><span>M<sub>w</sub> · 10 KM DEEP</span></div>
+      <div class="place">18 km NE of Mansehra</div>
+      <div class="meta">
+        34.00° N &nbsp;72.50° E · Khyber Pakhtunkhwa<br />
+        Origin 03:42:11 PKT · Peak intensity <i>MMI VIII</i>
+      </div>
+    </div>
+
+    <div class="grp">
+      <h2>Manual earthquake</h2>
+      <div class="pair">
+        <div><label for="c1">Magnitude</label><input id="c1" type="number" value="6.5" step="0.1" /></div>
+        <div><label for="c2">Depth km</label><input id="c2" type="number" value="10" /></div>
+      </div>
+      <div class="pair">
+        <div><label for="c3">Latitude</label><input id="c3" type="number" value="34.00" step="0.01" /></div>
+        <div><label for="c4">Longitude</label><input id="c4" type="number" value="72.50" step="0.01" /></div>
+      </div>
+      <button class="btn">Draw shaking footprint</button>
+    </div>
+
+    <div class="grp">
+      <h2>Live feeds</h2>
+      <div class="feed"><span><b>PMD</b><small>Primary source</small></span><button class="btn ghost">Pull PMD</button></div>
+      <div class="feed"><span><b>USGS</b><small>Secondary source</small></span><button class="btn ghost">Pull USGS</button></div>
+    </div>
+
+    <div class="grp">
+      <h2>Catalog <span>41 events · 24 h</span></h2>
+      <div class="row"><span class="m">6.5</span><span><b>18 km NE of Mansehra</b><span class="t">11 AUG 03:42</span></span><span class="s">PMD</span></div>
+      <div class="row"><span class="m">4.8</span><span><b>Hindu Kush region</b><span class="t">11 AUG 01:07</span></span><span class="s">USGS</span></div>
+      <div class="row"><span class="m">3.9</span><span><b>62 km W of Quetta</b><span class="t">10 AUG 22:15</span></span><span class="s">PMD</span></div>
+      <div class="row"><span class="m">3.2</span><span><b>Makran coast</b><span class="t">10 AUG 19:48</span></span><span class="s">USGS</span></div>
+    </div>
+   </div>
+  </div>
+
+  <!-- map -->
+  <div class="view">
+    <svg class="map" viewBox="598 102 188 148" preserveAspectRatio="xMidYMid meet" aria-label="Map of Pakistan">
+      <g stroke="#1A222B" stroke-width=".35" vector-effect="non-scaling-stroke">
+        <path d="M620,100v152M640,100v152M660,100v152M680,100v152M700,100v152M720,100v152M740,100v152M760,100v152"/>
+        <path d="M598,120h190M598,140h190M598,160h190M598,180h190M598,200h190M598,220h190M598,240h190"/>
+      </g>
+      <defs><clipPath id="pk3"><polygon points="610,230 664,230 682,243 706,203 718,201 734,181 746,170 745,155 753,157 743,133 769,125 760,116 745,110 725,112 712,119 715,128 709,140 699,149 703,160 693,163 682,162 664,181 641,185 625,186 609,182 618,218 616,228"/></clipPath></defs>
+      <polygon class="land" points="610,230 664,230 682,243 706,203 718,201 734,181 746,170 745,155 753,157 743,133 769,125 760,116 745,110 725,112 712,119 715,128 709,140 699,149 703,160 693,163 682,162 664,181 641,185 625,186 609,182 618,218 616,228"/>
+      <g clip-path="url(#pk3)">
+        <circle class="mmi" cx="725" cy="140" r="34" fill="var(--mmi-4)"/>
+        <circle class="mmi" cx="725" cy="140" r="25" fill="var(--mmi-5)"/>
+        <circle class="mmi" cx="725" cy="140" r="17" fill="var(--mmi-6)"/>
+        <circle class="mmi" cx="725" cy="140" r="11" fill="var(--mmi-7)"/>
+        <circle class="mmi" cx="725" cy="140" r="6"  fill="var(--mmi-8)"/>
+        <circle class="mmiline" cx="725" cy="140" r="34" stroke="var(--mmi-4)"/>
+        <circle class="mmiline" cx="725" cy="140" r="25" stroke="var(--mmi-5)"/>
+        <circle class="mmiline" cx="725" cy="140" r="17" stroke="var(--mmi-6)"/>
+        <circle class="mmiline" cx="725" cy="140" r="11" stroke="var(--mmi-7)"/>
+        <circle class="mmiline" cx="725" cy="140" r="6"  stroke="var(--mmi-8)"/>
+      </g>
+      <path class="fault" d="M655,192 C660,178 663,166 668,155 C672,146 682,138 692,132"/>
+      <text class="faultlbl" x="647" y="197" transform="rotate(-68 647 197)">CHAMAN FAULT</text>
+      <path class="fault" d="M700,152 C714,146 730,142 748,138 C758,136 764,133 770,129"/>
+      <text class="faultlbl" x="733" y="151">MAIN BOUNDARY THRUST</text>
+      <path class="fault" d="M612,236 C632,233 652,232 674,234"/>
+      <text class="faultlbl" x="623" y="241">MAKRAN SUBDUCTION ZONE</text>
+      <circle class="city" cx="730" cy="145" r="1"/><text class="citylbl" x="733" y="146">ISLAMABAD</text>
+      <circle class="city" cx="741" cy="161" r=".9"/><text class="citylbl" x="744" y="162">LAHORE</text>
+      <circle class="city" cx="670" cy="228" r=".9"/><text class="citylbl" x="653" y="234">KARACHI</text>
+      <circle class="city" cx="670" cy="180" r=".9"/><text class="citylbl" x="655" y="177">QUETTA</text>
+      <circle class="city" cx="713" cy="141" r=".9"/><text class="citylbl" x="695" y="139">PESHAWAR</text>
+      <circle class="ping" cx="725" cy="140" r="3"/>
+      <circle class="epi" cx="725" cy="140" r="3"/>
+      <path class="epi" d="M725,132v-4M725,148v4M717,140h-4M733,140h4"/>
+    </svg>
+
+    <div class="legend">
+      <h3>Modified Mercalli</h3>
+      <div><i style="background:var(--mmi-8)"></i><u>VIII</u><span>Severe</span></div>
+      <div><i style="background:var(--mmi-7)"></i><u>VII</u><span>Very strong</span></div>
+      <div><i style="background:var(--mmi-6)"></i><u>VI</u><span>Strong</span></div>
+      <div><i style="background:var(--mmi-5)"></i><u>V</u><span>Moderate</span></div>
+      <div><i style="background:var(--mmi-4)"></i><u>IV</u><span>Light</span></div>
+    </div>
+  </div>
+
+  <!-- SIGNATURE: exposure strip — who is shaken, at what intensity, always on screen -->
+  <div class="strip">
+    <div class="lead">
+      <div class="k">People at MMI VI and above</div>
+      <b>2,412,000</b>
+      <div class="k2">318,400 buildings in footprint</div>
+    </div>
+    <div class="bands" role="group" aria-label="People shaken by intensity band">
+      <div class="band" style="flex:5.1"><i style="background:var(--mmi-4)"></i><span class="lab"><u>IV</u><span>5.1 M</span></span></div>
+      <div class="band" style="flex:3.8"><i style="background:var(--mmi-5)"></i><span class="lab"><u>V</u><span>3.8 M</span></span></div>
+      <div class="band" style="flex:1.6"><i style="background:var(--mmi-6)"></i><span class="lab"><u>VI</u><span>1.6 M</span></span></div>
+      <div class="band" style="flex:.64"><i style="background:var(--mmi-7)"></i><span class="lab"><u>VII</u><span>640 K</span></span></div>
+      <div class="band" style="flex:.28" title="MMI VIII — 172,000 people"><i style="background:var(--mmi-8)"></i><span class="lab"><u>VIII</u></span></div>
+      <div class="band" style="flex:.12" title="MMI IX — nobody"><i style="background:var(--mmi-9);opacity:.35"></i><span class="lab"><u>IX</u></span></div>
+    </div>
+    <div class="tail">
+      <div><div class="k">Aftershock M5+ / 7 d</div><b>38%</b></div>
+      <div><div class="k">Districts affected</div><b>14</b></div>
+      <button class="btn ghost">Export report</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* Demo control: watch the whole room take the PAGER alert colour. */
+const names={green:'Green alert',yellow:'Yellow alert',orange:'Orange alert',red:'Red alert'};
+document.querySelectorAll('.demo button').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('.demo button').forEach(x=>x.setAttribute('aria-pressed','false'));
+  b.setAttribute('aria-pressed','true');
+  document.body.dataset.alert=b.dataset.lv;
+  document.getElementById('alertname').textContent=names[b.dataset.lv];
+}));
+/* elapsed-since-origin clock */
+let s=139;setInterval(()=>{s++;const p=n=>String(n).padStart(2,'0');
+  document.getElementById('elapsed').textContent=`${p(Math.floor(s/3600))}:${p(Math.floor(s/60)%60)}:${p(s%60)}`;},1000);
+</script>
+</body>
+</html>
