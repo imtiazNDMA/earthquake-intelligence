@@ -944,8 +944,8 @@ async function refreshEvents(append = false) {
 }
 
 function renderEventList(events, total) {
-  eventsEl.innerHTML = `<div style="display:flex;align-items:center;gap:4px"><strong>Catalog</strong> <span style="color:#999;font-weight:400;font-size:11px">${total != null ? "(" + events.length + " of " + total + ")" : ""}</span><button id="cmp-toggle" class="cmp-toggle${_compareMode ? " active" : ""}">${_compareMode ? svgIcon("x", 12) + " Exit" : "Compare"}</button><span class="export-wrap"><button id="export-btn" class="export-btn" title="Download" aria-label="Download">${svgIcon("download", 13)}</button><div id="export-menu" class="export-menu"><a class="export-opt" data-format="csv">CSV</a><a class="export-opt" data-format="geojson">GeoJSON</a></div></span></div>` + (
-    events.length === 0 ? '<div style="color:#999;padding:8px 0;font-size:12px">No events yet — pull the USGS feed or calculate intensity</div>'
+  eventsEl.innerHTML = `<div style="display:flex;align-items:center;gap:4px"><strong>Catalog</strong> <span style="color:var(--text-muted);font-weight:400;font-size:15px">${total != null ? "(" + events.length + " of " + total + ")" : ""}</span><button id="cmp-toggle" class="cmp-toggle${_compareMode ? " active" : ""}">${_compareMode ? svgIcon("x", 12) + " Exit" : "Compare"}</button><span class="export-wrap"><button id="export-btn" class="export-btn" title="Download" aria-label="Download">${svgIcon("download", 13)}</button><div id="export-menu" class="export-menu"><a class="export-opt" data-format="csv">CSV</a><a class="export-opt" data-format="geojson">GeoJSON</a></div></span></div>` + (
+    events.length === 0 ? '<div style="color:var(--text-muted);padding:8px 0;font-size:16px">No events yet — pull the USGS feed or calculate intensity</div>'
     : events.map(ev => {
     const alertClass = ev.alert ? `evt-alert ${ev.alert}` : "";
     const alertText = ev.alert ? ev.alert.toUpperCase() : "";
@@ -966,7 +966,7 @@ function renderEventList(events, total) {
       <div class="evt-meta">${ev.source} · ${new Date(ev.occurred_at).toLocaleString()}</div>
     </div>`;
   }).join("") + (total != null && events.length < total
-    ? `<button id="load-more" style="width:100%;padding:4px;margin-top:6px;cursor:pointer;font-size:11px;background:transparent;color:var(--text);border:1px solid var(--border);border-radius:4px">Load ${Math.min(20, total - events.length)} more…</button>`
+    ? `<button id="load-more" style="width:100%;padding:4px;margin-top:6px;cursor:pointer;font-size:15px;background:transparent;color:var(--text);border:1px solid var(--border);border-radius:4px">Load ${Math.min(20, total - events.length)} more…</button>`
     : ""));
   document.querySelectorAll(".evt").forEach(el => {
     const activate = () => _compareMode ? selectForComparison(el.dataset.id) : showImpact(el.dataset.id);
@@ -1491,16 +1491,21 @@ function drawTimeline(events) {
   const x = e => pad.left + ((new Date(e.occurred_at).getTime() - t0) / ts) * pw;
   const y = e => pad.top + ph - ((e.magnitude - mm0) / ms) * ph;
   ctx.clearRect(0, 0, w, h);
-  ctx.strokeStyle = gridC; ctx.lineWidth = 1; ctx.font = "9px sans-serif";
+  ctx.strokeStyle = gridC; ctx.lineWidth = 1; ctx.font = "12px sans-serif";
   for (let m = Math.ceil(mm0); m <= Math.floor(mm1); m++) {
     const yy = pad.top + ph - ((m - mm0) / ms) * ph;
     ctx.beginPath(); ctx.moveTo(pad.left, yy); ctx.lineTo(w - pad.right, yy); ctx.stroke();
     ctx.fillStyle = axisC; ctx.textAlign = "right"; ctx.fillText(m + ".0", pad.left - 4, yy + 3);
   }
-  ctx.textAlign = "center"; ctx.fillStyle = axisC;
-  for (let i = 0; i < Math.min(4, sorted.length); i++) {
-    const idx = Math.floor((i / (Math.min(4, sorted.length) - 1)) * (sorted.length - 1));
-    ctx.fillText(new Date(sorted[idx].occurred_at).toLocaleDateString(), x(sorted[idx]), h - 4);
+  // Only the endpoints: the catalog's 20 newest events usually span hours, so
+  // interior ticks repeat the same date and pile up on each other.
+  ctx.fillStyle = axisC;
+  const dateAt = e => new Date(e.occurred_at).toLocaleDateString();
+  ctx.textAlign = "left";
+  ctx.fillText(dateAt(sorted[0]), pad.left, h - 4);
+  if (sorted.length > 1 && dateAt(sorted[0]) !== dateAt(sorted[sorted.length - 1])) {
+    ctx.textAlign = "right";
+    ctx.fillText(dateAt(sorted[sorted.length - 1]), w - pad.right, h - 4);
   }
   const AC = { green: "#2E9E5B", yellow: "#D8B22C", orange: "#DD5730", red: "#C42A2E" };
   sorted.forEach(e => {
@@ -1594,7 +1599,7 @@ async function showComparison() {
   _cmpLegendCtrl = L.control({ position: "bottomright" });
   _cmpLegendCtrl.onAdd = function() {
     const div = L.DomUtil.create("div", "legend");
-    div.innerHTML = `<div class="legend-title">Comparison</div><div style="display:flex;align-items:center;gap:6px;font-size:12px;padding:2px 0"><span style="display:inline-block;width:20px;height:14px;border-radius:3px;background:#8A94A0"></span>Event 1${ev1 ? " M" + ev1.magnitude.toFixed(1) : ""}</div><div style="display:flex;align-items:center;gap:6px;font-size:12px;padding:2px 0"><span style="display:inline-block;width:20px;height:14px;border-radius:3px;background:#DD5730"></span>Event 2${ev2 ? " M" + ev2.magnitude.toFixed(1) : ""}</div>`;
+    div.innerHTML = `<div class="legend-title">Comparison</div><div style="display:flex;align-items:center;gap:6px;font-size:16px;padding:2px 0"><span style="display:inline-block;width:20px;height:14px;border-radius:3px;background:#8A94A0"></span>Event 1${ev1 ? " M" + ev1.magnitude.toFixed(1) : ""}</div><div style="display:flex;align-items:center;gap:6px;font-size:16px;padding:2px 0"><span style="display:inline-block;width:20px;height:14px;border-radius:3px;background:#DD5730"></span>Event 2${ev2 ? " M" + ev2.magnitude.toFixed(1) : ""}</div>`;
     return div;
   };
   _cmpLegendCtrl.addTo(map);
@@ -2248,7 +2253,7 @@ function _asDetectRegion() {
     southern: "Southern Pakistan (Chaman Fault / Quetta)",
   };
   badge.innerHTML = `<span class="as-badge-inner as-${region}">${names[region]}</span>`
-    + `<span style="font-size:10px;color:var(--text-muted);margin-left:6px">(${lat.toFixed(1)}°N, ${lon.toFixed(1)}°E)</span>`;
+    + `<span style="font-size:14.5px;color:var(--text-muted);margin-left:6px">(${lat.toFixed(1)}°N, ${lon.toFixed(1)}°E)</span>`;
 }
 
 async function _asCalculate() {
@@ -2311,11 +2316,11 @@ function _asRenderResults(data) {
   const excluded = allTargets.filter(m => !_asMags.includes(m));
   const magsStr = _asMags.map(m => "M≥" + m).join(", ");
   const excludedStr = excluded.length
-    ? `<span style="color:var(--text-muted);font-size:10px"> (${excluded.map(m => "M " + m).join(", ")} excluded: above mainshock)</span>`
+    ? `<span style="color:var(--text-muted);font-size:14.5px"> (${excluded.map(m => "M " + m).join(", ")} excluded: above mainshock)</span>`
     : "";
   const extrapolated = _asMags.filter(m => m < data.params.Mmin);
   const caveat = extrapolated.length
-    ? `<div style="font-size:10px;color:var(--copper);margin-top:1px">M≥${extrapolated.join(", M≥")} is extrapolated below catalog completeness Mmin=${data.params.Mmin}.</div>`
+    ? `<div style="font-size:14.5px;color:var(--copper);margin-top:1px">M≥${extrapolated.join(", M≥")} is extrapolated below catalog completeness Mmin=${data.params.Mmin}.</div>`
     : "";
   const summaryEl = document.getElementById("as-summary");
   const ev = data.event;
@@ -2331,11 +2336,11 @@ function _asRenderResults(data) {
     <div class="as-summary-inner">
       <strong>${eventStr}</strong>
       <span class="as-badge-inner as-${data.region}">${escapeHtml(data.region_name)}</span>${zoneStr}
-      <div style="font-size:11px;color:var(--slate);margin-top:2px">
+      <div style="font-size:15px;color:var(--slate);margin-top:2px">
         ${magsStr}${excludedStr}
       </div>
       ${caveat}
-      <div style="font-size:11px;color:var(--text-muted);margin-top:1px">
+      <div style="font-size:15px;color:var(--text-muted);margin-top:1px">
         k=${Number(data.params.k).toPrecision(3)} · c=${escapeHtml(data.params.c)} · p=${escapeHtml(data.params.p)} · b=${escapeHtml(data.params.b)} · Mmin=${escapeHtml(data.params.Mmin)}
       </div>
     </div>
@@ -2430,22 +2435,22 @@ function _asShowExpanded() {
   const excluded = allTargets.filter(m => !_asMags.includes(m));
   const magsStr = _asMags.map(m => "M≥" + m).join(", ");
   const excludedStr = excluded.length
-    ? `<span style="color:var(--text-muted);font-size:10px"> (${excluded.map(m => "M " + m).join(", ")} excluded: above mainshock)</span>`
+    ? `<span style="color:var(--text-muted);font-size:14.5px"> (${excluded.map(m => "M " + m).join(", ")} excluded: above mainshock)</span>`
     : "";
   const extrapolated = _asMags.filter(m => m < _asData.params.Mmin);
   const caveat = extrapolated.length
-    ? `<div style="font-size:10px;color:var(--copper);margin-top:1px">M≥${extrapolated.join(", M≥")} is extrapolated below catalog completeness Mmin=${_asData.params.Mmin}.</div>`
+    ? `<div style="font-size:14.5px;color:var(--copper);margin-top:1px">M≥${extrapolated.join(", M≥")} is extrapolated below catalog completeness Mmin=${_asData.params.Mmin}.</div>`
     : "";
 
   summary.innerHTML = `
     <div class="as-summary-inner" style="background:var(--surface);border:1px solid var(--border)">
       <strong>${escapeHtml(eventStr)}</strong>
       <span class="as-badge-inner as-${_asData.region}">${escapeHtml(_asData.region_name)}</span>
-      <div style="font-size:11px;color:var(--slate);margin-top:2px">
+      <div style="font-size:15px;color:var(--slate);margin-top:2px">
         ${magsStr}${excludedStr}
       </div>
       ${caveat}
-      <div style="font-size:11px;color:var(--text-muted);margin-top:1px">
+      <div style="font-size:15px;color:var(--text-muted);margin-top:1px">
         k=${Number(_asData.params.k).toPrecision(3)} · c=${_asData.params.c} · p=${_asData.params.p} · b=${_asData.params.b} · Mmin=${_asData.params.Mmin}
       </div>
     </div>
