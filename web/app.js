@@ -159,13 +159,13 @@ const OVERLAY_CONFIG = {
   Provinces:       { id: "provinces",        color: "#666",   width: 1.0, defaultOn: true, opacity: 1, hoverFields: ["Name", "name", "NAME", "province", "PROVINCE"], hoverTolerancePx: 16 },
   Districts:       { id: "districts",        color: "#999",   width: 0.6, defaultOn: false, opacity: 0.8, hoverFields: ["Name", "name", "NAME", "district", "DISTRICT"], hoverTolerancePx: 16 },
   Tehsils:         { id: "tehsils",          color: "#bbb",   width: 0.4, defaultOn: false, opacity: 0.7, hoverFields: ["Name", "name", "NAME", "tehsil", "TEHSIL"], hoverTolerancePx: 16 },
-  "Global Faults": { id: "faults",           color: "#dc2626", width: 0.8, defaultOn: false, lineOnly: true, faultStyle: true, opacity: 0.9, hoverTolerancePx: 12 },
-  "Plate boundaries": { id: "plate_boundaries", color: "#f59e0b", width: 1.6, defaultOn: false, lineOnly: true, opacity: 0.85, hoverFields: ["Name_Full", "Name"], hoverTolerancePx: 12 },
-  "Pakistan Major": { id: "pak_faults_major", color: "#dc2626", width: 1.1, defaultOn: true, lineOnly: true, faultStyle: true, opacity: 0.9, hoverFields: ["Name", "Symbols", "Type"], hoverTolerancePx: 12 },
-  "Pakistan Minor": { id: "pak_faults_minor", color: "#dc2626", width: 1.1, defaultOn: false, lineOnly: true, faultStyle: true, opacity: 0.9, hoverFields: ["Name", "Symbols", "Lables"], hoverTolerancePx: 12,
+  "Global Faults": { id: "faults",           color: "#C42A2E", width: 0.8, defaultOn: false, lineOnly: true, faultStyle: true, opacity: 0.9, hoverTolerancePx: 12 },
+  "Plate boundaries": { id: "plate_boundaries", color: "#D8B22C", width: 1.6, defaultOn: false, lineOnly: true, opacity: 0.85, hoverFields: ["Name_Full", "Name"], hoverTolerancePx: 12 },
+  "Pakistan Major": { id: "pak_faults_major", color: "#C42A2E", width: 1.1, defaultOn: true, lineOnly: true, faultStyle: true, opacity: 0.9, hoverFields: ["Name", "Symbols", "Type"], hoverTolerancePx: 12 },
+  "Pakistan Minor": { id: "pak_faults_minor", color: "#C42A2E", width: 1.1, defaultOn: false, lineOnly: true, faultStyle: true, opacity: 0.9, hoverFields: ["Name", "Symbols", "Lables"], hoverTolerancePx: 12,
                       note: "Source currently contains one feature: Karakuram Fault." },
-  "Tectonic Zones":{ id: "pak_tectonic_zones", color: "#6366f1", width: 0.5, defaultOn: false,
-                     fillColor: "#6366f1", fillOpacity: 0.3, opacity: 0.7 },
+  "Tectonic Zones":{ id: "pak_tectonic_zones", color: "#8C5A3C", width: 0.5, defaultOn: false,
+                     fillColor: "#8C5A3C", fillOpacity: 0.3, opacity: 0.7 },
 };
 
 const DEFAULT_HOVER_FIELDS = ["Name", "name", "Fault_Name", "FAULT", "fault", "TYPE", "Type", "type", "Length_km", "Fault_Leng", "SlipRate"];
@@ -611,6 +611,10 @@ function updateExportEnabled() {
   btn.disabled = !(_lastFc && anyChecked);
 }
 
+// Render the MMI ladder: one rung per band, severe at the top so the spine
+// reads like the map (hot core first). A rung is pressed when its band is
+// included in the shapefile export; the hidden checkbox keeps the export
+// selection API unchanged.
 function renderLegend(fc) {
   if (!_legendDiv) return;
   _legendItems = {};
@@ -619,33 +623,44 @@ function renderLegend(fc) {
   const hasData = !!(fc && fc.features && fc.features.length);
   const levels = hasData ? presentLevels(fc) : MMI_PALETTE.map(([m]) => m);
 
-  let html = "<div class='legend-title'>MMI Intensity</div>";
-  // Highest intensity on top so the legend reads like the map (hot core first).
+  let html = `<div class="ladder-cap">Mercalli band</div><div class="ladder-rungs">`;
   levels.slice().reverse().forEach(m => {
+    const [roman, name] = MMI_CLASSES[m] || [String(m), ""];
     const cb = hasData
-      ? `<input type="checkbox" class="legend-cb" data-level="${m}" checked aria-label="Include MMI ${mmiClassLabel(m)} in export">`
+      ? `<input type="checkbox" class="legend-cb" data-level="${m}" checked hidden aria-label="Include MMI ${mmiClassLabel(m)} in export">`
       : "";
-    html += `<div class="legend-item" data-level="${m}">${cb}` +
-      `<span class="legend-swatch" style="background:${colorOf[m]}"></span>` +
-      `<span class="legend-label">${mmiClassLabel(m)}</span></div>`;
+    html += `<button type="button" class="rung" data-level="${m}" aria-pressed="${hasData}"` +
+      ` title="MMI ${roman} — ${name}">${cb}` +
+      `<span class="rung-fill" style="background:${colorOf[m]}"></span>` +
+      `<span class="rung-num">${roman}</span>` +
+      `<span class="rung-label">${roman} · ${name}</span></button>`;
   });
-  // Class I (Not Felt) is never contoured (no band below MMI 2); list it as a
-  // reference for the un-shaded background so the full scheme is represented.
-  html += `<div class="legend-item legend-note">` +
-    `<span class="legend-swatch" style="background:#ffffff"></span>` +
-    `<span class="legend-label">${mmiClassLabel(1)}</span></div>`;
-  html += `<button type="button" id="legend-export" class="legend-export"${hasData ? "" : " disabled"}>⬇ Export shapefile</button>`;
+  // Class I (Not Felt) is never contoured (no band below MMI 2); show it as a
+  // dashed reference rung so the full scheme is represented.
+  html += `<span class="rung rung-note" title="MMI I — Not Felt">` +
+    `<span class="rung-fill"></span><span class="rung-num">I</span>` +
+    `<span class="rung-label">I · Not Felt</span></span>`;
+  html += `</div><button type="button" id="legend-export" class="ladder-export"` +
+    `${hasData ? "" : " disabled"}>Export</button>`;
   _legendDiv.innerHTML = html;
 
-  _legendDiv.querySelectorAll(".legend-item[data-level]").forEach(el => {
+  _legendDiv.querySelectorAll(".rung[data-level]").forEach(el => {
     const level = parseInt(el.dataset.level);
     el.addEventListener("mouseenter", () => highlightByLevel(level));
     el.addEventListener("mouseleave", () => unhighlightAll());
+    el.addEventListener("focus", () => highlightByLevel(level));
+    el.addEventListener("blur", () => unhighlightAll());
+    el.addEventListener("click", () => {
+      const cb = _legendCheckboxes[level];
+      if (!cb) return;
+      cb.checked = !cb.checked;
+      el.setAttribute("aria-pressed", String(cb.checked));
+      updateExportEnabled();
+    });
     _legendItems[level] = el;
   });
   _legendDiv.querySelectorAll(".legend-cb").forEach(cb => {
     _legendCheckboxes[parseInt(cb.dataset.level)] = cb;
-    cb.addEventListener("change", updateExportEnabled);
   });
   const btn = _legendDiv.querySelector("#legend-export");
   if (btn) btn.addEventListener("click", exportShapefile);
@@ -681,24 +696,24 @@ async function exportShapefile() {
   }
 }
 
-let _legendAdded = false;
-const legendCtrl = L.control({ position: "bottomright" });
-legendCtrl.onAdd = function () {
-  const div = L.DomUtil.create("div", "legend");
-  _legendDiv = div;
-  L.DomEvent.disableClickPropagation(div);
-  L.DomEvent.disableScrollPropagation(div);
-  renderLegend(null);
-  return div;
-};
+// The ladder is a fixed part of the shell (see #mmi-ladder in index.html), not
+// a Leaflet control — it spans the full height of the map's right edge.
+_legendDiv = document.getElementById("mmi-ladder");
 
 function _showLegend(fc) {
-  if (!_legendAdded) { legendCtrl.addTo(map); _legendAdded = true; }
+  if (!_legendDiv) return;
+  _legendDiv.hidden = false;
+  document.body.classList.add("has-ladder");
   renderLegend(fc);
 }
 
 function _hideLegend() {
-  if (_legendAdded) { map.removeControl(legendCtrl); _legendAdded = false; _legendDiv = null; }
+  if (!_legendDiv) return;
+  _legendDiv.hidden = true;
+  document.body.classList.remove("has-ladder");
+  _legendDiv.innerHTML = "";
+  _legendItems = {};
+  Object.keys(_legendCheckboxes).forEach(k => delete _legendCheckboxes[k]);
 }
 
 function onMmiFeature(f, l) {
@@ -791,14 +806,20 @@ function updateCurrentEventCard(event) {
   const card = document.getElementById("current-event-card");
   if (!card) return;
   const main = document.getElementById("current-event-main");
+  const place = document.getElementById("current-event-place");
   const meta = document.getElementById("current-event-meta");
+  const label = document.getElementById("current-label");
   const pills = card.querySelector(".current-pills");
   if (!event) {
     _currentEvent = null;
     card.classList.remove("active");
-    main.textContent = "No event selected";
+    label.textContent = "No active event";
+    main.textContent = "—";
+    place.textContent = "Nothing selected";
     meta.textContent = "Draw a footprint or select an event from the catalog.";
     pills.innerHTML = "<span>Epicenter pending</span><span>MMI pending</span>";
+    updateStatusBar(null);
+    hideExposureStrip();
     return;
   }
   const mag = Number(event.magnitude);
@@ -807,8 +828,18 @@ function updateCurrentEventCard(event) {
   const lon = Number(event.lon);
   _currentEvent = event;
   card.classList.add("active");
-  main.textContent = `${Number.isFinite(mag) ? "M" + mag.toFixed(1) : "M?"} current event`;
-  meta.textContent = `${Number.isFinite(depth) ? depth.toFixed(0) + " km" : "Depth ?"} depth • ${Number.isFinite(lat) && Number.isFinite(lon) ? `${lat.toFixed(2)}°N, ${lon.toFixed(2)}°E` : "Location pending"}`;
+  label.textContent = event.source
+    ? `Active event · ${event.source} ${event.source === "PMD" ? "primary" : ""}`.trim()
+    : "Active event · manual";
+  main.innerHTML = `${Number.isFinite(mag) ? mag.toFixed(1) : "?"}` +
+    `<span class="cur-unit">M${event.mag_type ? "" : "w"} · ` +
+    `${Number.isFinite(depth) ? depth.toFixed(0) + " KM DEEP" : "DEPTH ?"}</span>`;
+  place.textContent = event.place || "Location not named";
+  const coords = Number.isFinite(lat) && Number.isFinite(lon)
+    ? `${lat.toFixed(2)}° N &nbsp;${lon.toFixed(2)}° E` : "Coordinates pending";
+  const when = event.occurred_at
+    ? " · Origin " + new Date(event.occurred_at).toLocaleTimeString() : "";
+  meta.innerHTML = `${coords}${when}`;
   pills.innerHTML = `<span>Epicenter pinned</span><span>${_mmiVisible ? "MMI visible" : "MMI hidden"}</span>`;
 }
 
@@ -839,6 +870,13 @@ async function calculate() {
     if (epicenterMarker) map.removeLayer(epicenterMarker);
     epicenterMarker = makeEpicenterMarker(payload.lat, payload.lon, "#000000", "Epicenter").addTo(map);
     updateCurrentEventCard(payload);
+    // A manual footprint has no PAGER alert and no admin rollups, so the strip
+    // stays down; the status bar still reports magnitude and peak intensity.
+    const peakBand = (fc.features || [])
+      .reduce((m, f) => Math.max(m, (f.properties || {}).mmi_lower || 0), 0);
+    updateStatusBar({ magnitude: payload.magnitude, source: "MANUAL", alert: null,
+                      occurred_at: new Date().toISOString() }, peakBand);
+    hideExposureStrip();
 
     statusEl.textContent = `${fc.features.length} intensity bands`;
     if (intensityLayer && intensityLayer.getBounds().isValid()) map.fitBounds(intensityLayer.getBounds());
@@ -928,7 +966,7 @@ function renderEventList(events, total) {
       <div class="evt-meta">${ev.source} · ${new Date(ev.occurred_at).toLocaleString()}</div>
     </div>`;
   }).join("") + (total != null && events.length < total
-    ? `<button id="load-more" style="width:100%;padding:4px;margin-top:6px;cursor:pointer;font-size:11px;background:transparent;color:#0F4C81;border:1px solid #Bcd2e6;border-radius:4px">Load ${Math.min(20, total - events.length)} more…</button>`
+    ? `<button id="load-more" style="width:100%;padding:4px;margin-top:6px;cursor:pointer;font-size:11px;background:transparent;color:var(--text);border:1px solid var(--border);border-radius:4px">Load ${Math.min(20, total - events.length)} more…</button>`
     : ""));
   document.querySelectorAll(".evt").forEach(el => {
     const activate = () => _compareMode ? selectForComparison(el.dataset.id) : showImpact(el.dataset.id);
@@ -1059,6 +1097,13 @@ async function showImpact(id) {
   // Render impact table
   impactEl._rollups = data.rollups;
   renderRollup(data.rollups, "district");
+  // Peak intensity comes from the drawn bands, not the rollups: a footprint
+  // outside the boundary dataset still has a real peak.
+  const peak = (data.bands.features || [])
+    .reduce((m, f) => Math.max(m, (f.properties || {}).mmi_lower || 0), 0);
+  impactEl._peakMmi = peak;
+  updateStatusBar(evt, peak);
+  renderExposureStrip(data.rollups, document.getElementById("xs-level").value, peak);
 }
 
 function renderDetail(evt) {
@@ -1210,6 +1255,167 @@ function renderRollup(rollups, level) {
     renderRollup(impactEl._rollups, e.target.value));
 }
 
+// ---- Status bar: the alert takeover -------------------------------------
+// The whole console adopts the active event's PAGER alert level: --alert
+// drives --brand, the room frame, and every accent derived from it. Events
+// without a PAGER alert (manual entries, most PMD rows) read as "none", which
+// resolves to a steel blue matching no PAGER level.
+const _ALERT_TEXT = {
+  green: "Green alert", yellow: "Yellow alert",
+  orange: "Orange alert", red: "Red alert",
+};
+
+function setAlertLevel(level, label) {
+  const lv = _ALERT_TEXT[level] ? level : "none";
+  document.documentElement.dataset.alert = lv;
+  const el = document.getElementById("alert-chip-text");
+  if (el) el.textContent = lv === "none" ? (label || "No PAGER alert") : _ALERT_TEXT[lv];
+  document.querySelectorAll("[data-alert-preview]").forEach((button) => {
+    button.setAttribute("aria-pressed", button.dataset.alertPreview === lv ? "true" : "false");
+  });
+}
+
+document.querySelectorAll("[data-alert-preview]").forEach((button) => {
+  button.addEventListener("click", () => setAlertLevel(button.dataset.alertPreview));
+});
+
+// A running clock only means something while a response is live. Past 72 hours
+// the elapsed count is noise, so the bar shows the origin date instead.
+const _ELAPSED_MAX_S = 72 * 3600;
+let _elapsedTimer = null;
+
+function startElapsed(occurredAt) {
+  const out = document.getElementById("sb-elapsed");
+  const lbl = document.getElementById("sb-elapsed-label");
+  if (!out) return;
+  if (_elapsedTimer) { clearInterval(_elapsedTimer); _elapsedTimer = null; }
+  const t0 = occurredAt ? new Date(occurredAt).getTime() : NaN;
+  if (!Number.isFinite(t0)) {
+    out.textContent = "—";
+    if (lbl) lbl.textContent = "ELAPSED";
+    return;
+  }
+  if ((Date.now() - t0) / 1000 > _ELAPSED_MAX_S) {
+    if (lbl) lbl.textContent = "ORIGIN";
+    out.textContent = new Date(t0).toLocaleDateString(undefined,
+      { day: "2-digit", month: "short", year: "numeric" }).toUpperCase();
+    return;
+  }
+  if (lbl) lbl.textContent = "ELAPSED";
+  const tick = () => {
+    const s = Math.max(0, Math.floor((Date.now() - t0) / 1000));
+    const p = n => String(n).padStart(2, "0");
+    out.textContent = `${p(Math.floor(s / 3600))}:${p(Math.floor(s / 60) % 60)}:${p(s % 60)}`;
+  };
+  tick();
+  _elapsedTimer = setInterval(tick, 1000);
+}
+
+// Reflect an event in the status bar. Called whenever an event becomes active.
+function updateStatusBar(evt, peakMmi) {
+  const id = document.getElementById("sb-event");
+  const peak = document.getElementById("sb-peak");
+  if (!evt) {
+    setAlertLevel(null, "No active event");
+    if (id) id.textContent = "—";
+    if (peak) peak.textContent = "—";
+    startElapsed(null);
+    return;
+  }
+  setAlertLevel(evt.alert);
+  if (id) {
+    const mag = Number(evt.magnitude);
+    id.textContent = `${Number.isFinite(mag) ? "M" + mag.toFixed(1) : "M?"} ${evt.source || ""}`.trim();
+    id.title = evt.place || "";
+  }
+  if (peak) peak.textContent = peakMmi ? `MMI ${(MMI_CLASSES[peakMmi] || [peakMmi])[0]}` : "—";
+  startElapsed(evt.occurred_at);
+}
+
+// Start with the room at rest: no alert frame, no event in the status bar.
+updateStatusBar(null);
+
+(function startClock() {
+  const el = document.getElementById("sb-clock");
+  if (!el) return;
+  const tick = () => {
+    el.textContent = new Date().toLocaleString(undefined, {
+      hour: "2-digit", minute: "2-digit", day: "2-digit", month: "short",
+    }).toUpperCase();
+  };
+  tick();
+  setInterval(tick, 30000);
+})();
+
+// ---- Exposure strip ------------------------------------------------------
+// Administrative units by the peak intensity that reaches them. Segment width
+// is that band's share of affected units, so the shape of the emergency reads
+// without parsing numbers. Population and building counts are not available
+// from the impact API, so units are what this reports.
+function hideExposureStrip() {
+  const strip = document.getElementById("exposure-strip");
+  if (!strip) return;
+  strip.hidden = true;
+  document.body.classList.remove("has-strip");
+}
+
+function renderExposureStrip(rollups, level, peakBand) {
+  const strip = document.getElementById("exposure-strip");
+  if (!strip || !rollups) return;
+  const rows = (rollups[level] || []).filter(d => d.mmi_max > 0);
+  const bandsEl = document.getElementById("xs-bands");
+  const noun = level === "province" ? "Provinces" : level === "tehsil" ? "Tehsils" : "Districts";
+
+  strip.hidden = false;
+  document.body.classList.add("has-strip");
+  if (map) setTimeout(() => map.invalidateSize(), 60);
+
+  const byBand = new Map();
+  rows.forEach(d => byBand.set(d.mmi_max, (byBand.get(d.mmi_max) || 0) + 1));
+  const strong = rows.filter(d => d.mmi_max >= 6).length;
+  const peak = peakBand || rows.reduce((m, d) => Math.max(m, d.mmi_max), 0);
+  const colorOf = Object.fromEntries(MMI_PALETTE);
+
+  document.getElementById("xs-lead-label").textContent = `${noun} at MMI VI and above`;
+  document.getElementById("xs-lead-val").textContent = strong.toLocaleString();
+  document.getElementById("xs-lead-sub").textContent =
+    `of ${rows.length.toLocaleString()} ${noun.toLowerCase()} in the footprint`;
+  document.getElementById("xs-peak-val").textContent =
+    peak ? (MMI_CLASSES[peak] || [String(peak)])[0] : "—";
+  document.getElementById("xs-total-val").textContent = rows.length.toLocaleString();
+
+  if (!byBand.size) {
+    // Distinguish "nothing shakes" from "the footprint is off the map we hold
+    // boundaries for" — both return no rows, but they mean different things.
+    bandsEl.innerHTML = `<div class="xs-empty">${peak
+      ? "Shaking reaches MMI " + (MMI_CLASSES[peak] || [peak])[0] +
+        ", but the footprint falls outside the district boundary dataset."
+      : "No administrative unit reaches MMI 2."}</div>`;
+    return;
+  }
+  bandsEl.innerHTML = [...byBand.entries()].sort((a, b) => a[0] - b[0]).map(([m, n]) => {
+    const [roman, name] = MMI_CLASSES[m] || [String(m), ""];
+    return `<button type="button" class="xs-band" data-level="${m}" style="flex:${n}"` +
+      ` title="MMI ${roman} — ${name}: ${n} ${noun.toLowerCase()}">` +
+      `<i style="background:${colorOf[m] || "#888"}"></i>` +
+      `<span class="xs-lab"><u>${roman}</u><span>${n}</span></span></button>`;
+  }).join("");
+
+  // Hovering a segment highlights the same band's polygons on the map.
+  bandsEl.querySelectorAll(".xs-band").forEach(el => {
+    const lv = parseInt(el.dataset.level);
+    el.addEventListener("mouseenter", () => highlightByLevel(lv));
+    el.addEventListener("mouseleave", () => unhighlightAll());
+    el.addEventListener("click", () => selectMmiLevel(lv));
+  });
+}
+
+document.getElementById("xs-level").addEventListener("change", (e) => {
+  if (impactEl._rollups) {
+    renderExposureStrip(impactEl._rollups, e.target.value, impactEl._peakMmi);
+  }
+});
+
 // Fetch per-source counts for catalog tabs.
 function updateTabCounts() {
   const params = new URLSearchParams();
@@ -1296,7 +1502,7 @@ function drawTimeline(events) {
     const idx = Math.floor((i / (Math.min(4, sorted.length) - 1)) * (sorted.length - 1));
     ctx.fillText(new Date(sorted[idx].occurred_at).toLocaleDateString(), x(sorted[idx]), h - 4);
   }
-  const AC = { green: "#2E7D32", yellow: "#F9A825", orange: "#EF6C00", red: "#C62828" };
+  const AC = { green: "#2E9E5B", yellow: "#D8B22C", orange: "#DD5730", red: "#C42A2E" };
   sorted.forEach(e => {
     ctx.beginPath(); ctx.arc(x(e), y(e), 4, 0, Math.PI * 2);
     ctx.fillStyle = AC[e.alert] || "#666";
@@ -1368,7 +1574,9 @@ async function showComparison() {
   _compLayers = [];
   if (intensityLayer) { map.removeLayer(intensityLayer); intensityLayer = null; }
   _hideLegend();
-  const BLUE = ["#dbeafe","#93c5fd","#60a5fa","#3b82f6","#2563eb","#1d4ed8","#1e40af","#1e3a8a","#172554"];
+  hideExposureStrip();
+  // Two events, two ramps: steel against ember — no third hue enters the room.
+  const BLUE =["#E4E1DA","#CBC7BD","#AFACA3","#94958F","#7A7D7B","#63696A","#4E5457","#3B4145","#2A2F33"];
   const ORANGE = ["#fff7ed","#fed7aa","#fdba74","#fb923c","#f97316","#ea580c","#c2410c","#9a3412","#7c2d12"];
   const mkStyle = p => f => {
     const i = Math.max(0, Math.min(8, (f.properties.mmi_lower || 2) - 2));
@@ -1386,7 +1594,7 @@ async function showComparison() {
   _cmpLegendCtrl = L.control({ position: "bottomright" });
   _cmpLegendCtrl.onAdd = function() {
     const div = L.DomUtil.create("div", "legend");
-    div.innerHTML = `<div class="legend-title">Comparison</div><div style="display:flex;align-items:center;gap:6px;font-size:12px;padding:2px 0"><span style="display:inline-block;width:20px;height:14px;border-radius:3px;background:#0F4C81"></span>Event 1${ev1 ? " M" + ev1.magnitude.toFixed(1) : ""}</div><div style="display:flex;align-items:center;gap:6px;font-size:12px;padding:2px 0"><span style="display:inline-block;width:20px;height:14px;border-radius:3px;background:#C97A24"></span>Event 2${ev2 ? " M" + ev2.magnitude.toFixed(1) : ""}</div>`;
+    div.innerHTML = `<div class="legend-title">Comparison</div><div style="display:flex;align-items:center;gap:6px;font-size:12px;padding:2px 0"><span style="display:inline-block;width:20px;height:14px;border-radius:3px;background:#8A94A0"></span>Event 1${ev1 ? " M" + ev1.magnitude.toFixed(1) : ""}</div><div style="display:flex;align-items:center;gap:6px;font-size:12px;padding:2px 0"><span style="display:inline-block;width:20px;height:14px;border-radius:3px;background:#DD5730"></span>Event 2${ev2 ? " M" + ev2.magnitude.toFixed(1) : ""}</div>`;
     return div;
   };
   _cmpLegendCtrl.addTo(map);
@@ -1489,18 +1697,20 @@ function _quakeMarker(event) {
   marker.bindPopup(
     `<strong>M${Number(event.magnitude).toFixed(1)}</strong><br>` +
     `${escapeHtml(event.place || "Unknown location")}<br>` +
-    `<span style="color:#64748B">${new Date(event.occurred_at).toLocaleString()}</span>`
+    `<span style="color:var(--text-muted)">${new Date(event.occurred_at).toLocaleString()}</span>`
   );
   return marker;
 }
 
+// Magnitude is ordered, so it reads as one ramp from quiet steel to hot ember
+// rather than as unrelated hues.
 function _magColor(mag) {
-  if (mag >= 7.1) return "#dc2626";   // red
-  if (mag >= 6.1) return "#ea580c";   // dark orange
-  if (mag >= 5.1) return "#eab308";   // yellow
-  if (mag >= 4.1) return "#3b82f6";   // blue
-  if (mag >= 3.1) return "#a855f7";   // purple
-  return "#16a34a";                   // green (≤ 3.0)
+  if (mag >= 7.1) return "#A32226";   // deep ember
+  if (mag >= 6.1) return "#DD5730";   // ember
+  if (mag >= 5.1) return "#E08A34";   // light ember
+  if (mag >= 4.1) return "#D8B22C";   // amber
+  if (mag >= 3.1) return "#9AA4AF";   // steel
+  return "#6E7B85";                   // deep steel (≤ 3.0)
 }
 
 async function loadMapEvents({ fit = true } = {}) {
@@ -1576,7 +1786,7 @@ document.getElementById("filter-source").addEventListener("change", () => {
 });
 
 // --- Sidebar rail: section switching + collapse ---
-const SECTIONS = { event: "sec-event", catalog: "sec-catalog", mapEvents: "sec-map-events", aftershock: "sec-aftershock", dashboard: "sec-dashboard", config: "sec-config" };
+const SECTIONS = { event: "sec-event", catalog: "sec-catalog", mapEvents: "sec-map-events", aftershock: "sec-aftershock", infra: "sec-infra", dashboard: "sec-dashboard", config: "sec-config" };
 // Start as null (not "event") so the initial showSection("event") renders the
 // section instead of matching the active-icon-toggle guard and collapsing.
 let activeSection = null;
@@ -1591,7 +1801,7 @@ function setCollapsed(value) {
 }
 
 // (Re)render the rail icons, reflecting which section is active (for Lordicon coloring).
-const RAIL_GLYPH = { event: "plus", catalog: "list", mapEvents: "pin", aftershock: "target", dashboard: "chart", config: "settings" };
+const RAIL_GLYPH = { event: "plus", catalog: "list", mapEvents: "pin", aftershock: "target", infra: "building", dashboard: "chart", config: "settings" };
 function renderRailIcons() {
   document.querySelectorAll(".rail-ic").forEach((b) => {
     const section = b.dataset.section;
@@ -1687,11 +1897,19 @@ function mk(id, conf) {
   return ch;
 }
 
-// Chart palette — mirrors the "Seismic Slate" tokens in styles.css.
-// Cool/neutral = interface; the alert ramp (alertColors) stays domain-locked.
+// Chart palette — mirrors the "Situation Room" tokens in styles.css.
+// Steel and sand carry the interface; warm hues carry magnitude and hazard.
+// No blues or purples: the console has no colour that isn't earned.
+// Keys are kept for call-site compatibility.
 const C_ = {
-  blue: "#0F4C81", orange: "#C97A24", teal: "#0D9488", red: "#C62828",
-  purple: "#7C3AED", amber: "#F9A825", green: "#2E7D32", gray: "#94A3B8",
+  blue: "#8A94A0",   // steel  — primary series
+  orange: "#DD5730", // ember
+  teal: "#6E7B85",   // deep steel
+  red: "#C42A2E",
+  purple: "#8C5A3C", // umber
+  amber: "#D8B22C",
+  green: "#2E9E5B",
+  gray: "#5A6570",
 };
 
 const _analyticsState = { window: "1y", minMag: "mc", zoneId: null, bbox: null };
@@ -1733,8 +1951,8 @@ function renderFmd(f) {
     type: "bar",
     data: { labels: f.bins.map(m => m.toFixed(1)), datasets: [
       { label: "Cumulative (≥ M)", data: f.cumulative, type: "line", borderColor: C_.orange,
-        backgroundColor: "rgba(201,122,36,0.08)", fill: true, tension: 0, pointRadius: 0, order: 1 },
-      { label: "Incremental", data: f.incremental, backgroundColor: "rgba(15,76,129,0.35)",
+        backgroundColor: "rgba(221,87,48,0.08)", fill: true, tension: 0, pointRadius: 0, order: 1 },
+      { label: "Incremental", data: f.incremental, backgroundColor: "rgba(138,148,160,0.32)",
         borderColor: C_.blue, borderWidth: 1, order: 2, borderRadius: 2 },
     ]},
     options: {
@@ -1764,9 +1982,9 @@ function renderRate(series) {
     type: "line",
     data: { labels: series.map(s => s.month), datasets: [
       { label: "Total", data: series.map(s => s.total), borderColor: C_.gray,
-        backgroundColor: "rgba(148,163,184,0.15)", fill: true, tension: .2, pointRadius: 0 },
+        backgroundColor: "rgba(90,101,112,0.18)", fill: true, tension: .2, pointRadius: 0 },
       { label: "Background (declustered)", data: series.map(s => s.background),
-        borderColor: C_.blue, backgroundColor: "rgba(15,76,129,0.10)", fill: true, tension: .2, pointRadius: 0 },
+        borderColor: C_.blue, backgroundColor: "rgba(138,148,160,0.12)", fill: true, tension: .2, pointRadius: 0 },
     ]},
     options: { plugins: { legend: { position: "top", labels: { font: { size: 10 }, boxWidth: 14 } },
       title: { display: true, text: "Monthly seismicity rate — total vs background", font: { size: 12, weight: "600" } } },
@@ -1790,7 +2008,7 @@ async function renderHotspotMap(grid) {
   grid.forEach(c => {
     const t = c.count / max;
     L.rectangle([[c.lat_low, c.lon_low], [c.lat_low + cell, c.lon_low + cell]], {
-      stroke: false, fillColor: "#C97A24", fillOpacity: 0.15 + 0.6 * t,
+      stroke: false, fillColor: "#D8B22C", fillOpacity: 0.15 + 0.6 * t,
     }).addTo(_hotspotMap)
       .bindPopup(`${c.count} events · max M${c.max_mag} · mean depth ${c.mean_depth} km`)
       .on("click", () => {
@@ -1803,7 +2021,7 @@ async function renderHotspotMap(grid) {
   try {
     const fc = await (await fetch("/zones")).json();
     _zonesLayer = L.geoJSON(fc, {
-      style: { color: "#0F4C81", weight: 1, fill: false },
+      style: { color: "#8A94A0", weight: 1, fill: false },
       onEachFeature: (feat, lyr) => lyr.on("click", () => {
         _analyticsState.zoneId = feat.properties.zone_id;
         _analyticsState.bbox = null; renderDashboard();
@@ -1974,7 +2192,8 @@ let _asExpandedChart = null;
 let _asData = null;
 const _AS_DAYS = [1, 3, 5, 7, 14, 30];
 const _AS_TARGETS = [3, 4, 5, 6, 7];
-const _AS_COLORS = ["#0F4C81", "#C97A24", "#7C3AED", "#2E7D32", "#B91C1C"];
+// Target magnitudes are ordered, so the series read as a warm ramp.
+const _AS_COLORS = ["#9AA4AF", "#D8B22C", "#E08A34", "#DD5730", "#A32226"];
 
 function _asDestroyChart() {
   if (_asChart) { _asChart.destroy(); _asChart = null; }
