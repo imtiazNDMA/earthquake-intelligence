@@ -1,8 +1,19 @@
 """Shared constants. Domain language follows CONTEXT.md."""
+import os
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 VS30_TIF = PROJECT_ROOT / "data" / "Vs30.tif"
+
+# TileServerGL instance serving per-district building footprints (one .mbtiles
+# per district, vector layer id "buildings"). Typically a WSL host IP, which
+# moves between machines and reboots — hence env-configurable rather than baked
+# into the frontend. See src/eqmon/buildings.py.
+BUILDINGS_TILE_URL = os.getenv("BUILDINGS_TILE_URL", "http://172.19.112.1:8081").rstrip("/")
+
+# Buildings render only at/above this zoom. A national view of all 161 districts
+# is millions of polygons; this floor is the load-bearing guard against it.
+BUILDINGS_MIN_ZOOM = 12
 
 # Default Site Condition (CONTEXT.md): used where the Vs30 grid has no value.
 DEFAULT_VS30 = 760.0

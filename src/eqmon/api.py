@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from . import aftershock as ashock
 from . import analytics as ana
-from . import config, db
+from . import buildings, config, db
 from .contours import mmi_to_geojson
 from .export import featurecollection_to_shapefile_zip
 from .events.ingest import ingest
@@ -141,9 +141,14 @@ async def _lifespan(_app):
     start_ingest_scheduler()
     yield
     stop_ingest_scheduler()
+    await buildings.aclose()
 
 
 app = FastAPI(title="Earthquake Intensity Platform", lifespan=_lifespan)
+
+# Registered here — well above the /{full_path:path} SPA fallback at the bottom
+# of this module, which would otherwise swallow /buildings/*.
+app.include_router(buildings.router)
 
 
 def _vs30_path() -> Path:

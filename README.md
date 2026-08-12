@@ -122,3 +122,31 @@ Pakistan MET feed (Primary) is a documented stub (`METSource`) pending its
 format. **Dedup:** feed events within 60 s / 50 km cluster; the higher-priority
 source (MET > USGS) is canonical. **The Vs30 grid stays a GeoTIFF — it is not in
 the database.**
+
+## Infra Vulnerability layer (building footprints)
+
+The **Infra** panel renders Pakistan building footprints, banded by height, from
+an external [TileServerGL](https://github.com/maptiler/tileserver-gl) instance
+serving one vector dataset per district (161 `.mbtiles`, layer id `buildings`).
+Height is the only usable attribute in those tiles — it stands in for
+vulnerability and is **not** a calculated risk score; the legend says so.
+
+The tile server is not part of this repo. Point the app at a running instance:
+
+```
+BUILDINGS_TILE_URL=http://172.19.119.216:8081   # .env; defaults to http://172.19.112.1:8081
+```
+
+That host is typically a WSL IP, which changes between reboots — hence the env
+var rather than a baked-in frontend URL. To serve the datasets:
+
+```bash
+npm install -g tileserver-gl-light
+cd <mbtiles-dir> && tileserver-gl --config config.json -p 8081 --bind 0.0.0.0
+```
+
+FastAPI proxies both the catalog and the tiles (`src/eqmon/buildings.py`) so the
+frontend stays same-origin; `dataset` is checked against the cached catalog
+before any upstream request, so the proxy cannot be pointed at arbitrary paths.
+Buildings render only at zoom ≥ 12 and only for districts intersecting the
+viewport — typically 1–4 live sources instead of all 161.
