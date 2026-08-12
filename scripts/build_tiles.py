@@ -56,6 +56,9 @@ SHP_LAYERS = [
     # above, which has finer geometry but almost no populated attributes.
     ("major_faults",        "data/Major Faults/Fault_type.shp",                                              ["-z12"]),
     ("pak_tectonic_zones",  "data/PAK_Tectoniz_Zones/PAK_Tectonic_Zones.shp",                                ["-z10"]),
+    # Building-code seismic zonation: 5 polygons keyed on the PGA field, whose
+    # values ("Zone 1" .. "Zone 4") drive the fill colour in the frontend.
+    ("pga_zones",           "data/PGA/PGA.shp",                                                             ["-z10"]),
 ]
 
 

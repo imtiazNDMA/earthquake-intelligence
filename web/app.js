@@ -173,6 +173,24 @@ const OVERLAY_CONFIG = {
                                    Slip_rate: "Slip rate" },
                     hoverUnits: { Slip_rate: "mm/yr" },
                     hoverTolerancePx: 12 },
+  // Building-code seismic zonation. Colours are transcribed from the SLD that
+  // ships with the data (data/PGA/PGAstyles.sld) rather than chosen here — this
+  // is a published map and must be reproduced, not restyled. Note the ramp is
+  // not monotonic in lightness: Zone 2A is darker than Zone 1. That is what the
+  // source says.
+  "PGA Zones": { id: "pga_zones", color: "#232323", width: 0.6, defaultOn: false,
+                 fillOpacity: 0.55, opacity: 0.55,
+                 categorical: { prop: "PGA", colors: {
+                   "Zone 1": "#53741a", "Zone 2A": "#16381d", "Zone 2B": "#e7e371",
+                   "Zone 3": "#e9a353", "Zone 4": "#a14d44" } },
+                 legend: [
+                   { label: "Zone 1", color: "#53741a" },
+                   { label: "Zone 2A", color: "#16381d" },
+                   { label: "Zone 2B", color: "#e7e371" },
+                   { label: "Zone 3", color: "#e9a353" },
+                   { label: "Zone 4", color: "#a14d44" },
+                 ],
+                 hoverFields: ["PGA"], hoverLabels: { PGA: null }, hoverTolerancePx: 0 },
   "Tectonic Zones":{ id: "pak_tectonic_zones", color: "#8C5A3C", width: 0.5, defaultOn: false,
                      fillColor: "#8C5A3C", fillOpacity: 0.3, opacity: 0.7 },
 };
@@ -211,6 +229,39 @@ class NamedPolySymbolizer {
       ctx.fill();
       ctx.stroke();
     }
+  }
+}
+
+// Fill from an explicit value->colour lookup, unlike NamedPolySymbolizer which
+// hashes the name into a pastel. Used where the colours are published and must
+// be reproduced exactly (the PGA zonation's come from data/PGA/PGAstyles.sld).
+class CategoricalPolySymbolizer {
+  constructor(opts) {
+    this._prop = opts.prop;
+    this._colors = opts.colors;
+    this._fallback = opts.fallback ?? "rgba(0,0,0,0)";
+    this.stroke = opts.stroke;
+    this.width = opts.width;
+    this.alpha = opts.opacity ?? 1;
+  }
+  draw(ctx, geom, z, feature) {
+    ctx.save();
+    ctx.globalAlpha = this.alpha;
+    ctx.fillStyle = this._colors[feature.props[this._prop]] ?? this._fallback;
+    ctx.strokeStyle = this.stroke;
+    ctx.lineWidth = this.width;
+    for (const poly of geom) {
+      if (poly.length < 3) continue;
+      ctx.beginPath();
+      for (let p = 0; p < poly.length; p++) {
+        const pt = poly[p];
+        p === 0 ? ctx.moveTo(pt.x, pt.y) : ctx.lineTo(pt.x, pt.y);
+      }
+      ctx.closePath();
+      ctx.fill();
+      if (this.stroke) ctx.stroke();
+    }
+    ctx.restore();
   }
 }
 
@@ -366,6 +417,12 @@ function _setupFaultHover() {
 
 function _buildSymbolizer(overlayName, c) {
   const opacity = c.opacity ?? 1;
+  if (c.categorical) {
+    return new CategoricalPolySymbolizer({
+      prop: c.categorical.prop, colors: c.categorical.colors,
+      stroke: c.color, width: c.width, opacity: c.fillOpacity ?? opacity,
+    });
+  }
   if (overlayName === "Tectonic Zones" || c.fillColor) {
     const fillOpacity = c.fillOpacity ?? opacity;
     if (overlayName === "Tectonic Zones") {
@@ -524,6 +581,16 @@ function buildConfigPanel() {
     controls.appendChild(o);
     row.append(cb, sw, txt, controls);
     ovEl.appendChild(row);
+    if (c.legend) {
+      // Categorical layers cannot be summarised by the single swatch on the
+      // row, so the classes go directly beneath it — toggle and key together.
+      const legend = document.createElement("div");
+      legend.className = "pga-legend overlay-legend";
+      legend.innerHTML = c.legend.map(b =>
+        `<div class="pga-legend-row"><span class="pga-swatch" style="background:${b.color}"></span>` +
+        `<span>${escapeHtml(b.label)}</span></div>`).join("");
+      ovEl.appendChild(legend);
+    }
     if (c.note) {
       const note = document.createElement("div");
       note.className = "cfg-note overlay-note";

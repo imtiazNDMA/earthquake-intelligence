@@ -602,6 +602,9 @@ input:focus-visible { border-color: var(--brand); }
 .pga-legend-row { display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs);
   color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .pga-swatch { width: 14px; height: 12px; border-radius: 2px; flex: none; border: 1px solid var(--border); }
+/* Indented under the overlay row it belongs to, so it reads as that layer's key
+   rather than as another list item. */
+.overlay-legend { margin: 2px 0 6px 22px; }
 
 .bld-legend { display: flex; flex-direction: column; gap: 3px; margin-top: 2px; }
 .bld-legend-row { display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--text-muted); }

@@ -209,5 +209,14 @@ each return period has its own breaks over a shared five-step ramp. Re-deriving
 them (equal interval, quantile, Jenks) would produce a map that disagrees with
 the published hazard maps these grids came from.
 
-`data/PGA/PGA.shp` (the five-zone building-code zonation) and `PGAstyles.sld`
-are also in the drop but are not yet surfaced in the UI.
+### Zonation
+
+`data/PGA/PGA.shp` is the five-zone building-code seismic zonation (Zone 1, 2A,
+2B, 3, 4). It tiles like every other vector overlay (`scripts/build_tiles.py`)
+and appears in the Overlays list with its class key beneath it; hovering a zone
+names it.
+
+Its fills come from `data/PGA/PGAstyles.sld`, the style shipped with the data,
+not from a palette chosen here — same rule as the raster breaks. Note the ramp
+is not monotonic in lightness (Zone 2A is darker than Zone 1); that is what the
+source says, and reproducing a published map faithfully beats making it prettier.
