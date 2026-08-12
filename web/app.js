@@ -640,7 +640,13 @@ function renderLegend(fc) {
   html += `<span class="rung rung-note" title="MMI I — Not Felt">` +
     `<span class="rung-fill"></span><span class="rung-num">I</span>` +
     `<span class="rung-label">I · Not Felt</span></span>`;
-  html += `</div><button type="button" id="legend-export" class="ladder-export"` +
+  // Both actions belong to the footprint the ladder describes, so they live
+  // with it — the exposure strip would strand them, it only appears for
+  // catalog events and never for a hand-drawn footprint.
+  html += `</div><button type="button" id="ladder-arc" class="ladder-export ladder-arc"` +
+    `${hasData ? "" : " disabled"} title="Count people and infrastructure under the shaking">` +
+    `At risk</button>`;
+  html += `<button type="button" id="legend-export" class="ladder-export"` +
     `${hasData ? "" : " disabled"}>Export</button>`;
   _legendDiv.innerHTML = html;
 
@@ -664,6 +670,8 @@ function renderLegend(fc) {
   });
   const btn = _legendDiv.querySelector("#legend-export");
   if (btn) btn.addEventListener("click", exportShapefile);
+  const arcBtn = _legendDiv.querySelector("#ladder-arc");
+  if (arcBtn) arcBtn.addEventListener("click", _arcRun);
   updateExportEnabled();
 }
 
@@ -779,6 +787,9 @@ function renderCurrentMmiLayer(fc) {
   _lastFc = fc;
   _mmiLayers = {};
   _selectedMmiLevel = null;
+  // The footprint just changed, so any open ARC breakdown describes the old one.
+  // (The button itself is re-rendered with the ladder, in renderLegend.)
+  if (_arcData) { _arcData = null; _arcClose(); }
   if (intensityLayer) {
     map.removeLayer(intensityLayer);
     intensityLayer = null;
@@ -2572,6 +2583,9 @@ document.addEventListener("DOMContentLoaded", () => {
 // Load catalog events when aftershock section is shown
 const _origShowSection = showSection;
 showSection = function(key) {
+  // Close first: _arcClose restores the map, and showSection itself decides
+  // whether the map should be visible for the section being opened.
+  if (document.getElementById("arc-view").classList.contains("open")) _arcClose();
   _origShowSection(key);
   if (key !== "mapEvents" && _mapEventsLayer) {
     map.removeLayer(_mapEventsLayer);
@@ -2580,5 +2594,131 @@ showSection = function(key) {
   if (key === "mapEvents" && (!_mapEventsLoaded || !_mapEventsLayer)) loadMapEvents();
   if (key === "aftershock") _asLoadEvents();
 };
+
+// --- Elements at risk (ARC) ---------------------------------------------
+// The exposure strip answers "how many districts shake". This answers "what is
+// inside the shaking" — people and infrastructure, from the ARC service.
+
+// Order is the reading order, not ARC's. Population leads because it is the
+// number the room asks for first.
+const ARC_LAYERS = [
+  ["population",  "People",      "total"],
+  ["hospitals",   "Hospitals",   "count"],
+  ["schools",     "Schools",     "count"],
+  ["settlements", "Settlements", "count"],
+  ["roads",       "Roads",       "count"],
+  ["bridges",     "Bridges",     "count"],
+  ["airports",    "Airports",    "count"],
+];
+
+let _arcData = null;
+
+// Compact for the tiles; the exact figure sits underneath. Six-figure counts
+// read as noise at a glance, which is what the tiles are for.
+function _arcCompact(n) {
+  if (!isFinite(n)) return "—";
+  if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 1 : 2) + "M";
+  if (n >= 1e4) return Math.round(n / 1e3) + "k";
+  return Math.round(n).toLocaleString();
+}
+const _arcExact = n => Math.round(n || 0).toLocaleString();
+
+function _arcValue(elements, layer, field) {
+  const v = (elements || {})[layer];
+  return v ? (v[field] ?? 0) : 0;
+}
+
+function _arcOpen() {
+  document.getElementById("map").style.display = "none";
+  document.getElementById("arc-view").classList.add("open");
+}
+
+function _arcClose() {
+  document.getElementById("arc-view").classList.remove("open");
+  document.getElementById("map").style.display = "";
+  setTimeout(() => map.invalidateSize(), 100);
+}
+
+function _arcRender(data) {
+  const min = data.min_mmi;
+  const head = data.at_min_mmi || { elements: {}, area_km2: 0 };
+  const roman = (MMI_CLASSES[min] || [String(min)])[0];
+  const empty = !Object.keys(head.elements || {}).length;
+
+  document.getElementById("arc-summary").innerHTML =
+    `<div class="arc-lead">At MMI ${roman} and above` +
+    (head.area_km2 ? ` · ${_arcExact(head.area_km2)} km²` : "") + `</div>` +
+    (empty
+      ? `<div class="arc-tile"><span class="arc-k">No exposure</span>` +
+        `<b>—</b><span class="arc-exact">Shaking does not reach MMI ${roman}.</span></div>`
+      : `<div class="arc-tiles">` + ARC_LAYERS.map(([layer, label, field]) => {
+          const v = _arcValue(head.elements, layer, field);
+          const compact = _arcCompact(v), exact = _arcExact(v);
+          return `<div class="arc-tile"><span class="arc-k">${escapeHtml(label)}</span>` +
+            `<b>${compact}</b>` +
+            // Only when abbreviating actually lost something — "216 / 216"
+            // is noise.
+            (compact === exact ? "" : `<span class="arc-exact">${exact}</span>`) +
+            `</div>`;
+        }).join("") + `</div>`);
+
+  const colorOf = Object.fromEntries(MMI_PALETTE);
+  const rows = (data.bands || []).map(b => {
+    const lo = b.mmi_low;
+    const [rm, name] = MMI_CLASSES[lo] || [String(lo), ""];
+    return `<tr class="${lo >= min ? "" : "arc-below"}">` +
+      `<td><span class="arc-band-key"><i style="background:${colorOf[lo] || "#888"}"></i>` +
+      `MMI ${rm}${name ? " · " + name : ""}</span></td>` +
+      `<td>${_arcExact(b.area_km2)}</td>` +
+      ARC_LAYERS.map(([layer, , field]) =>
+        `<td>${_arcExact(_arcValue(b.elements, layer, field))}</td>`).join("") +
+      `</tr>`;
+  }).join("");
+
+  document.getElementById("arc-table").innerHTML =
+    `<div class="arc-table-wrap"><table class="arc-table">` +
+    `<thead><tr><th>Band</th><th>Area km²</th>` +
+    ARC_LAYERS.map(([, label]) => `<th>${escapeHtml(label)}</th>`).join("") +
+    `</tr></thead><tbody>${rows}</tbody></table></div>`;
+
+  // The footprint runs down to MMI 2, which for a large event is most of the
+  // country. Show that total, but say plainly why it is not the headline.
+  const wholePop = _arcValue(data.totals, "population", "total");
+  document.getElementById("arc-foot").innerHTML =
+    `<p>Each element is counted once, in the strongest band it falls in, so bands ` +
+    `never double-count and they sum to the whole-footprint total.</p>` +
+    `<p>Across the whole footprint (down to MMI II): ` +
+    `<b>${_arcExact(wholePop)}</b> people. That reaches far beyond damaging ` +
+    `shaking, which is why the figures above are cut at MMI ${roman}.</p>`;
+}
+
+async function _arcRun() {
+  const btn = document.getElementById("ladder-arc");
+  if (!btn || !_lastFc || !(_lastFc.features || []).length) return;
+  const label = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = spinnerHTML() + " Counting…";
+  try {
+    const resp = await fetch("/exposure/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bands: _lastFc }),
+    });
+    const body = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(body.detail || `HTTP ${resp.status}`);
+    _arcData = body;
+    _arcRender(body);
+    _arcOpen();
+  } catch (err) {
+    // A full scan is slow and the service is external: say which one failed
+    // rather than leaving an operator to guess the platform is broken.
+    toast("Elements at risk unavailable: " + err.message, "error", 6000);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = label;
+  }
+}
+
+document.getElementById("arc-close").addEventListener("click", _arcClose);
 
 showSection("event"); // default panel on load
