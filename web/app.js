@@ -666,18 +666,49 @@ function _pgaRender() {
   _pgaRenderLegend();
 }
 
+// The hazard key belongs next to the hazard, not in the sidebar the map is read
+// away from — so it rides in the map's bottom-right corner as a Leaflet control.
+// That position inherits the shell's existing chrome offsets (`.leaflet-right`
+// clears the MMI ladder, `.leaflet-bottom` clears the exposure strip).
+function _pgaEnsureMapLegend() {
+  if (_pga.els.mapLegend) return _pga.els.mapLegend;
+  const ctl = L.control({ position: "bottomright" });
+  ctl.onAdd = function () {
+    const div = L.DomUtil.create("div", "pga-map-legend");
+    // A legend is a reading surface, not a map surface: clicks and wheel must
+    // not pan or zoom the map underneath it.
+    L.DomEvent.disableClickPropagation(div);
+    L.DomEvent.disableScrollPropagation(div);
+    return div;
+  };
+  ctl.addTo(map);
+  _pga.els.mapLegend = ctl.getContainer();
+  return _pga.els.mapLegend;
+}
+
 function _pgaRenderLegend() {
-  const el = _pga.els.legend;
-  if (!el) return;
+  const el = _pgaEnsureMapLegend();
   const entry = _pgaCurrent();
-  if (!_pga.enabled || !entry) { el.innerHTML = ""; return; }
+  if (!_pga.enabled || !entry) { el.hidden = true; el.innerHTML = ""; return; }
   // Breaks differ per return period, so the legend is rebuilt on every change —
   // a stale legend here would misread the map rather than merely look wrong.
+  // Ordered high-to-low so the severe end reads first, as on the MMI ladder.
+  const bands = entry.legend.slice().reverse();
+  el.hidden = false;
   el.innerHTML =
-    `<div class="pga-legend-head">Peak ground acceleration (g) · ${escapeHtml(entry.exceedance)}</div>` +
-    entry.legend.map(b =>
-      `<div class="pga-legend-row"><span class="pga-swatch" style="background:${b.color}"></span>` +
-      `<span>${escapeHtml(b.label)}</span></div>`).join("");
+    `<div class="pgl-head">` +
+      `<span class="pgl-title">Peak ground acceleration</span>` +
+      `<span class="pgl-unit">g</span>` +
+    `</div>` +
+    `<div class="pgl-sub">${escapeHtml(entry.label)} return period · ${escapeHtml(entry.exceedance)}</div>` +
+    `<div class="pgl-scale">` +
+      `<div class="pgl-ramp">` +
+        bands.map(b => `<i style="background:${b.color}"></i>`).join("") +
+      `</div>` +
+      `<div class="pgl-labels">` +
+        bands.map(b => `<span>${escapeHtml(b.label)}</span>`).join("") +
+      `</div>` +
+    `</div>`;
 }
 
 function _pgaBuildPanel() {
@@ -699,20 +730,19 @@ function _pgaBuildPanel() {
           <span class="cfg-value" id="pga-opacity-val"></span>
         </span>
       </label>
-      <div class="pga-legend" id="pga-legend"></div>
       <div class="cfg-note" id="pga-note"></div>
     </div>`;
   section.appendChild(group);
 
-  _pga.els = {
+  // Merge, never replace: the map legend's container may already be registered.
+  Object.assign(_pga.els, {
     toggle: group.querySelector("#pga-toggle"),
     controls: group.querySelector("#pga-controls"),
     period: group.querySelector("#pga-period"),
     opacity: group.querySelector("#pga-opacity"),
     opacityVal: group.querySelector("#pga-opacity-val"),
-    legend: group.querySelector("#pga-legend"),
     note: group.querySelector("#pga-note"),
-  };
+  });
 
   _pga.els.opacity.value = String(_pga.opacity);
   _pga.els.opacityVal.textContent = `${Math.round(_pga.opacity * 100)}%`;
