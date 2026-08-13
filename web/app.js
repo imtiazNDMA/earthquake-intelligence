@@ -155,10 +155,22 @@ BASEMAPS["OpenStreetMap"].addTo(map); // default basemap
 // `dataLayer` MUST equal the tippecanoe -l layer id used in scripts/build_tiles.py.
 
 const OVERLAY_CONFIG = {
-  National:        { id: "national",         color: "#444",   width: 1.5, defaultOn: true, opacity: 1, hoverFields: ["Name", "name", "NAME"], hoverTolerancePx: 16 },
-  Provinces:       { id: "provinces",        color: "#666",   width: 1.0, defaultOn: true, opacity: 1, hoverFields: ["Name", "name", "NAME", "province", "PROVINCE"], hoverTolerancePx: 16 },
-  Districts:       { id: "districts",        color: "#999",   width: 0.6, defaultOn: false, opacity: 0.8, hoverFields: ["Name", "name", "NAME", "district", "DISTRICT"], hoverTolerancePx: 16 },
-  Tehsils:         { id: "tehsils",          color: "#bbb",   width: 0.4, defaultOn: false, opacity: 0.7, hoverFields: ["Name", "name", "NAME", "tehsil", "TEHSIL"], hoverTolerancePx: 16 },
+  // Boundary attribute names come straight from the source shapefiles
+  // (data/Boundaries_Data/*.geojson) — they are NOT a uniform "name" column:
+  // national=Admin01_Na, provinces=Province, districts=Districts, tehsils=name.
+  // A null label means the value is the tooltip heading rather than a field row.
+  National:        { id: "national",         color: "#444",   width: 1.5, defaultOn: true, opacity: 1,
+                     hoverFields: ["Admin01_Na"], hoverLabels: { Admin01_Na: null }, hoverTolerancePx: 16 },
+  Provinces:       { id: "provinces",        color: "#666",   width: 1.0, defaultOn: true, opacity: 1,
+                     hoverFields: ["Province"], hoverLabels: { Province: null }, hoverTolerancePx: 16 },
+  Districts:       { id: "districts",        color: "#999",   width: 0.6, defaultOn: false, opacity: 0.8,
+                     hoverFields: ["Districts", "division", "province"],
+                     hoverLabels: { Districts: null, division: "Division", province: "Province" },
+                     hoverTolerancePx: 16 },
+  Tehsils:         { id: "tehsils",          color: "#bbb",   width: 0.4, defaultOn: false, opacity: 0.7,
+                     hoverFields: ["name", "district", "province"],
+                     hoverLabels: { name: null, district: "District", province: "Province" },
+                     hoverTolerancePx: 16 },
   "Global Faults": { id: "faults",           color: "#C42A2E", width: 0.8, defaultOn: false, lineOnly: true, faultStyle: true, opacity: 0.9, hoverTolerancePx: 12 },
   "Plate boundaries": { id: "plate_boundaries", color: "#D8B22C", width: 1.6, defaultOn: false, lineOnly: true, opacity: 0.85, hoverFields: ["Name_Full", "Name"], hoverTolerancePx: 12 },
   "National Faults": { id: "pak_faults_major", color: "#C42A2E", width: 1.1, defaultOn: true, lineOnly: true, faultStyle: true, opacity: 0.9, hoverFields: ["Name", "Symbols", "Type"], hoverTolerancePx: 12 },
