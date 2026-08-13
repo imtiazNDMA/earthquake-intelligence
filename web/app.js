@@ -1114,6 +1114,81 @@ function updateCurrentEventCard(event) {
   pills.innerHTML = `<span>Epicenter pinned</span><span>${_mmiVisible ? "MMI visible" : "MMI hidden"}</span>`;
 }
 
+// --- Epicenter loader: the wait, staged where the answer will appear --------
+// Computing a footprint takes long enough to feel like nothing is happening,
+// and the sidebar spinner is nowhere near the part of the screen the user is
+// watching. This puts the wait on the map, at the epicenter, as a grid of cells
+// pulsing outward from the centre — anime.js grid staggering, which reads as a
+// wavefront leaving the hypocentre, the thing actually being computed.
+
+const MMI_LOADER_PANE = "mmiLoaderPane";
+const MMI_LOADER_GRID = 9;        // odd, so a single cell sits on the epicenter
+const _mmiLoader = { marker: null, anim: null };
+
+function _mmiLoaderEnsurePane() {
+  if (map.getPane(MMI_LOADER_PANE)) return;
+  map.createPane(MMI_LOADER_PANE);
+  // 650: above the epicenter marker (600) so the wait is never buried, below
+  // popups (700). Never interactive — it must not eat clicks on the map.
+  map.getPane(MMI_LOADER_PANE).style.zIndex = 650;
+  map.getPane(MMI_LOADER_PANE).style.pointerEvents = "none";
+}
+
+function showMmiLoader(lat, lon, label) {
+  hideMmiLoader();
+  if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lon))) return;
+  _mmiLoaderEnsurePane();
+
+  const n = MMI_LOADER_GRID;
+  const mid = (n - 1) / 2;
+  // Each cell carries its own ring distance so the CSS fallback below can
+  // stagger radially too, on the same geometry anime.js uses.
+  const cells = Array.from({ length: n * n }, (_, i) => {
+    const dx = (i % n) - mid, dy = Math.floor(i / n) - mid;
+    return `<i style="--d:${Math.round(Math.hypot(dx, dy) * 55)}ms"></i>`;
+  }).join("");
+
+  const size = n * 13;
+  const icon = L.divIcon({
+    className: "mmi-loader",
+    html: `<div class="mmi-loader-grid">${cells}</div>` +
+          `<span class="mmi-loader-cap">${escapeHtml(label || "Calculating intensity")}</span>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+  });
+  _mmiLoader.marker = L.marker([lat, lon], {
+    icon, pane: MMI_LOADER_PANE, interactive: false, keyboard: false,
+    zIndexOffset: 1000,
+  }).addTo(map);
+
+  const dots = _mmiLoader.marker.getElement()?.querySelectorAll(".mmi-loader-grid i");
+  if (!dots || !dots.length) return;
+  // Reduced motion gets the marker without the pulse: the position still says
+  // where the work is happening, which is the load-bearing half of this.
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+  if (typeof anime === "undefined") {
+    // CDN blocked or SRI mismatch. The `--d` delays above drive an equivalent
+    // CSS ripple, so the loader degrades instead of vanishing.
+    _mmiLoader.marker.getElement()?.classList.add("mmi-loader-css");
+    return;
+  }
+  _mmiLoader.anim = anime.animate(dots, {
+    scale: [{ to: 1.7 }, { to: 0.4 }],
+    opacity: [{ to: 1 }, { to: 0.18 }],
+    duration: 900,
+    delay: anime.stagger(55, { grid: [n, n], from: "center" }),
+    loop: true,
+    ease: "inOutQuad",
+  });
+}
+
+function hideMmiLoader() {
+  // Pause before removing the nodes: a running anime.js instance keeps ticking
+  // against detached elements otherwise, once per calculation, forever.
+  if (_mmiLoader.anim) { _mmiLoader.anim.pause(); _mmiLoader.anim = null; }
+  if (_mmiLoader.marker) { map.removeLayer(_mmiLoader.marker); _mmiLoader.marker = null; }
+}
+
 async function calculate() {
   const payload = {
     magnitude: parseFloat(document.getElementById("magnitude").value),
@@ -1123,6 +1198,7 @@ async function calculate() {
     save_to_catalog: document.getElementById("save-catalog").checked,
   };
   statusEl.innerHTML = spinnerHTML() + " Calculating…";
+  showMmiLoader(payload.lat, payload.lon, "Calculating intensity");
   try {
     const resp = await fetch("/intensity", {
       method: "POST",
@@ -1156,6 +1232,10 @@ async function calculate() {
   } catch (e) {
     statusEl.textContent = "";
     toast("Request failed: " + e.message, "error");
+  } finally {
+    // `finally`, not the happy path: the early return above and any throw must
+    // still clear the loader, or it pulses over the map forever.
+    hideMmiLoader();
   }
 }
 
@@ -1321,7 +1401,22 @@ confirmOverlay.addEventListener("keydown", (e) => {
   }
 });
 
+// Wraps the impact run purely to own the epicenter loader's lifetime. The inner
+// function has several early returns; a wrapper guarantees the loader is torn
+// down on every one of them without threading cleanup through each exit.
 async function showImpact(id) {
+  // The catalog row already carries the coordinates, so the loader can land on
+  // the epicenter immediately rather than after /events/{id} comes back.
+  const known = (eventsEl._allEvents || []).find(e => String(e.id) === String(id));
+  showMmiLoader(known?.lat, known?.lon, "Computing impact");
+  try {
+    return await _showImpactRun(id);
+  } finally {
+    hideMmiLoader();
+  }
+}
+
+async function _showImpactRun(id) {
   _compLayers.forEach(l => map.removeLayer(l));
   _compLayers = [];
   if (_cmpLegendCtrl) { map.removeControl(_cmpLegendCtrl); _cmpLegendCtrl = null; }

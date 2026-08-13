@@ -289,6 +289,12 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"
           integrity="sha384-vsrfeLOOY6KuIYKDlmVH5UiBmgIdB1oEf7p01YgWHuqmOHfZr374+odEv96n9tNC"
           crossorigin="anonymous"></script>
+  <!-- anime.js drives the epicenter loader's grid stagger (showMmiLoader in
+       app.js). UMD build, so it lands on a global `anime`. If this fails to
+       load the loader falls back to an equivalent CSS ripple. -->
+  <script src="https://cdn.jsdelivr.net/npm/animejs@4.5.0/dist/bundles/anime.umd.min.js"
+          integrity="sha384-InMmvD3VoYcY7hGjSC80aLb2bNNE4CzpX+Eq6FVDlmB0IKgDvmfPw4UY8L/M++iG"
+          crossorigin="anonymous"></script>
   <!-- Lordicon web component loader (animated icons). Icons render via <lord-icon>
        once a CDN url is set in the ICONS registry in app.js; until then a crisp
        inline SVG fallback is shown, so the UI is never broken.

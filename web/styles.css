@@ -660,6 +660,43 @@ input:focus-visible { border-color: var(--brand); }
 .bld-legend-note { font-size: var(--fs-xs); color: var(--text-muted); opacity: .8; line-height: 1.35; margin-top: 4px; font-style: italic; }
 .overlay-note { margin: -2px 0 6px 50px; }
 
+/* ------------------------------------------------------------------
+   Epicenter loader — the wait for an intensity calculation, staged on
+   the map where the answer will appear. anime.js staggers the cells
+   outward from the centre (see showMmiLoader in web/app.js); the CSS
+   ripple below is the fallback for when that library is unavailable.
+   ------------------------------------------------------------------ */
+.mmi-loader { background: none; border: 0; pointer-events: none; }
+.mmi-loader-grid {
+  display: grid; grid-template-columns: repeat(9, 13px);
+  grid-auto-rows: 13px; place-items: center;
+}
+/* Round, and small against their cell: the gaps are what let the pulse read as
+   a front travelling outward rather than a block of tiles lighting up. */
+.mmi-loader-grid i {
+  display: block; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--alert); opacity: .18; transform: scale(.4);
+  /* The map underneath is arbitrary — basemap, MMI bands, hazard raster — so
+     each cell carries its own halo rather than trusting the backdrop. */
+  box-shadow: 0 0 0 1px rgba(0,0,0,.35), 0 0 6px color-mix(in srgb, var(--alert) 70%, transparent);
+}
+.mmi-loader-cap {
+  position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+  padding: 3px 9px; border-radius: var(--r-sm); white-space: nowrap;
+  background: var(--glass-bg); border: 1px solid var(--glass-border);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  font-family: var(--font-mono); font-size: 13px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--text);
+}
+.mmi-loader-css i { animation: mmiLoaderPulse .9s var(--ease) infinite alternate; animation-delay: var(--d); }
+@keyframes mmiLoaderPulse {
+  from { transform: scale(.4);  opacity: .18; }
+  to   { transform: scale(1.7); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mmi-loader-css i { animation: none; }
+}
+
 .epicenter-star-wrap {
   background: transparent;
   border: 0;
