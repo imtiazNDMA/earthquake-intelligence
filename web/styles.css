@@ -680,6 +680,10 @@ input:focus-visible { border-color: var(--brand); }
      each cell carries its own halo rather than trusting the backdrop. */
   box-shadow: 0 0 0 1px rgba(0,0,0,.35), 0 0 6px color-mix(in srgb, var(--alert) 70%, transparent);
 }
+/* Corner cells, hidden to round the field off. `visibility` rather than
+   `display`, so they keep their grid slots and the stagger geometry holds — and
+   it survives the opacity anime.js writes onto every cell. */
+.mmi-loader-grid i.is-off { visibility: hidden; }
 .mmi-loader-cap {
   position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%);
   padding: 3px 9px; border-radius: var(--r-sm); white-space: nowrap;

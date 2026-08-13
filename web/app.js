@@ -1141,11 +1141,20 @@ function showMmiLoader(lat, lon, label) {
 
   const n = MMI_LOADER_GRID;
   const mid = (n - 1) / 2;
+  // Cells outside this radius are hidden, so a square grid reads as a disc —
+  // shaking radiates as a circular front, and a square field would draw a
+  // boundary the physics has not got. The 0.2 slack rounds the silhouette;
+  // exactly `mid` leaves single-cell spikes at the four poles.
+  const radius = mid + 0.2;
   // Each cell carries its own ring distance so the CSS fallback below can
-  // stagger radially too, on the same geometry anime.js uses.
+  // stagger radially too, on the same geometry anime.js uses. Hidden cells stay
+  // in the DOM: anime.js grid staggering indexes by position, so removing them
+  // would shift every cell after them onto the wrong delay.
   const cells = Array.from({ length: n * n }, (_, i) => {
     const dx = (i % n) - mid, dy = Math.floor(i / n) - mid;
-    return `<i style="--d:${Math.round(Math.hypot(dx, dy) * 55)}ms"></i>`;
+    const dist = Math.hypot(dx, dy);
+    const off = dist > radius ? " class=\"is-off\"" : "";
+    return `<i${off} style="--d:${Math.round(dist * 55)}ms"></i>`;
   }).join("");
 
   const size = n * 13;
