@@ -50,6 +50,47 @@ def test_event_detail_404_for_missing(client):
     assert r.status_code == 404
 
 
+def test_event_search_returns_interpretation_and_catalog_coverage(client):
+    created = client.post("/events", json={"magnitude": 6.1, "depth_km": 10,
+                                           "lat": 30.2, "lon": 66.9}).json()
+    from eqmon import db
+    with db.get_conn() as conn:
+        conn.execute("UPDATE seismic_event SET is_mainshock = TRUE WHERE id = %s",
+                     (created["id"],))
+        conn.commit()
+    response = client.post("/events/search", json={
+        "min_magnitude": 5,
+        "center_lon": 66.9,
+        "center_lat": 30.2,
+        "radius_km": 100,
+        "event_kind": "mainshocks",
+    })
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["schema_version"] == "1.0"
+    assert body["query"]["radius_km"] == 100
+    assert body["distance_semantics"].startswith("geodesic distance")
+    assert "unclassified" in body["event_kind_semantics"]
+    assert "canonical" in body["source_semantics"]
+    assert body["catalog_coverage"]["completeness"] == "not_asserted"
+    assert body["total"] == 1
+    assert body["events"][0]["is_mainshock"] is True
+
+
+def test_event_search_rejects_partial_radius(client):
+    response = client.post("/events/search", json={
+        "center_lon": 66.9,
+        "center_lat": 30.2,
+    })
+    assert response.status_code == 422
+
+
+def test_event_search_rejects_unknown_fields(client):
+    response = client.post("/events/search", json={"min_magnitdue": 5})
+    assert response.status_code == 422
+
+
 def test_ingest_pmd_endpoint_ingests_and_records_sync(client, monkeypatch):
     payload = json.loads(PMD_FIXTURE.read_text())
 

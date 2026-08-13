@@ -1934,77 +1934,205 @@ function renderTimelineChart(events) {
   if (!wrap) {
     wrap = document.createElement("div");
     wrap.id = "tl-wrap";
-    wrap.innerHTML = `<div class="tl-header"><span class="tl-title">Timeline</span><button class="tl-toggle">−</button></div><canvas id="tl-canvas"></canvas>`;
+    wrap.innerHTML = `<div class="tl-header"><span class="tl-title">Timeline</span>` +
+      `<button class="tl-toggle" aria-label="Collapse timeline">−</button></div>` +
+      `<div class="tl-plot"><canvas id="tl-canvas"></canvas>` +
+      `<div class="tl-tip" hidden></div></div>`;
     eventsEl.parentNode.insertBefore(wrap, eventsEl);
     wrap.querySelector(".tl-toggle").addEventListener("click", () => {
       _timelineExpanded = !_timelineExpanded;
-      const c = document.getElementById("tl-canvas");
-      if (c) c.style.display = _timelineExpanded ? "" : "none";
-      wrap.querySelector(".tl-toggle").textContent = _timelineExpanded ? "−" : "+";
+      // Hide the plot, not the canvas: the tooltip lives alongside it, and a
+      // zero-width parent is what breaks the next redraw.
+      const plot = wrap.querySelector(".tl-plot");
+      if (plot) plot.style.display = _timelineExpanded ? "" : "none";
+      const btn = wrap.querySelector(".tl-toggle");
+      btn.textContent = _timelineExpanded ? "−" : "+";
+      btn.setAttribute("aria-label", _timelineExpanded ? "Collapse timeline" : "Expand timeline");
       if (_timelineExpanded && eventsEl._allEvents) drawTimeline(eventsEl._allEvents);
     });
   }
   drawTimeline(events);
 }
+// Magnitude against time for the events currently listed, drawn as a spike
+// train: a stem from the catalog floor up to each magnitude, capped with a dot
+// coloured by PAGER alert. Stems rather than loose dots because height is the
+// quantity being read, and because a spike train is the shape this domain
+// already thinks in.
+const TL_H = 132;                 // CSS px — enough for both gutters to breathe
+let _tlState = null;              // { sorted, geom } for repaint on hover
+let _tlHover = -1;
+let _tlObserver = null;
+
+function _tlObserve(wrap) {
+  // The catalog can render while its section is hidden or the sidebar is
+  // collapsed, and a canvas sized from a zero-width parent silently keeps its
+  // 300px default bitmap — which CSS then stretches, drawing geometry that was
+  // computed for a canvas that never existed. Redraw once there is real width.
+  if (_tlObserver || typeof ResizeObserver === "undefined") return;
+  _tlObserver = new ResizeObserver(() => {
+    if (wrap.clientWidth > 0 && eventsEl._allEvents && _timelineExpanded) {
+      drawTimeline(eventsEl._allEvents);
+    }
+  });
+  _tlObserver.observe(wrap);
+}
+
+function _tlPaint() {
+  if (!_tlState) return;
+  const { sorted, geom, ctx } = _tlState;
+  const { w, h, pad, pw, ph, mLo, mHi, x, y, colors } = geom;
+
+  ctx.clearRect(0, 0, w, h);
+  ctx.font = `10px ${getComputedStyle(document.documentElement)
+    .getPropertyValue("--font-mono").trim() || "monospace"}`;
+  ctx.textBaseline = "middle";
+
+  // Gridlines sit behind and stay faint. Stems and gridlines at the same weight
+  // turn the plot into a mesh, so the horizontals give way to the verticals.
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = colors.grid;
+  for (let m = Math.ceil(mLo); m <= Math.floor(mHi); m++) {
+    const yy = Math.round(y(m)) + 0.5;   // +0.5 keeps a 1px line from blurring
+    ctx.globalAlpha = 0.5;
+    ctx.beginPath(); ctx.moveTo(pad.left, yy); ctx.lineTo(w - pad.right, yy); ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = colors.axis;
+    ctx.textAlign = "right";
+    ctx.fillText(m.toFixed(1), pad.left - 6, yy);
+  }
+  // The floor the spikes stand on — the only horizontal drawn at full strength.
+  const base = Math.round(y(mLo)) + 0.5;
+  ctx.strokeStyle = colors.grid;
+  ctx.beginPath(); ctx.moveTo(pad.left, base); ctx.lineTo(w - pad.right, base); ctx.stroke();
+
+  sorted.forEach((e, i) => {
+    const px = x(e), py = y(e.magnitude);
+    const on = i === _tlHover;
+    ctx.strokeStyle = colors.axis;
+    ctx.globalAlpha = on ? 0.85 : 0.32;
+    ctx.lineWidth = on ? 1.5 : 1;
+    ctx.beginPath(); ctx.moveTo(px, base); ctx.lineTo(px, py); ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.beginPath(); ctx.arc(px, py, on ? 5 : 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = colors.alert[e.alert] || colors.dot;
+    ctx.fill();
+    ctx.strokeStyle = colors.ring; ctx.lineWidth = 1.5; ctx.stroke();
+  });
+
+  // Endpoint dates only. The 20 newest events usually span hours, so interior
+  // ticks repeat the same day and collide.
+  const day = t => new Date(t).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  const first = day(sorted[0].occurred_at);
+  const last = day(sorted[sorted.length - 1].occurred_at);
+  ctx.fillStyle = colors.axis;
+  ctx.textAlign = "left";
+  ctx.fillText(first, pad.left, h - 7);
+  if (first !== last) {
+    ctx.textAlign = "right";
+    ctx.fillText(last, w - pad.right, h - 7);
+  }
+}
+
 function drawTimeline(events) {
   const canvas = document.getElementById("tl-canvas");
   if (!canvas) return;
-  const sorted = [...events].filter(e => e.magnitude != null && e.occurred_at).sort((a, b) => new Date(a.occurred_at) - new Date(b.occurred_at));
-  if (sorted.length < 2) { canvas.style.display = "none"; return; }
+  const wrap = canvas.parentElement;
+  _tlObserve(wrap);
+
+  const sorted = [...events]
+    .filter(e => e.magnitude != null && e.occurred_at)
+    .sort((a, b) => new Date(a.occurred_at) - new Date(b.occurred_at));
+  if (sorted.length < 2) { canvas.style.display = "none"; _tlState = null; return; }
   canvas.style.display = "";
-  const w = canvas.width = canvas.parentElement.clientWidth - 4 || 228;
-  const h = canvas.height = 120;
+
+  const cssW = wrap.clientWidth;
+  if (cssW < 40) return;   // no usable width yet; the observer will call back
+
+  // Draw in CSS pixels but back the canvas with device pixels, or the whole
+  // chart is resampled and every hairline goes soft.
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(cssW * dpr);
+  canvas.height = Math.round(TL_H * dpr);
+  canvas.style.height = `${TL_H}px`;
   const ctx = canvas.getContext("2d");
-  const _cs = getComputedStyle(document.documentElement);
-  const gridC = _cs.getPropertyValue("--border").trim() || "#eee";
-  const axisC = _cs.getPropertyValue("--text-muted").trim() || "#ccc";
-  const ringC = _cs.getPropertyValue("--surface").trim() || "#fff";
-  const pad = { top: 6, right: 6, bottom: 18, left: 30 };
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const cs = getComputedStyle(document.documentElement);
+  const colors = {
+    grid: cs.getPropertyValue("--border").trim() || "#eee",
+    axis: cs.getPropertyValue("--text-muted").trim() || "#999",
+    ring: cs.getPropertyValue("--surface").trim() || "#fff",
+    dot: cs.getPropertyValue("--slate-muted").trim() || "#666",
+    alert: { green: "#2E9E5B", yellow: "#D8B22C", orange: "#DD5730", red: "#C42A2E" },
+  };
+
+  const pad = { top: 12, right: 10, bottom: 22, left: 32 };
+  const w = cssW, h = TL_H;
   const pw = w - pad.left - pad.right, ph = h - pad.top - pad.bottom;
-  const t0 = new Date(sorted[0].occurred_at).getTime(), t1 = new Date(sorted[sorted.length - 1].occurred_at).getTime(), ts = t1 - t0 || 1;
-  const mm0 = Math.max(0, Math.min(...sorted.map(e => e.magnitude)) - 0.3), mm1 = Math.max(...sorted.map(e => e.magnitude)) + 0.3, ms = mm1 - mm0 || 1;
-  const x = e => pad.left + ((new Date(e.occurred_at).getTime() - t0) / ts) * pw;
-  const y = e => pad.top + ph - ((e.magnitude - mm0) / ms) * ph;
-  ctx.clearRect(0, 0, w, h);
-  ctx.strokeStyle = gridC; ctx.lineWidth = 1; ctx.font = "12px sans-serif";
-  for (let m = Math.ceil(mm0); m <= Math.floor(mm1); m++) {
-    const yy = pad.top + ph - ((m - mm0) / ms) * ph;
-    ctx.beginPath(); ctx.moveTo(pad.left, yy); ctx.lineTo(w - pad.right, yy); ctx.stroke();
-    ctx.fillStyle = axisC; ctx.textAlign = "right"; ctx.fillText(m + ".0", pad.left - 4, yy + 3);
-  }
-  // Only the endpoints: the catalog's 20 newest events usually span hours, so
-  // interior ticks repeat the same date and pile up on each other.
-  ctx.fillStyle = axisC;
-  const dateAt = e => new Date(e.occurred_at).toLocaleDateString();
-  ctx.textAlign = "left";
-  ctx.fillText(dateAt(sorted[0]), pad.left, h - 4);
-  if (sorted.length > 1 && dateAt(sorted[0]) !== dateAt(sorted[sorted.length - 1])) {
-    ctx.textAlign = "right";
-    ctx.fillText(dateAt(sorted[sorted.length - 1]), w - pad.right, h - 4);
-  }
-  const AC = { green: "#2E9E5B", yellow: "#D8B22C", orange: "#DD5730", red: "#C42A2E" };
-  sorted.forEach(e => {
-    ctx.beginPath(); ctx.arc(x(e), y(e), 4, 0, Math.PI * 2);
-    ctx.fillStyle = AC[e.alert] || "#666";
-    ctx.fill(); ctx.strokeStyle = ringC; ctx.lineWidth = 1; ctx.stroke();
-  });
-  canvas.onmousemove = function(ev) {
+
+  // Snap the scale to half magnitudes so the gridlines land on round numbers.
+  const mags = sorted.map(e => e.magnitude);
+  const mLo = Math.floor(Math.min(...mags) * 2) / 2;
+  const mHi = Math.max(Math.ceil(Math.max(...mags) * 2) / 2, mLo + 0.5);
+  const t0 = new Date(sorted[0].occurred_at).getTime();
+  const t1 = new Date(sorted[sorted.length - 1].occurred_at).getTime();
+  const ts = t1 - t0 || 1;
+  // Inset by the dot radius so the first and last spikes are not clipped by
+  // the plot edges.
+  const x = e => pad.left + 5 + ((new Date(e.occurred_at).getTime() - t0) / ts) * (pw - 10);
+  const y = m => pad.top + ph - ((m - mLo) / (mHi - mLo)) * ph;
+
+  _tlState = { sorted, ctx, geom: { w, h, pad, pw, ph, mLo, mHi, x, y, colors } };
+  _tlHover = -1;
+  _tlPaint();
+
+  const tip = wrap.querySelector(".tl-tip");
+  const hit = (ev) => {
     const r = canvas.getBoundingClientRect();
     const mx = ev.clientX - r.left, my = ev.clientY - r.top;
-    for (const e of sorted) {
-      if ((mx - x(e)) ** 2 + (my - y(e)) ** 2 < 64) {
-        canvas.title = `M${e.magnitude.toFixed(1)} ${e.place || ""} (${new Date(e.occurred_at).toLocaleDateString()})`;
-        canvas.style.cursor = "pointer"; return;
+    let best = -1, bestD = 14 * 14;   // generous: these are small targets
+    sorted.forEach((e, i) => {
+      const d = (mx - x(e)) ** 2 + (my - y(e.magnitude)) ** 2;
+      if (d < bestD) { bestD = d; best = i; }
+    });
+    return best;
+  };
+
+  canvas.onmousemove = (ev) => {
+    const i = hit(ev);
+    if (i !== _tlHover) {
+      _tlHover = i;
+      _tlPaint();
+      canvas.style.cursor = i >= 0 ? "pointer" : "default";
+      if (i < 0) { tip.hidden = true; }
+      else {
+        const e = sorted[i];
+        const when = new Date(e.occurred_at);
+        tip.innerHTML =
+          `<b>M${e.magnitude.toFixed(1)}</b> ${escapeHtml(e.place || "Location not named")}` +
+          `<span>${when.toLocaleDateString(undefined, { day: "numeric", month: "short" })}` +
+          ` · ${when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>`;
+        tip.hidden = false;
+        // Centre on the spike, then clamp to the plot. Flipping at a threshold
+        // is not enough: a long place name makes the box wider than the space
+        // beside the spike, so it overflows whichever way it is anchored.
+        const px = x(e), py = y(e.magnitude);
+        tip.style.transform = "none";
+        tip.style.left = "0px";
+        const tw = tip.offsetWidth, th = tip.offsetHeight;
+        tip.style.left = `${Math.max(0, Math.min(px - tw / 2, w - tw))}px`;
+        // Above the dot, unless that would clip it out of the top of the plot.
+        const above = py - th - 8;
+        tip.style.top = `${above >= 0 ? above : py + 10}px`;
       }
     }
-    canvas.title = ""; canvas.style.cursor = "default";
   };
-  canvas.onclick = function(ev) {
-    const r = canvas.getBoundingClientRect();
-    const mx = ev.clientX - r.left, my = ev.clientY - r.top;
-    for (const e of sorted) {
-      if ((mx - x(e)) ** 2 + (my - y(e)) ** 2 < 64) { showImpact(e.id); return; }
-    }
+  canvas.onmouseleave = () => {
+    _tlHover = -1; _tlPaint(); tip.hidden = true; canvas.style.cursor = "default";
+  };
+  canvas.onclick = (ev) => {
+    const i = hit(ev);
+    if (i >= 0) showImpact(sorted[i].id);
   };
 }
 // --- Comparison mode ---

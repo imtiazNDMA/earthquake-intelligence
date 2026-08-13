@@ -10,6 +10,7 @@ _SELECT = (
     "ST_X(geom) AS lon, ST_Y(geom) AS lat, cluster_id, is_canonical, created_at, "
     "place, mag_type, event_type, alert, tsunami, sig, review_status, "
     "felt, cdi, mmi_report, gap, nst, url, detail_url, updated_at "
+    ", is_mainshock, sequence_id, zone_id "
     "FROM seismic_event"
 )
 
@@ -97,8 +98,10 @@ def delete_event(conn: psycopg.Connection, event_id: int) -> bool:
 
 
 def _build_where(since=None, min_magnitude=None, max_magnitude=None,
-                 source=None, search=None,
-                 occurred_after=None, occurred_before=None):
+                  source=None, search=None,
+                  occurred_after=None, occurred_before=None,
+                  center_lon=None, center_lat=None, radius_km=None,
+                  event_kind="all"):
     clauses = ["is_canonical = TRUE"]
     params: list = []
     if since is not None:
@@ -115,6 +118,16 @@ def _build_where(since=None, min_magnitude=None, max_magnitude=None,
         clauses.append("occurred_at >= %s"); params.append(occurred_after)
     if occurred_before is not None:
         clauses.append("occurred_at <= %s"); params.append(occurred_before)
+    if radius_km is not None:
+        clauses.append(
+            "ST_DWithin(geom::geography, "
+            "ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography, %s)"
+        )
+        params.extend([center_lon, center_lat, radius_km * 1000.0])
+    if event_kind == "mainshocks":
+        clauses.append("is_mainshock IS TRUE")
+    elif event_kind == "aftershocks":
+        clauses.append("is_mainshock IS FALSE")
     return clauses, params
 
 
@@ -122,19 +135,24 @@ def list_events(conn: psycopg.Connection, *, since: datetime | None = None,
                 min_magnitude: float | None = None,
                 max_magnitude: float | None = None,
                 source: str | None = None,
-                search: str | None = None,
-                occurred_after: datetime | None = None,
-                occurred_before: datetime | None = None,
-                limit: int = 100,
+                 search: str | None = None,
+                 occurred_after: datetime | None = None,
+                 occurred_before: datetime | None = None,
+                 center_lon: float | None = None,
+                 center_lat: float | None = None,
+                 radius_km: float | None = None,
+                 event_kind: str = "all",
+                 limit: int = 100,
                 offset: int = 0,
                 orderby: str = "time") -> list[dict]:
     clauses, params = _build_where(since, min_magnitude, max_magnitude,
-                                    source, search, occurred_after, occurred_before)
+                                    source, search, occurred_after, occurred_before,
+                                    center_lon, center_lat, radius_km, event_kind)
     where = " WHERE " + " AND ".join(clauses)
     order_map = {
-        "time": "occurred_at DESC",
-        "time-asc": "occurred_at ASC",
-        "magnitude": "magnitude DESC",
+        "time": "occurred_at DESC, id DESC",
+        "time-asc": "occurred_at ASC, id ASC",
+        "magnitude": "magnitude DESC, id DESC",
     }
     order_sql = order_map.get(orderby, "occurred_at DESC")
     limit_sql = ""
@@ -153,15 +171,35 @@ def count_events(conn: psycopg.Connection, *,
                  min_magnitude: float | None = None,
                  max_magnitude: float | None = None,
                  source: str | None = None,
-                 search: str | None = None,
-                 occurred_after: datetime | None = None,
-                 occurred_before: datetime | None = None) -> int:
+                  search: str | None = None,
+                  occurred_after: datetime | None = None,
+                  occurred_before: datetime | None = None,
+                  center_lon: float | None = None,
+                  center_lat: float | None = None,
+                  radius_km: float | None = None,
+                  event_kind: str = "all") -> int:
     clauses, params = _build_where(None, min_magnitude, max_magnitude,
-                                    source, search, occurred_after, occurred_before)
+                                    source, search, occurred_after, occurred_before,
+                                    center_lon, center_lat, radius_km, event_kind)
     where = " WHERE " + " AND ".join(clauses)
     with conn.cursor() as cur:
         cur.execute("SELECT COUNT(*) FROM seismic_event" + where, params)
         return cur.fetchone()[0]
+
+
+def catalog_coverage(conn: psycopg.Connection) -> dict:
+    """Observed time extent of canonical catalog rows.
+
+    This describes what is stored, not source completeness within the interval.
+    """
+    row = conn.execute(
+        "SELECT MIN(occurred_at), MAX(occurred_at) FROM seismic_event "
+        "WHERE is_canonical = TRUE"
+    ).fetchone()
+    return {
+        "earliest_occurred_at": row[0],
+        "latest_occurred_at": row[1],
+    }
 
 
 def catalog_max_time(conn: psycopg.Connection):

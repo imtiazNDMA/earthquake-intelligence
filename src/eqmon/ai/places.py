@@ -1,89 +1,70 @@
-"""Resolve a dirty place name to an admin_boundary unit.
+"""Deterministic resolution of dirty place text and coordinates.
 
-The PMD feed is dirty (see CLAUDE.md): `parse_met()` already defensively parses
-hemisphere-suffixed coordinates and skips unparseable rows. Place names carry
-the same noise — spelling variants, administrative suffixes, punctuation — and
-exact matching against `admin_boundary` silently misses them.
-
-**No model is involved.** This started as an embeddings task and the measurement
-killed that idea: against a 12-name Pakistani gazetteer with 7 realistic
-variants, `nomic-embed-text-v1.5` scored 6/7 while stdlib `difflib` scored 7/7,
-with much wider margins (0.29-0.48 vs 0.007-0.38). The embedding failure is the
-instructive one — it matched "Peshwar" to "Khuzdar", 700 km away, on a margin of
-+0.007. Embeddings encode *semantic* similarity and every Pakistani city name is
-semantically similar to every other; a misspelling is *orthographic* variation.
-Wrong tool.
-
-So this module needs no GPU, no network, and no LM Studio. It is deterministic
-and microseconds-fast, which also means it can sit in the ingest path without
-putting inference on the critical path.
+Coordinates are authoritative for event-to-boundary lookup. Orthographic text
+matching corroborates that result or provides a fallback when coordinates are
+unavailable. Duplicate administrative names are preserved as separate boundary
+candidates and are never resolved by database row order.
 """
 from __future__ import annotations
 
 import re
+import math
 import unicodedata
 from dataclasses import dataclass
 from difflib import SequenceMatcher
+from typing import Literal, Sequence
 
 import psycopg
 from psycopg.rows import dict_row
 
-# Administrative decorations that carry no identifying information. Stripped
-# before comparison so "Rawalpindi Dist." and "Rawalpindi" are the same string
-# rather than a 0.48-ratio near-miss.
 _SUFFIXES = (
-    "district", "dist", "division", "div", "tehsil", "taluka", "city",
-    "town", "agency", "sub division", "subdivision", "province", "region",
+    "sub division", "subdivision", "district", "division", "province",
+    "region", "tehsil", "taluka", "agency", "city", "town", "dist", "div",
 )
-_SUFFIX_RE = re.compile(r"\b(" + "|".join(_SUFFIXES) + r")\b\.?", re.IGNORECASE)
+_SUFFIX_RE = re.compile(
+    r"(?:\s+|^)(?:" + "|".join(re.escape(value) for value in _SUFFIXES)
+    + r")\.?\s*$",
+    re.IGNORECASE,
+)
 
-# Confidence floor for an automatic match. Below this the name goes to a human
-# rather than being guessed at — this module feeds a review queue, and a
-# confident wrong answer is worse for that queue than an admitted unknown.
-#
-# Set at the midpoint of a measured separation: across 8 realistic variants and
-# 7 unrelated names, true matches bottomed out at 0.667 ("Kwetta"/"Quetta", a
-# first-character substitution — the hardest case for any string metric) while
-# false matches topped out at 0.545 ("Kabul"/"Skardu").
-#
-# CAVEAT: tuned against a 12-name sample. The full gazetteer is ~161 districts
-# plus tehsils, and denser name spaces push the false-match ceiling up. Re-tune
-# against the real table before trusting this in ingest — the margin check below
-# is the second line of defence in the meantime.
 DEFAULT_THRESHOLD = 0.62
-
-# A match this much better than the runner-up is unambiguous. When two
-# candidates are near-tied the name is genuinely ambiguous ("Khairpur" exists in
-# both Sindh and KP) and deserves a human, however high the top score.
 DEFAULT_MARGIN = 0.05
+DEFAULT_AMBIGUITY_THRESHOLD = 0.8
+_LEVEL_RANK = {"national": 0, "province": 1, "district": 2, "tehsil": 3}
 
 
 @dataclass(frozen=True)
-class PlaceMatch:
+class BoundaryCandidate:
+    unit_id: int
     name: str
-    score: float
-    margin: float
-    unit_id: int | None = None
-    level: str | None = None
+    level: str
+    parent: str | None = None
+    division: str | None = None
+    score: float | None = None
+
+
+@dataclass(frozen=True)
+class PlaceResolution:
+    status: Literal["resolved", "ambiguous", "conflict", "not_found"]
+    method: Literal["spatial", "text", "spatial+text"] | None
+    match: BoundaryCandidate | None = None
+    candidates: tuple[BoundaryCandidate, ...] = ()
+    margin: float | None = None
 
 
 def normalise(name: str) -> str:
-    """Lowercase, strip accents, drop admin suffixes and punctuation.
-
-    Applied identically to both sides of every comparison, so the gazetteer and
-    the incoming name are always normalised the same way.
-    """
+    """Normalize spelling while removing only trailing admin decorations."""
     if not name:
         return ""
     decomposed = unicodedata.normalize("NFKD", name)
     ascii_only = "".join(c for c in decomposed if not unicodedata.combining(c))
-    without_suffix = _SUFFIX_RE.sub(" ", ascii_only)
+    without_suffix = _SUFFIX_RE.sub("", ascii_only.strip())
     cleaned = re.sub(r"[^a-z0-9 ]+", " ", without_suffix.lower())
     return re.sub(r"\s+", " ", cleaned).strip()
 
 
 def similarity(a: str, b: str) -> float:
-    """Orthographic similarity of two already-normalised names, 0.0-1.0."""
+    """Orthographic similarity of two normalized names, from 0.0 to 1.0."""
     if not a or not b:
         return 0.0
     if a == b:
@@ -91,62 +72,192 @@ def similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, a, b).ratio()
 
 
-def match_name(probe: str, candidates: dict[str, object] | list[str], *,
+def edit_distance(a: str, b: str) -> int:
+    """Levenshtein distance, used to reject semantically unrelated names."""
+    if len(a) < len(b):
+        a, b = b, a
+    previous = list(range(len(b) + 1))
+    for row, char_a in enumerate(a, start=1):
+        current = [row]
+        for column, char_b in enumerate(b, start=1):
+            current.append(min(
+                current[-1] + 1,
+                previous[column] + 1,
+                previous[column - 1] + (char_a != char_b),
+            ))
+        previous = current
+    return previous[-1]
+
+
+def _max_typo_edits(name: str) -> int:
+    length = len(name.replace(" ", ""))
+    if length <= 4:
+        return 1
+    if length <= 12:
+        return 2
+    return 3
+
+
+def _with_score(candidate: BoundaryCandidate, score: float) -> BoundaryCandidate:
+    return BoundaryCandidate(
+        unit_id=candidate.unit_id,
+        name=candidate.name,
+        level=candidate.level,
+        parent=candidate.parent,
+        division=candidate.division,
+        score=round(score, 4),
+    )
+
+
+def match_name(probe: str, candidates: Sequence[BoundaryCandidate], *,
+               parent: str | None = None,
                threshold: float = DEFAULT_THRESHOLD,
-               margin: float = DEFAULT_MARGIN) -> PlaceMatch | None:
-    """Best candidate for `probe`, or None when it is not confident enough.
-
-    `candidates` may be a list of names or a name -> payload mapping (the
-    mapping form is how the DB-backed caller carries unit ids through).
-
-    Returns None in two distinct situations, both of which mean "ask a human":
-    the best score is below `threshold`, or the top two are within `margin` of
-    each other and the name is therefore ambiguous.
-    """
-    names = list(candidates)
-    if not names or not probe:
-        return None
-
+               margin: float = DEFAULT_MARGIN,
+               ambiguity_threshold: float = DEFAULT_AMBIGUITY_THRESHOLD,
+               ) -> PlaceResolution:
+    """Resolve text only when one boundary candidate is clearly best."""
     probe_n = normalise(probe)
-    if not probe_n:
-        return None
+    if not probe_n or not candidates:
+        return PlaceResolution("not_found", None)
 
-    scored = sorted(((similarity(probe_n, normalise(n)), n) for n in names),
-                    key=lambda pair: (-pair[0], pair[1]))
-    best_score, best_name = scored[0]
-    runner_up = scored[1][0] if len(scored) > 1 else 0.0
-    gap = best_score - runner_up
+    parent_n = normalise(parent or "")
+    eligible = [
+        candidate for candidate in candidates
+        if not parent_n or normalise(candidate.parent or "") == parent_n
+    ]
+    if not eligible:
+        return PlaceResolution("not_found", "text")
 
-    if best_score < threshold or (len(scored) > 1 and gap < margin):
-        return None
+    scored = sorted(
+        ((_with_score(candidate, similarity(probe_n, normalise(candidate.name))))
+         for candidate in eligible),
+        key=lambda candidate: (-float(candidate.score), candidate.unit_id),
+    )
+    best_score = float(scored[0].score)
+    best_edit_distance = edit_distance(probe_n, normalise(scored[0].name))
+    if best_score < threshold or best_edit_distance > _max_typo_edits(scored[0].name):
+        return PlaceResolution("not_found", "text", candidates=tuple(scored[:3]))
 
-    payload = candidates[best_name] if isinstance(candidates, dict) else None
-    unit_id = level = None
-    if isinstance(payload, dict):
-        unit_id, level = payload.get("id"), payload.get("level")
-
-    return PlaceMatch(name=best_name, score=round(best_score, 4),
-                      margin=round(gap, 4), unit_id=unit_id, level=level)
+    tied = tuple(candidate for candidate in scored
+                 if abs(float(candidate.score) - best_score) < margin)
+    runner_up = float(scored[1].score) if len(scored) > 1 else 0.0
+    gap = round(best_score - runner_up, 4)
+    if len(tied) > 1:
+        if best_score < ambiguity_threshold:
+            return PlaceResolution(
+                "not_found", "text", candidates=tied, margin=gap,
+            )
+        return PlaceResolution(
+            "ambiguous", "text", candidates=tied, margin=gap,
+        )
+    return PlaceResolution(
+        "resolved", "text", match=scored[0], candidates=(scored[0],), margin=gap,
+    )
 
 
 def load_gazetteer(conn: psycopg.Connection,
-                   level: str | None = None) -> dict[str, dict]:
-    """Every admin_boundary name -> {id, level}, optionally one level only.
-
-    Cheap enough to call per ingest batch (a few thousand rows, names only, no
-    geometry), so there is no cache to invalidate.
-    """
-    sql = "SELECT id, name, level FROM admin_boundary"
+                   level: str | None = None) -> list[BoundaryCandidate]:
+    """Load boundaries as records so duplicate names remain distinct."""
+    sql = "SELECT id, name, level, parent, division FROM admin_boundary"
     params: tuple = ()
     if level:
         sql += " WHERE level = %s"
         params = (level,)
+    sql += " ORDER BY id"
     with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(sql, params)
-        return {r["name"]: {"id": r["id"], "level": r["level"]} for r in cur.fetchall()}
+        return [BoundaryCandidate(
+            unit_id=row["id"], name=row["name"], level=row["level"],
+            parent=row["parent"], division=row["division"],
+        ) for row in cur.fetchall()]
 
 
-def resolve_place(conn: psycopg.Connection, probe: str, *, level: str | None = None,
-                  threshold: float = DEFAULT_THRESHOLD) -> PlaceMatch | None:
-    """Resolve one dirty place name against admin_boundary."""
-    return match_name(probe, load_gazetteer(conn, level), threshold=threshold)
+def boundaries_at(conn: psycopg.Connection, lon: float, lat: float, *,
+                  level: str | None = None) -> list[BoundaryCandidate]:
+    """All boundaries covering a WGS84 point, including shared polygon edges."""
+    sql = (
+        "SELECT id, name, level, parent, division FROM admin_boundary "
+        "WHERE ST_Covers(geom, ST_SetSRID(ST_MakePoint(%s, %s), 4326))"
+    )
+    params: list = [lon, lat]
+    if level:
+        sql += " AND level = %s"
+        params.append(level)
+    sql += " ORDER BY id"
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(sql, params)
+        return [BoundaryCandidate(
+            unit_id=row["id"], name=row["name"], level=row["level"],
+            parent=row["parent"], division=row["division"],
+        ) for row in cur.fetchall()]
+
+
+def resolve_place(conn: psycopg.Connection, probe: str = "", *,
+                  lon: float | None = None, lat: float | None = None,
+                  level: str | None = None, parent: str | None = None,
+                  threshold: float = DEFAULT_THRESHOLD) -> PlaceResolution:
+    """Resolve coordinates first, using place text as corroboration or fallback."""
+    if (lon is None) != (lat is None):
+        raise ValueError("lon and lat must be provided together")
+    if lon is not None and (not math.isfinite(lon) or not -180 <= lon <= 180):
+        raise ValueError("lon must be finite and between -180 and 180")
+    if lat is not None and (not math.isfinite(lat) or not -90 <= lat <= 90):
+        raise ValueError("lat must be finite and between -90 and 90")
+
+    gazetteer = load_gazetteer(conn, level)
+    text = match_name(probe, gazetteer, parent=parent, threshold=threshold)
+    if lon is None:
+        return text
+
+    spatial = boundaries_at(conn, lon, lat, level=level)
+    if not spatial:
+        candidates = text.candidates if text.status in {"resolved", "ambiguous"} else ()
+        return PlaceResolution("conflict" if candidates else "not_found",
+                               "spatial+text" if candidates else "spatial",
+                               candidates=candidates, margin=text.margin)
+    if level is None:
+        most_specific = max(_LEVEL_RANK.get(candidate.level, -1)
+                            for candidate in spatial)
+        spatial = [candidate for candidate in spatial
+                   if _LEVEL_RANK.get(candidate.level, -1) == most_specific]
+    if len(spatial) > 1:
+        if text.status == "resolved":
+            matching = [candidate for candidate in spatial
+                        if candidate.unit_id == text.match.unit_id]
+            if matching:
+                match = _with_score(matching[0], float(text.match.score))
+                return PlaceResolution(
+                    "resolved", "spatial+text", match=match,
+                    candidates=(match,), margin=text.margin,
+                )
+        return PlaceResolution("ambiguous", "spatial", candidates=tuple(spatial))
+
+    spatial_match = spatial[0]
+    if text.status == "ambiguous":
+        corroborating = [candidate for candidate in text.candidates
+                         if candidate.unit_id == spatial_match.unit_id]
+        if corroborating:
+            match = corroborating[0]
+            return PlaceResolution(
+                "resolved", "spatial+text", match=match,
+                candidates=(match,), margin=text.margin,
+            )
+        return PlaceResolution(
+            "conflict", "spatial+text",
+            candidates=(spatial_match, *text.candidates), margin=text.margin,
+        )
+    if text.status != "resolved":
+        return PlaceResolution(
+            "resolved", "spatial", match=spatial_match,
+            candidates=(spatial_match,),
+        )
+    if text.match.unit_id == spatial_match.unit_id:
+        corroborated = _with_score(spatial_match, float(text.match.score))
+        return PlaceResolution(
+            "resolved", "spatial+text", match=corroborated,
+            candidates=(corroborated,), margin=text.margin,
+        )
+    return PlaceResolution(
+        "conflict", "spatial+text",
+        candidates=(spatial_match, text.match), margin=text.margin,
+    )

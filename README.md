@@ -67,6 +67,7 @@ src/eqmon/
   db.py          PostGIS connection pool + schema helpers
   _env.py        loads local .env (DATABASE_URL) into os.environ
   events/        sources.py (USGS + MET stub), ingest.py (dedup), repo.py
+  ai/places.py   spatial-first, duplicate-safe admin place resolution
   impact.py      per-event multi-level impact (province/district/tehsil)
 schema.sql                  PostGIS tables (seismic_event, admin_boundary)
 scripts/rasterize_vs30.py   one-time shapefile -> COG
@@ -79,6 +80,18 @@ web/             Leaflet map + tile overlays + event form + catalog + impact tab
 
 ```bash
 uv run pytest -q
+```
+
+Evaluate deterministic place resolution against the loaded boundary table:
+
+```bash
+uv run python scripts/evaluate_places.py
+```
+
+Run the opt-in live LM Studio search-tool benchmark:
+
+```bash
+uv run python scripts/evaluate_search_tool.py --repeats 3
 ```
 
 DB-backed tests require a PostGIS test database; set `DATABASE_URL_TEST`
@@ -114,6 +127,7 @@ uv run python scripts/build_tiles.py           # one-time: build web/tiles/*.pmt
 | `POST /events` | Manual Event Input (Coverage-Region validated) |
 | `POST /events/ingest` | Pull the USGS feed (Secondary Seismic Source) now |
 | `GET /events` | List canonical catalog events (`since`, `min_magnitude`, `limit`) |
+| `POST /events/search` | Validated catalog search with dates, point/radius, and mainshock state |
 | `GET /events/{id}` | Event detail |
 | `POST /events/{id}/impact` | MMI bands + multi-level impact (province/district/tehsil: max band + representative MMI) |
 

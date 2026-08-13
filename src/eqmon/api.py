@@ -21,9 +21,10 @@ from . import buildings, config, db, exposure
 from .contours import mmi_to_geojson
 from .export import featurecollection_to_shapefile_zip
 from .events.ingest import ingest
-from .events.repo import (analytics_rows, catalog_max_time, count_events,
+from .events.repo import (analytics_rows, catalog_coverage, catalog_max_time, count_events,
                            create_manual_event, delete_event, get_event,
                            list_events, update_event, update_usgs_detail)
+from .events.search import EVENT_SEARCH_SCHEMA_VERSION, EventSearchSpec
 from .events.sources import PMDSource, USGSSource
 from .impact import compute_event_impact
 from .intensity import compute_mmi_grid
@@ -346,6 +347,42 @@ def get_events(since: datetime | None = None,
                              occurred_after=occurred_after,
                              occurred_before=occurred_before)
         return {"total": total, "events": events}
+
+
+@app.post("/events/search")
+def search_events(spec: EventSearchSpec):
+    """Search the deterministic catalog contract used by UI and future AI."""
+    filters = spec.model_dump()
+    with db.get_conn() as conn:
+        events = list_events(conn, **filters)
+        count_filters = {
+            key: value for key, value in filters.items()
+            if key not in {"limit", "offset", "orderby"}
+        }
+        total = count_events(conn, **count_filters)
+        coverage = catalog_coverage(conn)
+    return {
+        "schema_version": EVENT_SEARCH_SCHEMA_VERSION,
+        "query": spec.model_dump(mode="json"),
+        "distance_semantics": (
+            "geodesic distance from the supplied WGS84 point to each event point"
+            if spec.radius_km is not None else None
+        ),
+        "event_kind_semantics": (
+            "mainshocks and aftershocks include only explicitly classified rows; "
+            "unclassified rows appear only when event_kind is all"
+        ),
+        "source_semantics": (
+            "source filters canonical catalog rows; superseded source observations "
+            "are not returned"
+        ),
+        "catalog_coverage": {
+            **coverage,
+            "completeness": "not_asserted",
+        },
+        "total": total,
+        "events": events,
+    }
 
 
 @app.get("/events/export")

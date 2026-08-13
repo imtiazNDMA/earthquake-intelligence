@@ -235,8 +235,8 @@ class LMStudio:
     def embed(self, texts: Sequence[str], *, model: str | None = None) -> list[list[float]]:
         """Embeddings for `texts`, returned in input order.
 
-        Used for place-name resolution against admin_boundary, which needs no
-        generation at all — and therefore has no hallucination surface.
+        Retained for controlled capability experiments. Production place
+        resolution is deterministic and does not call this endpoint.
         """
         if not texts:
             return []

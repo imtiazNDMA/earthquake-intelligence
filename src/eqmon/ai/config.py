@@ -34,7 +34,8 @@ MODEL_ROUTER = os.getenv("EQMON_AI_MODEL_ROUTER", "nvidia/nemotron-3-nano")
 # Batch only. Measured 12-97 s: fine unattended overnight, never interactive.
 MODEL_BATCH = os.getenv("EQMON_AI_MODEL_BATCH", "deepseek/deepseek-v4-flash")
 
-# Embeddings for place-name resolution against admin_boundary.
+# Dormant experimental embedding model. Deterministic place resolution uses
+# coordinates and orthographic matching; retain only for reproducible comparison.
 MODEL_EMBED = os.getenv("EQMON_AI_MODEL_EMBED", "text-embedding-nomic-embed-text-v1.5")
 
 # --- Timeouts --------------------------------------------------------------

@@ -1,511 +1,486 @@
-# Agentic AI Integration Plan — eqMonitoring2
+# Agentic AI Integration Plan - eqMonitoring2
 
-**Status:** Draft for review
-**Date:** 2026-08-13
-**Inference:** Local models via LM Studio (`http://localhost:1234/v1`, OpenAI-compatible)
-**Primary model:** `google/gemma-4-26b-a4b`
-**Hardware:** NVIDIA RTX 6000 Ada, 48 GB VRAM
+**Status:** Reviewed architecture and delivery plan
+**Updated:** 2026-08-13
+**Inference target:** Local models through LM Studio's OpenAI-compatible API
+**Reference hardware:** NVIDIA RTX 6000 Ada, 48 GB VRAM
 
----
+## 1. Purpose
 
-## 1. Executive summary
+Add AI-assisted workflows without allowing a language model to calculate
+seismology, mutate the canonical catalog, publish operational messages, or
+become a dependency of ingest, intensity, impact, exposure, or analytics.
 
-All inference runs locally. Nothing leaves the machine — which resolves the data-sovereignty question outright for a government disaster-management platform, and it is the reason this design is *better* here than a hosted frontier API, not merely cheaper.
+The model may:
 
-The plan is built on **measured behaviour of the actual models on the actual box**, not on assumptions. That measurement produced one finding that inverts standard practice and would have silently shipped garbage into production:
+- translate natural language into a validated deterministic query;
+- select from authorized read-only tools inside a bounded orchestrator;
+- summarize versioned analysis artifacts into a human-reviewed draft; and
+- classify staged data-quality records for human review.
 
-> **Grammar-constrained structured output (`response_format: json_schema`) is catastrophically broken on this Gemma build. Native tool calling on the same model is flawless.**
+The model may not:
 
-Every structured extraction in this plan therefore routes through the **tool-calling interface**, never through `response_format`. §2 shows the evidence.
+- calculate MMI, PGA, exposure, aftershock probability, or statistical metrics;
+- generate SQL or invoke arbitrary code;
+- invent operational recommendations;
+- write to `seismic_event` or approve a rejected source record;
+- send, publish, or escalate an artifact; or
+- expose raw model reasoning as an answer.
 
-The second consequence of running a ~4B-active MoE rather than a frontier model: **autonomy lives in the harness, not the model.** We do not hand the model an open-ended agent loop and hope. We give it small, well-bounded decisions inside a deterministic orchestrator. That suits disaster response anyway — predictability beats cleverness when an operator is acting on the output.
+## 2. Current Status
 
----
+Status labels used throughout this plan:
 
-## 2. Measured baseline
+- **Implemented:** code exists in the repository.
+- **Mock-tested:** deterministic tests run without a live model.
+- **Live-probed:** manually observed against a named local model.
+- **Production-ready:** security, operations, evaluation, and domain acceptance
+  gates are complete. Nothing in the AI layer has this status yet.
 
-Probed 2026-08-13 against the live LM Studio server. **These numbers are the justification for every design decision below; re-run them after any model or LM Studio upgrade.**
+### 2.1 Implemented and mock-tested
 
-### 2.1 Available models
+- `src/eqmon/ai/client.py`: synchronous LM Studio HTTP transport, basic
+  single-process serialization, response parsing, and a basic circuit breaker.
+- `src/eqmon/ai/config.py`: environment-configurable endpoint and model roster.
+- `src/eqmon/ai/places.py`: duplicate-safe, spatial-first place resolver with
+  orthographic fallback and explicit ambiguity/conflict states.
+- `tests/test_ai_client.py` and `tests/test_ai_places.py`.
 
-| Model | Role | Measured latency |
-|---|---|---|
-| `google/gemma-4-26b-a4b` | **Primary** — extraction, briefs, tool selection | 2.7–3.3 s |
-| `qwen/qwen3.5-9b` | Secondary / cross-check | 2.9–9.5 s |
-| `deepseek/deepseek-v4-flash` | Batch only — too slow interactive | 12–97 s |
-| `nvidia/nemotron-3-nano` | Routing / classification (untested — Phase 0 task) | — |
-| `zai-org/glm-4.6v-flash` | Vision (unused for now) | — |
-| `zai-org/glm-4.7-flash` | Spare | — |
-| `text-embedding-nomic-embed-text-v1.5` | Embeddings — **now unused**, see §6.3 | 768 dims |
+These are scaffolding, not product integration. There are no AI routes, tool
+wrappers, orchestrator, audit migration, evaluation runner, brief UI, or ingest
+review queue.
 
-### 2.2 The structured-output trap
+### 2.2 Preliminary live probe
 
-Same model, same prompt, same query — *"M5 and above within 100km of Quetta over the last decade"*. Expected `mag=5, place=Quetta, radius=100, years=10`.
+The following observations were made on 2026-08-13 but are not yet a
+reproducible benchmark:
 
-| Method | Result |
+| Model | Preliminary observation |
 |---|---|
-| `response_format: json_schema`, weak prompt | `{"min_magnitude": 0.5, "radius_km": 1e-0, "years_back": 60}` — **all wrong** |
-| `response_format: json_schema`, explicit prompt | `{"min_magnitude": 4.0, ...}` — magnitude still wrong |
-| `response_format: json_schema`, repeat runs | `{"min_magnitude": 0, "place": "},{", "radius_km": 0, "years_back": 6432876487654321}` — **total collapse** |
-| **Free text**, 3 runs | `{"min_magnitude": 5, "radius_km": 100, ... 10}` — **3/3 correct, deterministic** |
-| **Native tool calling** | `search_events{"min_magnitude":5,"place":"Quetta","radius_km":100,"years_back":10}` — **perfect** |
+| `google/gemma-4-26b-a4b` | Tool arguments were correct on a small two-tool probe; observed latency 2.7-3.3 s |
+| `qwen/qwen3.5-9b` | Correct on the same small probe; observed latency 2.9-9.5 s |
+| `deepseek/deepseek-v4-flash` | Observed latency 12-97 s; unsuitable for interactive use |
+| `nvidia/nemotron-3-nano` | Not benchmarked |
 
-Read that `place: "},{"` carefully. The grammar is forcing token choices that destroy semantic content while still emitting schema-valid JSON. **A JSON validator would have passed every one of those broken outputs.** This is the single most important operational fact in this document.
+On the tested Gemma artifact, grammar-constrained `json_schema` output produced
+schema-valid but semantically corrupted values. Native tool calling performed
+correctly on the small probe. Until a larger reproducible evaluation says
+otherwise, structured extraction will use tool calling followed by independent
+semantic validation, not `response_format: json_schema`.
 
-### 2.3 Tool calling — the capability the plan rests on
+The probe artifact must be archived with the exact model file/checksum,
+quantization, context settings, LM Studio version, GPU driver, prompts, tool
+schemas, sampling parameters, raw responses, and repeated trials before it may
+be called a baseline.
 
-| Model | Correct tool + args | Correctly abstains when no tool needed |
-|---|---|---|
-| `gemma-4-26b-a4b` | ✅ all 4 args exact, 3.3 s | ✅ answered "Paris" directly, no spurious call |
-| `qwen3.5-9b` | ✅ all 4 args exact, 9.5 s | ✅ |
+## 3. Safety and Product Principles
 
-Both selected the right tool, extracted every argument correctly, and — importantly — **did not fire a tool when none was warranted**. Spurious tool calls are the usual small-model failure; these models do not exhibit it on a two-tool surface.
+### P1 - Deterministic domain authority
 
-### 2.4 Other measured facts
+All scientific and geographic calculations come from versioned deterministic
+domain services. This guarantees traceability, not scientific authority. Every
+artifact must distinguish:
 
-- **Prompt quality dominates.** Weak → explicit system prompt moved Gemma from 1/4 to 3/4 fields correct. Prompt engineering is not polish here; it is the main lever.
-- **`temperature: 0` is not deterministic** under grammar constraint (MoE routing varies). Free-text generation *was* deterministic across 3 runs. Never assume reproducibility — assert it in evals.
-- **Thinking models strand their answer.** `qwen3.5-9b` and `deepseek-v4-flash` returned **empty `content`** with the real answer in `reasoning_content`. Any client that reads only `content` gets an empty string and no error.
+- source-reported facts;
+- observed facts, when available;
+- modeled or derived values;
+- unavailable data; and
+- limitations and uncertainty.
 
----
+### P2 - AI remains additive
 
-## 3. Core principles
+Stopping LM Studio must leave all existing non-AI behavior available. Source
+events are committed before any AI-adjacent enrichment or triage is queued.
 
-**P1 — The model never computes seismology.** Every number an operator sees traces to a deterministic function in `src/eqmon/`. The model selects tools, sequences them, and writes prose. It does no arithmetic. A hallucinated casualty figure misdirects a response; it does not degrade gracefully.
+### P3 - Human authority
 
-**P2 — AI is additive, never load-bearing.** Stop LM Studio and every existing endpoint works exactly as today. No AI call sits on the critical path of ingest, intensity, or impact.
+AI produces drafts, interpretations, and review candidates. Authenticated users
+approve, export, or discard them. No draft is automatically published or sent.
 
-**P3 — Tool calling is the structured-output mechanism.** Never `response_format: json_schema`. Measured, §2.2.
+### P4 - Bounded autonomy
 
-**P4 — Schema-valid ≠ correct.** Validation must be semantic (range checks, source-text cross-reference), never merely structural.
+Autonomy lives in deterministic code: named workflows, authorized tools, typed
+state transitions, step limits, wall-clock deadlines, and inference budgets.
+An open-ended agent loop is not the default architecture.
 
-**P5 — Autonomy lives in the harness.** Deterministic orchestration with the model making bounded decisions at named points. No open-ended loops.
+### P5 - Claims require evidence
 
-**P6 — Local inference is free at the margin.** No per-token cost changes the economics: retry aggressively, sample multiple times and vote, cross-check with a second model. Techniques that are prohibitive on a metered API are routine here. **Spend compute to buy reliability.**
+Schema-valid output is not necessarily correct. Critical claims require entity,
+unit, source, version, and freshness attribution. Numeric membership in a tool
+response is not adequate grounding.
 
----
+### P6 - Local inference is capacity, not free compute
 
-## 4. Architecture
+Local calls consume finite GPU time, power, queue capacity, and incident-response
+latency. Retries, voting, and cross-model checks require measured reliability
+gains and a per-request inference budget.
 
-```
-┌──────────────────────────────────────────────────────────┐
-│  FastAPI  src/eqmon/api.py — existing 18 endpoints       │
-│  UNCHANGED. New AI routes added alongside.               │
-└────────────────────────┬─────────────────────────────────┘
-                         │
-┌────────────────────────▼─────────────────────────────────┐
-│  src/eqmon/ai/                                           │
-│                                                          │
-│   client.py    LM Studio client, retries, content-or-    │
-│                reasoning_content extraction, queue       │
-│   registry.py  model roster + capability routing         │
-│   tools.py     tool schemas ↔ domain functions           │
-│   orchestr.py  deterministic DAGs, bounded model steps   │
-│   validate.py  semantic validation + repair loop         │
-│   ground.py    numeric grounding guard                   │
-│   audit.py     every call persisted                      │
-│   evals/       golden set + runner                       │
-└────────────────────────┬─────────────────────────────────┘
-                         │ calls, never bypasses
-┌────────────────────────▼─────────────────────────────────┐
-│  Pure domain modules (unchanged)                         │
-│  analytics · aftershock · impact · intensity · contours  │
-│  · exposure · events/repo                                │
-└────────────────────────┬─────────────────────────────────┘
-                         │
-┌────────────────────────▼─────────────────────────────────┐
-│  PostGIS: seismic_event · admin_boundary · tectonic_zone │
-└──────────────────────────────────────────────────────────┘
-```
+### P7 - Local inference is not an air gap
 
-`src/eqmon/ai/` contains **zero seismology**. If a reviewer finds a formula there, the review fails.
+The defensible claim is: **LLM inference payloads remain on the configured
+inference host.** The wider platform still communicates with PMD, USGS, ARC,
+TileServerGL, and currently some frontend CDNs. Data sovereignty requires an
+approved data-flow and egress policy, not merely a local model.
 
-### 4.1 Why the existing code is ready
+## 4. Target Architecture
 
-The domain modules are already the right shape for tools — this is not luck, it is the existing design discipline paying off:
+```text
+FastAPI
+  |
+  +-- Existing deterministic routes -------------------------- unchanged
+  |
+  +-- AI routes -> authentication/RBAC -> job service
+                                      |
+                                      +-- deterministic workflow engine
+                                      |      +-- versioned tool contracts
+                                      |      +-- analysis artifact store
+                                      |      +-- claim/evidence ledger
+                                      |
+                                      +-- inference broker
+                                             +-- bounded priority queue
+                                             +-- one worker per GPU
+                                             +-- deadlines/cancellation
+                                             +-- interactive and batch lanes
 
-| Module | Docstring says | Why it matters |
-|---|---|---|
-| `analytics.py` | *"No DB or HTTP dependencies so each is unit-testable"* | Pure functions = trivially wrappable, trivially testable |
-| `aftershock.py` | *"Pure NumPy — no DB dependency"* | Same |
-| `impact.py` | one entry point `compute_event_impact(conn, event, grid)` | One tool, one call |
-| `exposure.py` | documents the ARC vocabulary boundary at its edge | The pattern to copy for tool schemas |
-
-23 test files already cover these. The tool layer is a wrapper, not a rewrite.
-
-### 4.2 The client contract
-
-`client.py` must handle three measured realities:
-
-```python
-def extract_text(choice: dict) -> str:
-    """content, or reasoning_content when a thinking model leaves content empty.
-
-    Measured: qwen3.5-9b and deepseek-v4-flash return an empty `content`
-    with the real answer in `reasoning_content`. Reading only `content`
-    yields an empty string and no error — a silent failure.
-    """
-    msg = choice["message"]
-    return (msg.get("content") or "").strip() or (msg.get("reasoning_content") or "").strip()
+Domain services -> PostGIS / Vs30 COG / approved external services
 ```
 
-Plus: a **single-flight queue** (one GPU — concurrent requests thrash), per-call timeout by model tier, and a circuit breaker that disables AI routes cleanly if LM Studio is down.
+### 4.1 Module boundaries
 
-### 4.3 VRAM budget — 48 GB
+Proposed modules:
 
-Rough Q4 footprints; measure and pin during Phase 0:
+```text
+src/eqmon/ai/
+  client.py       low-level LM Studio protocol adapter
+  config.py       validated inference configuration and model roster
+  contracts.py    model-facing tool request/result schemas
+  tools.py        authorized adapters over deterministic domain services
+  orchestrator.py named workflows and bounded state transitions
+  claims.py       claim ledger and evidence validation
+  jobs.py         artifact/job state machine
+  audit.py        redacted audit metadata
+  evals/          runner, cases, manifests, and reports
+```
 
-| Resident | ~VRAM |
+`src/eqmon/ai/` contains no seismological formulas. Domain capabilities missing
+from the current application are implemented as domain services first, not
+hidden inside AI wrappers.
+
+### 4.2 Inference broker
+
+The current process-local lock is acceptable only for prototyping. Production
+requires one supervised broker per GPU with:
+
+- a bounded priority queue and queue-full response;
+- queue and execution deadlines;
+- cancellation when the caller disconnects;
+- one global concurrency policy across API workers;
+- separate interactive and batch priorities;
+- per-user and per-role quotas;
+- queue depth, wait time, execution time, tokens, and GPU telemetry; and
+- explicit overload behavior using `429` or `503`.
+
+Raw `reasoning_content` is never displayed or persisted as an operator answer.
+A missing final answer is a typed model failure. Model-specific adapters may use
+a follow-up finalization request if a pinned model requires one.
+
+## 5. Cross-Cutting Gates
+
+### 5.1 Identity and authorization
+
+Before a user-visible AI route ships:
+
+- authenticate every operator;
+- define viewer, analyst, operator, reviewer, and administrator roles;
+- authorize tools and exports by role;
+- apply request, concurrency, and artifact quotas;
+- attribute every job, review, and export to an authenticated subject; and
+- protect administrative ingest and configuration routes as part of the same
+  platform security work.
+
+### 5.2 Scientific governance
+
+- Classify outputs as preliminary modeled analysis unless an authoritative
+  stakeholder explicitly approves another designation.
+- Define an authoritative-source hierarchy and freshness policy.
+- Establish approved limitation and uncertainty language.
+- Replace free-generated recommended actions with deterministic,
+  stakeholder-owned action templates keyed to approved thresholds.
+- Require domain review for changes to calculations, thresholds, or templates.
+
+### 5.3 Data governance and security
+
+- Document data classification, deployment boundary, and approved egress.
+- Self-host frontend assets for offline/controlled-network deployment.
+- Review model provenance, license, checksum, and update policy.
+- Treat all PMD, USGS, ARC, and operator text as untrusted data.
+- Send only allowlisted, size-limited scalar projections to the model.
+- Render model output as text or through a strict sanitizer; never raw HTML.
+- Add CSP, outbound host allowlisting, retention, redaction, backup, and access
+  policies for AI artifacts and audit records.
+
+Prompt delimiters are defense in depth, not a security boundary. Tool
+authorization, call limits, and side-effect policy are enforced in code.
+
+### 5.4 Claim and evidence ledger
+
+Replace the proposed regex numeric guard with structured claims:
+
+```text
+Claim
+  id
+  artifact_id
+  claim_type
+  entity_type / entity_id / display_name
+  value / unit
+  source_kind
+  source_artifact_id
+  source_path
+  calculation_version
+  observed_at / freshness
+  limitation
+```
+
+Critical numeric sentences are rendered deterministically from validated
+claims. Generated prose may connect and summarize those sentences but may not
+introduce uncited quantities. Validation checks entity binding, units, source
+paths, and artifact versions, not merely whether a number appears somewhere.
+
+### 5.5 Analysis artifacts
+
+Compute event intensity, impact, exposure, analytics, and aftershock products
+once per input/data/calculation version. Store compact immutable metadata,
+hashes, provenance, and references rather than duplicating contour geometry in
+the audit table. Briefs and citations reuse these artifacts.
+
+### 5.6 Audit policy
+
+Record request ID, actor, role, workflow version, prompt version, model artifact
+checksum, tool schema versions, analysis artifact IDs, timing, token usage,
+status, review state, and export state. Do not persist raw reasoning. Define
+redaction, retention, partitioning, role-restricted access, and deletion policy
+before creating the audit migration.
+
+## 6. Tool Contracts
+
+Each tool has versioned Pydantic input and output models defining:
+
+- units, ranges, enums, and nullability;
+- result and pagination limits;
+- authorization and cost class;
+- timeout and freshness behavior;
+- compact model-context projection;
+- provenance and calculation version; and
+- typed errors and partial-result semantics.
+
+No tool returns full contour GeoJSON, raw USGS product trees, or unrestricted
+external-service payloads to the model.
+
+Initial deterministic capabilities:
+
+| Capability | Required domain work |
 |---|---|
-| `gemma-4-26b-a4b` (primary) | ~15 GB |
-| `qwen3.5-9b` (cross-check) | ~6 GB |
-| `nemotron-3-nano` (routing) | ~2 GB |
-| `nomic-embed-text-v1.5` | ~0.5 GB |
-| KV cache + headroom | remainder |
-
-All four co-resident with room to spare. **Disable LM Studio's JIT auto-unload TTL for these** — an idle-unload mid-incident means a 30-second model load exactly when latency matters most.
-
----
-
-## 5. Model routing
-
-| Task | Model | Why |
-|---|---|---|
-| Intent routing, yes/no classification | `nemotron-3-nano` | Smallest, fastest; verify in Phase 0 |
-| Argument extraction, tool selection | `gemma-4-26b-a4b` | Measured perfect tool calling at 3 s |
-| Brief and narrative generation | `gemma-4-26b-a4b` | Primary |
-| Critical-path cross-check (§7.2) | `qwen3.5-9b` | Independent architecture, ~3 s |
-| Overnight batch analysis | `deepseek-v4-flash` | 90 s is fine unattended |
-| Place-name matching | **none** | stdlib `difflib` beat embeddings 7/7 vs 6/7 — §6.3 |
-
-Routing lives in `registry.py` as config, not scattered constants, so a model swap is one edit.
-
----
-
-## 6. Phases
-
-Ordered by increasing autonomy — which is the same as increasing blast radius. **Do not reorder.** Each phase is independently useful; stopping after Phase 2 still leaves real value.
-
----
-
-### Phase 0 — Foundation, and prove the model can do the job
-
-*No user-visible AI. This is the phase that de-risks everything after it.*
-
-- [ ] Add `openai` to `pyproject.toml` (LM Studio is OpenAI-compatible; use the SDK with `base_url="http://localhost:1234/v1"`, `api_key="lm-studio"`)
-- [ ] `LMSTUDIO_BASE_URL` + model ids via `_env.py`, following the existing `PMD_API_URL` pattern
-- [ ] `src/eqmon/ai/` package skeleton
-- [ ] `client.py` — content-or-`reasoning_content` extraction, single-flight queue, timeouts, circuit breaker
-- [ ] `registry.py` — model roster and routing table
-- [ ] `tools.py` — 8 tool schemas wrapping the domain functions (§6.1)
-- [ ] `tests/test_ai_tools.py` — each tool returns identical values to the function it wraps
-- [ ] **Capability benchmark harness** — the deliverable that decides Phases 2–3 (§6.2)
-- [ ] `audit.py` + migration `007_ai_audit.sql`
-- [ ] `validate.py` semantic validation + repair loop
-- [ ] `ground.py` numeric grounding guard
-- [ ] 20 golden eval cases minimum
-- [ ] Benchmark `nemotron-3-nano` for routing; confirm or drop it
-- [ ] Pin models resident in LM Studio; disable idle TTL; document the config
-
-**Exit criteria:** every tool callable from a REPL returning correct values; benchmark report published; eval harness green. **Zero AI in the product.**
-
-#### 6.1 Tool surface
-
-Thin wrappers over what exists. All extraction goes through these, never `response_format`.
-
-| Tool | Wraps | Notes |
-|---|---|---|
-| `search_events` | `events/repo.py` | Cap 50 results — context and latency control |
-| `get_event` | `GET /events/{id}` logic | One event + USGS detail |
-| `compute_intensity` | `intensity` + `contours` | MMI bands |
-| `compute_impact` | `impact.compute_event_impact` | Bands + admin rollups |
-| `get_exposure` | `exposure.py` ARC proxy | Elements at risk |
-| `compute_aftershock` | `aftershock.py` | Regional Omori-Utsu + G-R |
-| `compute_analytics` | `analytics.py` | b-value, Mc, rate series |
-| `resolve_place` | `admin_boundary` + embeddings | Fuzzy name → admin unit (§6.3) |
-
-Rules: structured data out, never prose. Every result carries provenance (function, params, event id) so the grounding guard can verify citations. Tool `description` states **when to call**, not just what it does — measured to matter.
-
-#### 6.2 The capability benchmark — Phase 0's most important artifact
-
-Before committing to an architecture, measure this model on *our* schemas:
-
-- [ ] Tool-selection accuracy across all 8 tools (does it pick right with 8 options, not 2?)
-- [ ] Argument extraction accuracy on 50 realistic queries
-- [ ] **Abstention rate** — does it correctly refuse to call a tool when none applies?
-- [ ] **Multi-step chaining** — can it sequence 2, 3, 4 tools? *This determines whether Phase 3 is an agent loop or a fixed pipeline.*
-- [ ] Determinism across repeat runs
-- [ ] Latency distribution (p50/p95) per tool count
-- [ ] Degradation as tool count grows 2 → 8
-
-**Decision gate:** if multi-step chaining accuracy is below the agreed bar, Phase 3 ships as a **fixed pipeline with model-selected parameters** rather than an agent loop. That is a perfectly good product; it is not a failure. Decide with data.
-
-#### 6.3 Fuzzy place-name resolution — ✅ IMPLEMENTED
-
-`CLAUDE.md` records the PMD feed as *"dirty"*, with `parse_met()` already defensively parsing malformed coordinates. Place names carry the same noise, and exact matching against `admin_boundary` silently misses them.
-
-**This was planned as an embeddings task. The measurement killed that idea**, which is exactly why it was measured first. Against a 12-name Pakistani gazetteer with 7 realistic variants:
-
-| Method | Accuracy | Margin range |
-|---|---|---|
-| `nomic-embed-text-v1.5` cosine | 6/7 | +0.007 – +0.383 |
-| **stdlib `difflib`** | **7/7** | **+0.292 – +0.484** |
-
-The embedding failure is the instructive one: it matched **"Peshwar" → "Khuzdar"** — a city 700 km away — on a margin of +0.007, essentially a coin flip. The reason is structural. Embeddings encode *semantic* similarity, and every Pakistani city name is semantically similar to every other; a misspelling is *orthographic* variation. Wrong tool.
-
-Shipped as `src/eqmon/ai/places.py`: normalise (accents, admin suffixes, punctuation) → `SequenceMatcher` ratio → threshold + ambiguity margin. **No GPU, no network, no LM Studio, no new dependency**, and microseconds rather than a ~100 ms round trip — so it can sit in the ingest path without putting inference on the critical path.
-
-Threshold set from a measured separation (true matches bottom out at 0.667, false matches top out at 0.545 → midpoint 0.62). **Caveat recorded in the code:** tuned on 12 names; the real gazetteer is ~161 districts plus tehsils, and denser name spaces raise the false-match ceiling. Re-tune before trusting it in ingest.
-
-The embedding model stays in the roster but is now unused. Do not add it back without a measured reason.
-
----
-
-### Phase 1 — Situation brief
-
-*Fixed tool sequence. One generation. A human reads it.*
-
-**Problem:** after an event, an operator manually assembles magnitude, depth, peak MMI, affected districts and exposure into a written brief — 10–20 minutes of transcription in exactly the window where minutes matter, and it is the same work every time.
-
-**Shape:** the orchestrator (not the model) calls `get_event` → `compute_impact` → `get_exposure` → `compute_aftershock`, then makes **one** generation call to render the results as prose. The model chooses nothing. This is the lowest-risk useful thing we can ship.
-
-- [ ] `POST /events/{id}/brief`
-- [ ] Deterministic DAG in `orchestr.py`
-- [ ] Versioned prompt; version recorded in audit
-- [ ] Brief sections rendered individually (headline, what happened, who is affected, uncertainties, recommended actions) — short focused generations beat one long one on a small model
-- [ ] Grounding guard on every section (§7.1)
-- [ ] Frontend panel labelled **AI-generated — verify before distribution**
-- [ ] Copy / export actions
-- [ ] 10 golden briefs with required numeric content
-- [ ] Latency budget: full brief under 30 s
-
-**Exit criteria:** 20 briefs expert-reviewed, zero numeric errors, grounding guard demonstrably catches a corrupted tool result.
-
-**Non-goal:** never auto-published, auto-emailed, or auto-posted. A human sends it or it does not go out.
-
----
-
-### Phase 2 — Natural-language catalog query
-
-*Single tool call. Trivially verifiable by construction.*
-
-**Problem:** the filter UI supports search, magnitude, source and date. It does not answer *"M5+ within 100km of Quetta in the last decade, excluding aftershocks"* — a routine analyst question needing SQL or a fiddly manual multi-filter.
-
-**Shape:** exactly the interaction already measured working end to end (§2.3). One `search_events` tool call, arguments validated, executed against existing repo functions.
-
-- [ ] `POST /events/query/nl`
-- [ ] Extraction via **tool calling** (never `response_format`)
-- [ ] Pydantic validation with **range checks**: magnitude 0–10, radius 0–5000 km, years 0–200 — the `6432876487654321` in §2.2 is exactly what these catch
-- [ ] Repair loop: on validation failure, re-prompt with the specific error, max 2 retries (free locally — use them)
-- [ ] `resolve_place` for the location argument
-- [ ] **Round-trip confirmation**: render the interpreted query back in plain language plus editable filter chips. This is the real safety mechanism — a mistranslation becomes visible before anyone trusts the results
-- [ ] Never generate SQL. The tool schema is the entire surface
-- [ ] 15 golden cases including ambiguous ones
-- [ ] Clear rejection path for out-of-scope questions
-
-**Exit criteria:** ≥90% correct translation on the golden set; every mistranslation visible in the confirmation line.
-
----
-
-### Phase 3 — Analyst assistant
-
-*Shape decided by the Phase 0 benchmark.*
-
-**Problem:** comparative questions needing several tools chained — *"how does this compare to historical events on the same fault system?"*, *"which districts have the highest cumulative MMI exposure this decade?"* Each is a 20-minute manual workflow.
-
-**Two designs. Pick with §6.2 data, not preference.**
-
-**3a — Fixed pipelines** (if chaining accuracy is low): a small set of named analyses, each a hand-written DAG, with the model classifying which analysis is wanted and extracting its parameters. Predictable, debuggable, and it covers the majority of real questions.
-
-**3b — Bounded agent loop** (if chaining accuracy is high): a hand-written loop — *not* a framework — with a hard `max_steps` of 5, a whitelist of tools valid at each step, validation between every step, and a wall-clock budget.
-
-- [ ] Decide 3a vs 3b from the benchmark; record the reasoning
-- [ ] Implement in `orchestr.py`
-- [ ] **Read-only.** No tool that writes to the database or causes an external side effect
-- [ ] Streaming to the frontend — a 30 s answer needs visible progress
-- [ ] **Visible tool-call trace panel.** The operator must see what it did, not only what it concluded. On a small model this is not a nice-to-have; it is how errors get caught
-- [ ] Per-request step and time ceilings
-- [ ] 15 multi-step golden cases
-
-**Exit criteria:** all 15 golden questions answered with correct tool sequences and correct numbers; the trace panel is legible to a non-technical operator.
-
----
-
-### Phase 4 — Ingest triage and data quality
-
-*First scheduled run. Output is a queue, not a write.*
-
-**Problem:** `parse_met()` currently skips *"unparseable/out-of-range rows"* and they vanish. Some are real events with recoverable formatting problems — a genuine data-loss path today, and one that local inference can address without sending anything anywhere.
-
-- [ ] Persist rejected rows rather than dropping them — migration `008_ingest_rejects.sql`
-- [ ] Triage classification per reject: recoverable / genuinely bad / unclear
-- [ ] `resolve_place` on rejects whose only defect is a place name
-- [ ] Statistical anomaly check against `analytics.py` — is today's rate consistent with the historical b-value distribution?
-- [ ] Runs on the existing scheduler after ingest
-- [ ] Output is a **human review queue**. Never a write to `seismic_event`
-- [ ] Admin UI: accept/reject per row
-- [ ] Alerting when triage itself fails — a silently broken agent is worse than none
-- [ ] Two-week shadow run before the queue is trusted
-
-**Hard rule:** proposes, never disposes.
-
----
-
-### Phase 5 — Proactive monitoring
-
-*Highest autonomy. Requires explicit stakeholder sign-off and prior operational history.*
-
-Watches ingest and drafts an escalation brief when thresholds are crossed. **It drafts. It does not send.**
-
-- [ ] Thresholds defined by NDMA stakeholders, not engineering
-- [ ] Draft-only queue with a prominent unsent state
-- [ ] Kill switch — one config flag disables all autonomous behaviour
-- [ ] Escalation runbook: what an operator does when it is wrong, and how that feeds back into evals
-
-**Do not start until Phases 1–4 have a quarter of production history.** Autonomy is earned with evidence.
-
----
-
-## 7. Cross-cutting engineering
-
-### 7.1 Grounding guard
-
-The highest-value safeguard, in `ground.py`:
-
-1. Extract every numeric literal from the generated text.
-2. Extract every numeric value from that turn's tool results.
-3. Any output number absent from tool results (within rounding tolerance) → **fail the response**, log it, return an error rather than the text.
-
-Crude, and it will occasionally false-positive on incidental numbers ("the first of three districts"). That trade is correct: a false positive costs a regeneration — free locally — while a false negative costs a misdirected response. Tune the tolerance; never disable the guard.
-
-### 7.2 Validation, repair, and cross-check
-
-Because inference is free at the margin (P6), reliability is bought with compute:
-
-- **Semantic validation** — range checks on every extracted number. §2.2 is the proof this is mandatory.
-- **Repair loop** — on failure, re-prompt with the specific validation error. Max 2 retries.
-- **Self-consistency** — for critical extractions, sample 3× and take the majority. Measured non-determinism (§2.4) makes this genuinely informative: 3/3 agreement is a confidence signal.
-- **Cross-model check** — for the highest-stakes outputs, run `qwen3.5-9b` on the same input and diverge-flag any disagreement. ~3 s and zero marginal cost.
-
-### 7.3 Prompt injection
-
-`CLAUDE.md` documents the PMD feed as externally controlled and dirty. Place names flow from that feed into event records and then into prompts. **That is an injection vector.**
-
-- Wrap all external text (place names, USGS descriptions, ARC responses) in delimited blocks with an explicit instruction that the content is data, never instructions
-- Tool outputs are structured JSON, not concatenated prose, limiting what injected text can reach
-- Read-only tool surface through Phase 3 means a successful injection cannot cause a write
-- Include injection attempts in the eval set — small models are more susceptible, so test rather than assume
-
-### 7.4 Evaluation
-
-**No AI feature ships without evals.** The repo runs TDD (`CLAUDE.md`); this is the same discipline applied to a non-deterministic component.
-
-- Golden cases in `src/eqmon/ai/evals/cases/`, version-controlled
-- Each case: input, required tool calls, required numeric facts, forbidden claims
-- Assertion-based scoring wherever possible; LLM-judge only for prose quality, never for factual correctness
-- Run before every prompt change **and every model or LM Studio upgrade** — a local model update is a silent behaviour change with no release notes
-- **Every production bug becomes a golden case.** This is how the set stays honest
-
-### 7.5 Failure modes
-
-| Failure | Behaviour |
-|---|---|
-| LM Studio down | AI routes 503 with a clear message; **all non-AI endpoints unaffected** |
-| Model unloaded / JIT reload | Timeout, retry once, then 503 |
-| Empty `content` | Fall back to `reasoning_content` (§4.2) |
-| Validation fails after retries | Return error with the parse failure; never show unvalidated output |
-| Grounding guard fails | Return error, log full context, suppress output |
-| GPU OOM | Circuit-break AI routes, alert, keep the platform running |
-| Tool raises | Return the error to the model so it can adapt; record it |
-
-### 7.6 Operations
-
-- Log token counts and wall-clock per call — the local equivalent of a cost dashboard is a **latency and GPU-utilisation dashboard**
-- Alert on p95 latency regression: the usual cause is an unexpected model reload or VRAM pressure
-- Pin model versions. Record the exact model id and LM Studio version in every audit row
-- Re-run the §2 probe suite after any upgrade and diff the results
-
----
-
-## 8. Consolidated todos
-
-### Blocking / immediate
-- [ ] Re-run the §2 probe suite and archive results as the baseline
-- [ ] Add `openai` dependency; wire `LMSTUDIO_BASE_URL` and model ids
-- [ ] Pin models resident; disable idle TTL
-- [ ] Create `src/eqmon/ai/` skeleton
-
-### Phase 0
-- [ ] `client.py` (content-or-reasoning, queue, timeouts, breaker)
-- [ ] `registry.py` routing table
-- [ ] 8 tool wrappers + parity tests
-- [ ] **Capability benchmark** → decides Phase 3 shape
-- [ ] `validate.py`, `ground.py`, `audit.py` + migration
-- [ ] 20 golden cases
-- [ ] Benchmark `nemotron-3-nano`; keep or drop
-- [ ] Embed `admin_boundary` names; build `resolve_place`
-
-### Phase 1
-- [ ] Brief DAG + `POST /events/{id}/brief`
-- [ ] Sectioned generation, grounding guard per section
-- [ ] Frontend panel with AI labelling
-- [ ] 10 golden briefs; 20 expert-reviewed
-
-### Phase 2
-- [ ] `POST /events/query/nl` via tool calling
-- [ ] Range validation + repair loop
-- [ ] Round-trip confirmation UI with filter chips
-- [ ] 15 golden query cases
-
-### Phase 3
-- [ ] Choose 3a vs 3b from benchmark data
-- [ ] Implement; enforce read-only + step ceiling
-- [ ] Streaming + visible trace panel
-- [ ] 15 multi-step cases
-
-### Phase 4
-- [ ] Reject persistence migration
-- [ ] Triage + anomaly checks
-- [ ] Review queue UI
-- [ ] Two-week shadow run
-
-### Phase 5
-- [ ] Stakeholder thresholds
-- [ ] Draft-only queue, kill switch, runbook
-
-### Continuous
-- [ ] Evals re-run on every prompt/model change
-- [ ] Probe suite re-run on every LM Studio upgrade
-- [ ] Production bugs → golden cases
-- [ ] Latency/VRAM dashboard reviewed weekly
-
----
-
-## 9. Open decisions
-
-1. **Accuracy bar.** What tool-selection and extraction accuracy makes a feature shippable? A number agreed with stakeholders, not an engineering judgment — the cost of error is theirs to weigh.
-2. **Latency budget per route.** A brief during an active response has a different tolerance than an analyst's historical query. Needed before effort/model routing is tuned.
-3. **Users.** The plan assumes EOC operators and analysts. Public-facing briefs would need a substantially higher review bar and different tone.
-4. **GPU contention.** Does anything else need this card during an incident? If so, VRAM pinning needs a policy.
-
----
-
-## 10. What this plan deliberately does not do
-
-- **No LLM-computed seismology.** Ever.
-- **No `response_format: json_schema`.** Measured broken (§2.2).
-- **No auto-published output.** Every artifact is drafted for a human.
-- **No AI on the critical path.** The platform works with LM Studio stopped.
-- **No agent framework.** LangChain/LlamaIndex-style abstractions hide exactly the control we need over a small model. The loop is 50 lines of our own code.
-- **No RAG over documents.** The catalog is structured data with a query interface; vectorising it would be less precise, less auditable, and harder to ground. Embeddings are used for place-name matching only.
-- **No fine-tuning yet.** Revisit only if the Phase 0 benchmark shows a specific, measured gap that prompting cannot close.
-
----
-
-## 11. Recommended first step
-
-Phase 0 in full, and specifically **the capability benchmark before any user-facing work**.
-
-The temptation will be to demo a brief in week one. Resist it. The §2 probe took twenty minutes and overturned the design; the full benchmark will do the same for the multi-step question that decides Phase 3's entire shape. A brief built on an unmeasured model with no eval set is a liability that gets harder to unwind the moment stakeholders see it working.
-
-The tool layer is roughly a week given how clean the domain modules already are. The benchmark and golden set are the longer pole — and the higher-value one.
+| `search_events` | Add explicit dates, point/radius, mainshock state, canonical/source semantics, result caps, and catalog completeness |
+| `get_event_summary` | Allowlisted event fields; omit raw `usgs_detail` |
+| `get_event_analysis` | Reuse a versioned event analysis artifact |
+| `get_exposure_summary` | Deadline-bound ARC summary with freshness and partial-failure state |
+| `get_aftershock_summary` | Extract zone lookup and fallback behavior from the API into a deterministic service |
+| `get_catalog_analytics` | Extract API orchestration into a deterministic service with a compact result |
+| `resolve_place` | Implemented: spatial resolution first when coordinates exist; orthographic matching only as fallback/corroboration. Full-gazetteer evaluation remains pending |
+
+Place candidates must be keyed by boundary ID, not name. Duplicate names remain
+visible and require level, parent, or geographic context to disambiguate.
+
+## 7. Evaluation Strategy
+
+No AI feature ships based on a demonstration or a small hand-picked golden set.
+
+Maintain four sets:
+
+- development cases for prompt iteration;
+- locked release cases not used during prompt development;
+- adversarial cases including indirect prompt injection and malformed tools;
+- production regressions created from every confirmed failure.
+
+Report repeated-trial results with sample counts and confidence intervals for:
+
+- tool-selection accuracy;
+- per-field argument accuracy;
+- false-call and false-abstention rates;
+- semantic-validation rejection and repair rates;
+- unsupported-claim and citation-attribution rates;
+- entity and unit correctness;
+- performance by language, region, spelling noise, and query complexity;
+- queue latency, cancellation, overload, and dependency failures; and
+- end-to-end operator correction and approval rates.
+
+Factual scoring is deterministic. An LLM judge may be used only for secondary
+prose-quality analysis. Critical claims require a near-zero false-accept target;
+the exact threshold is agreed with domain and operational stakeholders. Briefs
+use a written rubric and at least two independent domain reviewers before
+release.
+
+Every model, prompt, LM Studio, driver, or tool-schema change produces a signed
+evaluation report and deployment manifest. A change does not deploy if the
+locked release set regresses beyond its approved tolerance.
+
+## 8. Delivery Phases
+
+### Phase 0A - Platform and governance gates
+
+- [ ] Authentication and role model.
+- [ ] Authorization for routes, tools, reviews, and exports.
+- [ ] Rate, concurrency, and artifact quotas.
+- [ ] Threat model, data-flow inventory, and approved egress matrix.
+- [ ] Scientific product classification and approved uncertainty language.
+- [ ] Audit retention/redaction/access policy.
+- [ ] Model license, checksum, deployment, rollback, and recovery policy.
+
+**Exit:** security and domain owners approve the boundary for a shadow-mode AI
+feature.
+
+### Phase 0B - Deterministic capabilities
+
+- [x] Implement a versioned `EventSearchSpec` independent of AI.
+- [x] Add point/radius and mainshock filtering with spatial indexes/tests.
+- [x] Define point-distance semantics and catalog coverage metadata.
+- [ ] Extract reusable aftershock and analytics services from API handlers.
+- [ ] Define versioned analysis artifacts and claim ledger schemas.
+- [x] Preserve duplicate place names and resolve coordinates spatially before
+  using text as fallback or corroboration.
+- [x] Add a versioned place-resolution evaluator and development calibration over
+  all 757 loaded boundaries plus a labeled spelling/ambiguity/negative corpus.
+- [ ] Expand place evaluation with held-out feed/operator cases and systematic
+  boundary-edge/gap cases before ingest or AI-tool integration.
+- [ ] Capture parser rejects with typed reason codes before records are dropped.
+
+**Exit:** every intended tool can be called and tested without a model.
+
+### Phase 0C - Inference foundation
+
+- [x] Basic `httpx` LM Studio transport and mock tests.
+- [x] Initial model configuration.
+- [x] Duplicate-safe, spatial-first place resolver with orthographic fallback.
+- [ ] Replace process-local single-flight with a bounded inference broker.
+- [ ] Add complete assistant-tool-tool-result message support.
+- [ ] Validate all response shapes and offered tool names.
+- [ ] Add wall-clock deadlines, safe retry policy, cancellation, and lifecycle
+  cleanup.
+- [ ] Build tool adapters over Phase 0B contracts.
+- [x] Build and archive deterministic place-resolution development calibration.
+- [x] Build a live `search_events` tool benchmark and archive sanitized
+  development trial records, prompt/schema/case snapshots, and observable model
+  metadata without model text or reasoning.
+- [ ] Build a locked release set and broader multi-tool/adversarial capability
+  benchmark before any user-visible AI route.
+- [ ] Benchmark all tools together, abstention, repeatability, and multi-step
+  behavior.
+
+**Exit:** live benchmark and failure/load reports meet the shadow-mode gate.
+
+### Phase 1 - Natural-language catalog query, shadow mode
+
+This is the first user-visible AI feature because its output is an editable
+deterministic filter contract, not a scientific narrative.
+
+- [ ] Translate text into exactly one `EventSearchSpec` tool call.
+- [ ] Validate all fields independently of the model.
+- [ ] Resolve ambiguous locations explicitly; never silently choose.
+- [ ] Display editable filter chips, distance semantics, date anchoring,
+  mainshock semantics, and catalog-coverage limitations.
+- [ ] Require explicit execution during shadow mode.
+- [ ] Record operator corrections as evaluation data.
+- [ ] Reject unsupported questions without guessing.
+
+**Exit:** approved per-field, false-accept, and correction-rate thresholds are
+met on locked tests and a monitored shadow run.
+
+### Phase 2 - Evidence-cited situation brief
+
+Generate an asynchronous review artifact, not a synchronous response.
+
+- [ ] Return `202` and a job ID.
+- [ ] Reuse one versioned event analysis artifact.
+- [ ] Make external exposure optional and deadline-bound.
+- [ ] Build critical numeric statements from the claim ledger.
+- [ ] Generate only neutral transitions, summary, and approved limitation text.
+- [ ] Use deterministic stakeholder action templates, if approved.
+- [ ] Support queued, running, partial, failed, draft, reviewed, approved,
+  exported, and superseded states.
+- [ ] Support cancellation, reconnect, citations, freshness indicators, operator
+  edits, regeneration diffs, and export watermark/metadata.
+
+**Exit:** dual expert review meets the factual and attribution threshold; no
+uncited critical claim reaches a draft.
+
+### Phase 3 - Named analyst workflows
+
+Implement fixed, domain-approved workflows before considering an agent loop.
+Examples must correspond to existing deterministic services and data. Do not
+claim fault-system association or cumulative historical exposure until those
+domain products exist and are validated.
+
+- [ ] Select from a small set of named workflows.
+- [ ] Extract validated parameters.
+- [ ] Show an operator-facing evidence timeline rather than raw chain-of-thought.
+- [ ] Enforce workflow-specific tool, time, and inference budgets.
+
+Only consider a bounded read-only agent loop if a locked benchmark proves that
+it improves coverage without exceeding the approved error and capacity budget.
+The loop has a hard step limit, workflow-specific tool allowlist, typed state,
+and no side-effecting tools.
+
+### Phase 4 - Ingest reject review
+
+Parsing first returns accepted records plus typed rejects. Each reject stores a
+source payload hash/reference, parser version, retrieval metadata, and reason
+code. AI classification runs asynchronously after the successful source sync
+and cannot affect its watermark.
+
+- [ ] Define review outcomes and whether acceptance creates a staging record,
+  parser-rule proposal, or reviewed catalog write.
+- [ ] Require authenticated review and dual control for canonical catalog writes.
+- [ ] Run in shadow mode for an approved observation period.
+- [ ] Use a statistically defensible, completeness-controlled anomaly detector;
+  do not use b-value as a direct event-rate distribution.
+
+### Phase 5 - Draft-only proactive monitoring
+
+- [ ] Thresholds and deterministic action templates owned by stakeholders.
+- [ ] Draft-only queue with an unmistakable unsent state.
+- [ ] Global kill switch and per-workflow disable controls.
+- [ ] Incident runbook, feedback path, and periodic failure drills.
+
+Do not start until earlier phases have sufficient production history and
+explicit stakeholder sign-off.
+
+## 9. Operations
+
+- Run inference as a supervised service that starts without an interactive
+  desktop session.
+- Pin model artifacts, LM Studio/runtime, GPU driver, context, quantization, and
+  generation settings.
+- Record startup readiness, model-load state, memory high-water mark, queue
+  depth, queue latency, tokens per second, execution latency, cancellation,
+  error class, and OOM recovery.
+- Define SLOs separately for queue, deterministic computation, external
+  dependencies, and generation.
+- Define backup/restore, model rollback, stuck-generation recovery, degraded
+  operation, and single-GPU failure procedures.
+- Keep batch analysis from starving interactive incident work.
+- Require evaluation and capacity reports as deployment artifacts.
+
+## 10. Immediate Work Order
+
+1. Expand the place corpus with held-out feed/operator examples and spatial
+   boundary-edge cases as they become available.
+2. Expand the live benchmark with locked release, adversarial, and multi-tool
+   cases; compare the primary and cross-check models.
+3. Specify identity, authorization, governance, and audit policies with the
+   relevant stakeholders.
+4. Design the inference broker and claim ledger before adding an AI endpoint.
+
+The deterministic place calibration and initial live search-tool development
+runs are archived under `docs/ai/evals/`. The next engineering milestone is an
+independent locked release set and broader multi-tool benchmark; the model still
+does not define query or place semantics.

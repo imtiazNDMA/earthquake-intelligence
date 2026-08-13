@@ -790,12 +790,32 @@ input:focus-visible { border-color: var(--brand); }
 .export-opt:hover { background: var(--surface-2); }
 
 /* Timeline chart */
-#tl-wrap { margin: 4px 0; }
-.tl-header { display: flex; align-items: center; margin-bottom: 2px; }
-.tl-title { font-size: 14.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .4px; font-weight: 600; }
-.tl-toggle { margin-left: auto; background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 17.5px; padding: 0 2px; line-height: 1; }
+#tl-wrap { margin: 4px 0 10px; }
+.tl-header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+.tl-title { font-family: var(--font-mono); font-size: 13px; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: .14em; font-weight: 500; }
+.tl-toggle { margin-left: auto; background: none; border: none; cursor: pointer;
+  color: var(--text-muted); font-size: 17.5px; padding: 0 2px; line-height: 1; }
 .tl-toggle:hover { color: var(--slate); }
-#tl-canvas { width: 100%; border-radius: var(--r-sm); display: block; }
+.tl-toggle:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 2px; }
+/* Anchors the tooltip, and gives the canvas a parent whose width is measurable
+   independently of the canvas itself. */
+.tl-plot { position: relative; }
+#tl-canvas { width: 100%; display: block; }
+/* Tooltip is positioned at the hovered spike; the transform flips it near the
+   right edge so it never runs out of the panel. */
+.tl-tip {
+  position: absolute; z-index: 2; pointer-events: none;
+  /* Bounded so a long place name wraps instead of forcing the box wider than
+     the panel it has to be clamped inside. */
+  max-width: 100%; box-sizing: border-box;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md);
+  box-shadow: var(--shadow-md); padding: 5px 8px; font-size: var(--fs-xs); line-height: 1.4;
+}
+.tl-tip[hidden] { display: none; }
+.tl-tip b { font-family: var(--font-mono); color: var(--text); margin-right: 5px; }
+.tl-tip span { display: block; font-family: var(--font-mono); font-size: 13px;
+  color: var(--text-muted); margin-top: 1px; white-space: nowrap; }
 
 /* Compare mode */
 #compare-bar { display: none; align-items: center; gap: 4px; padding: 4px 0; font-size: var(--fs-xs); }
