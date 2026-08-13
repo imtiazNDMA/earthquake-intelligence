@@ -215,7 +215,6 @@ body.has-strip .leaflet-bottom { margin-bottom: 104px; }
 .alert-demo button:hover, .alert-demo button[aria-pressed="true"] { border-color: var(--text); }
 @media (max-width: 900px) {
   .sb-live { gap: 14px; padding: 0 12px; }
-  .sb-live span:nth-child(3) { display: none; }
 }
 
 /* --- Sidebar shell: icon rail + panel (glassmorphism) --- */

@@ -1550,36 +1550,38 @@ document.querySelectorAll("[data-alert-preview]").forEach((button) => {
   button.addEventListener("click", () => setAlertLevel(button.dataset.alertPreview));
 });
 
-// A running clock only means something while a response is live. Past 72 hours
-// the elapsed count is noise, so the bar shows the origin date instead.
-const _ELAPSED_MAX_S = 72 * 3600;
-let _elapsedTimer = null;
+// Magnitude bands for the room's alert level. Real PAGER is an impact product —
+// modelled fatalities and losses — which only USGS publishes, and then only for
+// some events. Manual entries and most PMD rows carry no alert at all, which
+// left the console sitting at "none" through events that plainly warranted a
+// response. Magnitude is the one severity signal every event has, so it drives
+// the level here.
+const _ALERT_MAG_BANDS = [
+  { min: 7.0, level: "red" },     // major — national response
+  { min: 6.0, level: "orange" },  // strong — damaging over a wide area
+  { min: 4.5, level: "yellow" },  // moderate — locally felt, light damage
+  { min: -Infinity, level: "green" },
+];
+const _ALERT_RANK = { none: 0, green: 1, yellow: 2, orange: 3, red: 4 };
 
-function startElapsed(occurredAt) {
-  const out = document.getElementById("sb-elapsed");
-  const lbl = document.getElementById("sb-elapsed-label");
-  if (!out) return;
-  if (_elapsedTimer) { clearInterval(_elapsedTimer); _elapsedTimer = null; }
-  const t0 = occurredAt ? new Date(occurredAt).getTime() : NaN;
-  if (!Number.isFinite(t0)) {
-    out.textContent = "—";
-    if (lbl) lbl.textContent = "ELAPSED";
-    return;
-  }
-  if ((Date.now() - t0) / 1000 > _ELAPSED_MAX_S) {
-    if (lbl) lbl.textContent = "ORIGIN";
-    out.textContent = new Date(t0).toLocaleDateString(undefined,
-      { day: "2-digit", month: "short", year: "numeric" }).toUpperCase();
-    return;
-  }
-  if (lbl) lbl.textContent = "ELAPSED";
-  const tick = () => {
-    const s = Math.max(0, Math.floor((Date.now() - t0) / 1000));
-    const p = n => String(n).padStart(2, "0");
-    out.textContent = `${p(Math.floor(s / 3600))}:${p(Math.floor(s / 60) % 60)}:${p(s % 60)}`;
-  };
-  tick();
-  _elapsedTimer = setInterval(tick, 1000);
+function alertFromMagnitude(magnitude) {
+  // Number(null) and Number("") are 0, which would read as a green alert on an
+  // event that simply has no magnitude — reject those before converting.
+  if (magnitude == null || magnitude === "") return null;
+  const m = Number(magnitude);
+  if (!Number.isFinite(m)) return null;
+  return _ALERT_MAG_BANDS.find(b => m >= b.min).level;
+}
+
+// A published PAGER level still counts, but only to escalate: a modest-magnitude
+// quake under a dense city can be red, and the magnitude band must not talk that
+// back down.
+function alertForEvent(evt) {
+  const byMag = alertFromMagnitude(evt?.magnitude);
+  const published = _ALERT_TEXT[evt?.alert] ? evt.alert : null;
+  if (!byMag) return published;
+  if (!published) return byMag;
+  return _ALERT_RANK[published] > _ALERT_RANK[byMag] ? published : byMag;
 }
 
 // Reflect an event in the status bar. Called whenever an event becomes active.
@@ -1590,17 +1592,15 @@ function updateStatusBar(evt, peakMmi) {
     setAlertLevel(null, "No active event");
     if (id) id.textContent = "—";
     if (peak) peak.textContent = "—";
-    startElapsed(null);
     return;
   }
-  setAlertLevel(evt.alert);
+  setAlertLevel(alertForEvent(evt));
   if (id) {
     const mag = Number(evt.magnitude);
     id.textContent = `${Number.isFinite(mag) ? "M" + mag.toFixed(1) : "M?"} ${evt.source || ""}`.trim();
     id.title = evt.place || "";
   }
   if (peak) peak.textContent = peakMmi ? `MMI ${(MMI_CLASSES[peakMmi] || [peakMmi])[0]}` : "—";
-  startElapsed(evt.occurred_at);
 }
 
 // Start with the room at rest: no alert frame, no event in the status bar.
