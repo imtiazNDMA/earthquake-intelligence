@@ -1043,6 +1043,105 @@ function syncMmiToggle() {
   if (toggle) toggle.checked = _mmiVisible;
 }
 
+// --- Radar sweep over the footprint ----------------------------------------
+// A bright ring travels out from the epicenter every couple of seconds, clipped
+// to the outer band so it only ever lights up real footprint. It animates
+// nothing the map encodes: MMI lives in fill colour and fill opacity, and a
+// band that breathed either would read as a changing intensity. This rides over
+// the top instead, and re-asserts where the epicenter is on each pass.
+// Prototyped alongside the alternatives in web/prototypes/e-mmi-motion.html.
+
+const _mmiSweep = { anim: null, teardown: null };
+const SWEEP_SPEED = 1.3;              // chosen against the prototype's speed control
+const SWEEP_CYCLE_MS = 2200 / SWEEP_SPEED;
+const SWEEP_GAP_MS = 700 / SWEEP_SPEED;   // beat between passes, so it reads as a pulse
+
+function _stopMmiSweep() {
+  if (_mmiSweep.anim) { _mmiSweep.anim.pause(); _mmiSweep.anim = null; }
+  if (_mmiSweep.teardown) { _mmiSweep.teardown(); _mmiSweep.teardown = null; }
+}
+
+function _startMmiSweep(layer) {
+  if (typeof anime === "undefined") return;
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+
+  // Outer edge of the footprint is the *lowest* MMI band, and the epicenter sits
+  // in the highest — both read off the geometry rather than threaded in, so this
+  // works identically for a manual footprint and a catalog event.
+  let outer = null, inner = null, lo = Infinity, hi = -Infinity;
+  layer.eachLayer((l) => {
+    const level = l.feature?.properties?.mmi_lower;
+    if (!Number.isFinite(level) || !l.getElement()) return;
+    if (level < lo) { lo = level; outer = l; }
+    if (level > hi) { hi = level; inner = l; }
+  });
+  if (!outer || !inner) return;
+
+  const svg = map.getPanes().overlayPane.querySelector("svg");
+  if (!svg) return;
+  const NS = "http://www.w3.org/2000/svg";
+  const mk = (n) => document.createElementNS(NS, n);
+
+  const uid = `mmi-sweep-${Date.now().toString(36)}`;
+  const defs = mk("defs");
+  const clip = mk("clipPath");
+  clip.setAttribute("id", uid);
+  const clipPath = mk("path");
+  clip.appendChild(clipPath);
+  defs.appendChild(clip);
+
+  const g = mk("g");
+  g.setAttribute("clip-path", `url(#${uid})`);
+  g.setAttribute("class", "mmi-sweep");
+  const ring = mk("circle");
+  ring.setAttribute("class", "mmi-sweep-ring");
+  g.appendChild(ring);
+  svg.append(defs, g);
+
+  // Leaflet rewrites each path's `d` on zoom and never during a zoom animation,
+  // so the clip and the centre are refreshed on settle — recomputing the centre
+  // per frame instead would fight the pane transform mid-zoom and visibly drift.
+  const outerEl = outer.getElement();
+  const span = () => {
+    const b = outer.getBounds();
+    return map.latLngToLayerPoint(b.getNorthEast()).distanceTo(map.latLngToLayerPoint(b.getSouthWest())) / 2;
+  };
+  let centre = map.latLngToLayerPoint(inner.getBounds().getCenter());
+  let reach = span();
+  const resync = () => {
+    clipPath.setAttribute("d", outerEl.getAttribute("d") || "");
+    centre = map.latLngToLayerPoint(inner.getBounds().getCenter());
+    reach = span();
+    ring.setAttribute("cx", centre.x);
+    ring.setAttribute("cy", centre.y);
+  };
+  resync();
+  map.on("zoomend moveend", resync);
+
+  // Progress is normalised and scaled to `reach` at paint time, so a zoom
+  // partway through a pass resizes the ring with the map instead of finishing
+  // the sweep at the previous scale.
+  const state = { p: 0, o: 0 };
+  _mmiSweep.anim = anime.animate(state, {
+    p: [{ to: 1 }],
+    o: [{ to: 0.95, duration: SWEEP_CYCLE_MS * 0.12 }, { to: 0, duration: SWEEP_CYCLE_MS * 0.88 }],
+    duration: SWEEP_CYCLE_MS,
+    delay: SWEEP_GAP_MS,
+    loop: true,
+    ease: "outSine",
+    onUpdate: () => {
+      ring.setAttribute("r", state.p * reach);
+      ring.style.opacity = state.o;
+    },
+  });
+
+  _mmiSweep.teardown = () => {
+    map.off("zoomend moveend", resync);
+    g.remove();
+    defs.remove();
+  };
+}
+
 function renderCurrentMmiLayer(fc) {
   _lastFc = fc;
   _mmiLayers = {};
@@ -1050,6 +1149,7 @@ function renderCurrentMmiLayer(fc) {
   // The footprint just changed, so any open ARC breakdown describes the old one.
   // (The button itself is re-rendered with the ladder, in renderLegend.)
   if (_arcData) { _arcData = null; _arcClose(); }
+  _stopMmiSweep();
   if (intensityLayer) {
     map.removeLayer(intensityLayer);
     intensityLayer = null;
@@ -1060,7 +1160,7 @@ function renderCurrentMmiLayer(fc) {
     return null;
   }
   intensityLayer = L.geoJSON(fc, { style, onEachFeature: onMmiFeature }).addTo(map);
-  if (fc.features.length > 0) _showLegend(fc);
+  if (fc.features.length > 0) { _showLegend(fc); _startMmiSweep(intensityLayer); }
   else _hideLegend();
   syncMmiToggle();
   return intensityLayer;
@@ -1952,6 +2052,7 @@ async function showComparison() {
   _mmiLayers = {};
   _compLayers.forEach(l => map.removeLayer(l));
   _compLayers = [];
+  _stopMmiSweep();
   if (intensityLayer) { map.removeLayer(intensityLayer); intensityLayer = null; }
   _hideLegend();
   hideExposureStrip();

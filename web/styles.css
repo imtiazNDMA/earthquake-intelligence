@@ -661,6 +661,22 @@ input:focus-visible { border-color: var(--brand); }
 .overlay-note { margin: -2px 0 6px 50px; }
 
 /* ------------------------------------------------------------------
+   MMI radar sweep — a ring travelling out from the epicenter, clipped
+   to the footprint (see _startMmiSweep in web/app.js). White with a
+   dark halo rather than a themed colour: it crosses saturated MMI fills
+   on light and dark basemaps alike, and no single hue survives all of
+   those. Never interactive — the bands underneath stay clickable.
+   ------------------------------------------------------------------ */
+.mmi-sweep { pointer-events: none; }
+.mmi-sweep-ring {
+  fill: none; stroke: #fff; stroke-width: 14; opacity: 0;
+  filter: drop-shadow(0 0 7px rgba(255,255,255,.85)) drop-shadow(0 0 2px rgba(0,0,0,.55));
+}
+@media (prefers-reduced-motion: reduce) {
+  .mmi-sweep { display: none; }
+}
+
+/* ------------------------------------------------------------------
    Epicenter loader — the wait for an intensity calculation, staged on
    the map where the answer will appear. anime.js staggers the cells
    outward from the centre (see showMmiLoader in web/app.js); the CSS
