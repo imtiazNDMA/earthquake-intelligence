@@ -613,7 +613,7 @@ input:focus-visible { border-color: var(--brand); }
    continuous field, and gaps between chips would imply gaps in it.
    ------------------------------------------------------------------ */
 .pga-map-legend {
-  padding: 13px 16px 14px;
+  padding: 15px 18px 16px;
   background: var(--glass-bg); border: 1px solid var(--glass-border);
   border-radius: var(--r-lg); box-shadow: var(--glass-shadow);
   backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
@@ -625,30 +625,33 @@ input:focus-visible { border-color: var(--brand); }
 .leaflet-right .pga-map-legend { margin: 0 14px 26px 0; }
 .pgl-head { display: flex; align-items: baseline; gap: 8px; }
 .pgl-title {
-  font-family: var(--font-mono); font-size: 13px; letter-spacing: .14em;
+  font-family: var(--font-mono); font-size: 15px; letter-spacing: .12em;
   text-transform: uppercase; color: var(--text-muted);
 }
 .pgl-unit {
-  margin-left: auto; font-family: var(--font-mono); font-size: 15px;
+  margin-left: auto; font-family: var(--font-mono); font-size: 18px;
   font-style: italic; color: var(--text);
 }
+/* The return period and its exceedance are what the whole ramp is conditioned
+   on — read them wrong and every number below is read wrong — so they carry the
+   legend's full text colour, not the muted tone of a caption. */
 .pgl-sub {
-  margin-top: 4px; font-family: var(--font-mono); font-size: 14px;
-  color: var(--text-muted); font-variant-numeric: tabular-nums;
+  margin-top: 5px; font-family: var(--font-mono); font-size: 17px;
+  color: var(--text); font-variant-numeric: tabular-nums;
 }
-.pgl-scale { display: flex; gap: 10px; margin-top: 10px; }
+.pgl-scale { display: flex; gap: 12px; margin-top: 12px; }
 /* Ramp width and row height track the label type size — the swatch column has
    to stay in proportion to the numbers it is read against. */
 .pgl-ramp {
-  display: flex; flex-direction: column; width: 17px; flex: none;
+  display: flex; flex-direction: column; width: 22px; flex: none;
   border-radius: 3px; overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
 }
-.pgl-ramp i { display: block; flex: 1; min-height: 21px; }
+.pgl-ramp i { display: block; flex: 1; min-height: 26px; }
 .pgl-labels { display: flex; flex-direction: column; }
 .pgl-labels span {
-  flex: 1; min-height: 21px; display: flex; align-items: center;
-  font-family: var(--font-mono); font-size: 15px; color: var(--text);
+  flex: 1; min-height: 26px; display: flex; align-items: center;
+  font-family: var(--font-mono); font-size: 18px; color: var(--text);
   font-variant-numeric: tabular-nums; white-space: nowrap;
 }
 
