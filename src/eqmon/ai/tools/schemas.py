@@ -1,6 +1,7 @@
 """Versioned model-facing tool schemas over deterministic contracts."""
 from __future__ import annotations
 
+from eqmon.aftershock_service import AftershockForecastInput
 from eqmon.events.search import EVENT_SEARCH_SCHEMA_VERSION, EventSearchSpec
 
 SEARCH_EVENTS_TOOL_NAME = "search_events"
@@ -8,6 +9,7 @@ SEARCH_EVENTS_TOOL_SCHEMA_VERSION = "1.2"
 
 GET_EVENT_SUMMARY_TOOL_NAME = "get_event_summary"
 GET_EVENT_SUMMARY_TOOL_SCHEMA_VERSION = "1.0"
+GET_EVENT_ANALYSIS_TOOL_SCHEMA_VERSION = "1.0"
 
 
 def search_events_tool() -> dict:
@@ -62,6 +64,35 @@ def get_event_summary_tool() -> dict:
     }
 
 
+def get_event_analysis_tool() -> dict:
+    """Schema for one versioned modeled-impact artifact by catalog id."""
+    return {
+        "type": "function",
+        "function": {
+            "name": "get_event_analysis",
+            "description": (
+                "Get the versioned modeled MMI impact summary for one known "
+                "catalog event. Use only when event_id is already known. Returns "
+                "bounded administrative summaries and artifact evidence, not "
+                "contour geometry. Do not use this to search for events. "
+                f"Model schema {GET_EVENT_ANALYSIS_TOOL_SCHEMA_VERSION}."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "event_id": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Catalog id of the event to analyze.",
+                    },
+                },
+                "required": ["event_id"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
 def get_catalog_analytics_tool() -> dict:
     """Schema for headline catalog statistics over a time window."""
     return {
@@ -98,6 +129,21 @@ def get_catalog_analytics_tool() -> dict:
 
 def get_aftershock_summary_tool() -> dict:
     """Schema for aftershock probabilities following a mainshock."""
+    parameters = AftershockForecastInput.model_json_schema()
+    parameters["oneOf"] = [
+        {
+            "required": ["event_id"],
+            "not": {"anyOf": [
+                {"required": ["magnitude"]},
+                {"required": ["lat"]},
+                {"required": ["lon"]},
+            ]},
+        },
+        {
+            "required": ["magnitude", "lat", "lon"],
+            "not": {"required": ["event_id"]},
+        },
+    ]
     return {
         "type": "function",
         "function": {
@@ -108,20 +154,7 @@ def get_aftershock_summary_tool() -> dict:
                 "earthquake, or magnitude with lat and lon for a hypothetical "
                 "one. Do not use this to search for earthquakes."
             ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "event_id": {"type": "integer",
-                                 "description": "Catalog id of the mainshock."},
-                    "magnitude": {"type": "number",
-                                  "description": "Mainshock magnitude."},
-                    "lat": {"type": "number",
-                            "description": "WGS84 latitude, north positive."},
-                    "lon": {"type": "number",
-                            "description": "WGS84 longitude, east positive."},
-                },
-                "additionalProperties": False,
-            },
+            "parameters": parameters,
         },
     }
 

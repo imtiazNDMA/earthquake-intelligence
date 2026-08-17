@@ -11,7 +11,7 @@ from ..contracts import (MAX_EVENTS_IN_CONTEXT, CatalogCoverage, EventSummary,
                          enforce_projection_size)
 
 
-def _summarise(row: dict) -> EventSummary:
+def project_event_summary(row: dict) -> EventSummary:
     """Project one catalog row onto the allowlist.
 
     Field-by-field rather than by exclusion: a column added to `_SELECT` later
@@ -53,7 +53,7 @@ def search_events(conn: psycopg.Connection,
         total=total,
         returned=len(shown),
         truncated=total > len(shown),
-        events=[_summarise(row) for row in shown],
+        events=[project_event_summary(row) for row in shown],
         catalog_coverage=CatalogCoverage(**coverage),
         distance_semantics=(
             "geodesic distance from the supplied WGS84 point to each event point"
@@ -73,4 +73,4 @@ def get_event_summary(conn: psycopg.Connection, event_id: int) -> EventSummary:
     if event is None:
         raise ToolFailure("not_found", f"no event with id {event_id}",
                           detail={"event_id": event_id})
-    return _summarise(event)
+    return enforce_projection_size(project_event_summary(event))

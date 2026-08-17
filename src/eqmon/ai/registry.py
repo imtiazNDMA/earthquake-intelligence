@@ -142,8 +142,10 @@ def _build() -> ToolRegistry:
 
     from .tools import analysis as analysis_tools
     from .tools import places as place_tools
-    from .tools.schemas import (get_aftershock_summary_tool,
-                                get_catalog_analytics_tool, resolve_place_tool)
+    from .tools.schemas import (GET_EVENT_ANALYSIS_TOOL_SCHEMA_VERSION,
+                                 get_aftershock_summary_tool,
+                                 get_catalog_analytics_tool,
+                                 get_event_analysis_tool, resolve_place_tool)
 
     registry.register(ToolSpec(
         name="get_catalog_analytics",
@@ -152,6 +154,14 @@ def _build() -> ToolRegistry:
         handler=analysis_tools.get_catalog_analytics,
         authz=Role.VIEWER,
         cost_class=CostClass.DB,
+    ))
+    registry.register(ToolSpec(
+        name="get_event_analysis",
+        schema_version=GET_EVENT_ANALYSIS_TOOL_SCHEMA_VERSION,
+        schema=get_event_analysis_tool(),
+        handler=analysis_tools.get_event_analysis,
+        authz=Role.VIEWER,
+        cost_class=CostClass.COMPUTE,
     ))
     registry.register(ToolSpec(
         name="get_aftershock_summary",

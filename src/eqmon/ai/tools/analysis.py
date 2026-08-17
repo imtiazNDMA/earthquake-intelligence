@@ -1,4 +1,4 @@
-"""Analysis adapters: catalog analytics and aftershock forecasting."""
+"""Analysis adapters over versioned deterministic domain results."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -7,10 +7,17 @@ import psycopg
 
 from ...aftershock_service import EventNotFoundError, compute_forecast
 from ...analytics_service import EmptyCatalogError, compute_analytics
-from ..contracts import (MAX_ZONES_IN_CONTEXT, AftershockProbability,
-                         AftershockSummaryResult, CatalogAnalyticsResult,
-                         EventSummary, LargestEvent, PlaceResolutionResult,
-                         ToolFailure, ZoneSummary, enforce_projection_size)
+from ...events.repo import get_event
+from ...impact import get_or_compute_event_impact
+from ...vs30 import get_grid
+from ..contracts import (MAX_AFFECTED_UNITS_PER_LEVEL, MAX_ZONES_IN_CONTEXT,
+                         AdminLevelImpactSummary, AffectedAdminUnitSummary,
+                         AftershockProbability, AftershockSummaryResult,
+                         CatalogAnalyticsResult, EventAnalysisResult,
+                         EventSummary, LargestEvent, ModeledImpactSummary,
+                         PlaceResolutionResult, ToolFailure, ZoneSummary,
+                         enforce_projection_size)
+from .events import project_event_summary
 
 
 def _utc(value: str) -> datetime:
@@ -76,6 +83,62 @@ def get_catalog_analytics(conn: psycopg.Connection, *, window: str = "1y",
     return enforce_projection_size(result)
 
 
+def get_event_analysis(conn: psycopg.Connection, *,
+                       event_id: int) -> EventAnalysisResult:
+    """Compact modeled impact for one known catalog event.
+
+    The artifact keeps the contour geometry and every administrative row. This
+    projection exposes only the artifact evidence, source event, aggregate
+    counts, and strongest bounded units.
+    """
+    if isinstance(event_id, bool) or not isinstance(event_id, int) or event_id < 1:
+        raise ToolFailure("invalid_request", "event_id must be a positive integer")
+    event = get_event(conn, event_id)
+    if event is None:
+        raise ToolFailure("not_found", f"no event with id {event_id}",
+                          detail={"event_id": event_id})
+
+    artifact = get_or_compute_event_impact(conn, event, get_grid()).artifact
+    payload = artifact.payload
+    band_levels = [
+        feature["properties"]["mmi_lower"]
+        for feature in payload.get("bands", {}).get("features", [])
+    ]
+    level_summaries = []
+    for level in ("province", "district", "tehsil"):
+        rows = payload.get("rollups", {}).get(level, [])
+        affected = sorted(
+            (row for row in rows if row["mmi_max"] > 0),
+            key=lambda row: (-row["mmi_max"], -row["mmi_repr"],
+                             row["name"], row["id"]),
+        )
+        level_summaries.append(AdminLevelImpactSummary(
+            level=level,
+            analyzed_units=len(rows),
+            affected_units=len(affected),
+            maximum_mmi_class=max(
+                (row["mmi_max"] for row in affected), default=None),
+            top_units=[AffectedAdminUnitSummary(
+                unit_id=row["id"], name=row["name"], parent=row.get("parent"),
+                maximum_mmi_class=row["mmi_max"],
+                representative_mmi=row["mmi_repr"],
+            ) for row in affected[:MAX_AFFECTED_UNITS_PER_LEVEL]],
+        ))
+
+    result = EventAnalysisResult(
+        artifact_id=artifact.id,
+        artifact_schema_version=artifact.schema_version,
+        calculation_version=artifact.calculation_version,
+        artifact_created_at=artifact.created_at,
+        event=project_event_summary(event),
+        modeled_impact=ModeledImpactSummary(
+            maximum_mmi_class=max(band_levels, default=None),
+            admin_levels=level_summaries,
+        ),
+    )
+    return enforce_projection_size(result)
+
+
 def get_aftershock_summary(conn: psycopg.Connection, *,
                            event_id: int | None = None,
                            magnitude: float | None = None,
@@ -106,7 +169,7 @@ def get_aftershock_summary(conn: psycopg.Connection, *,
         event=EventSummary(
             id=event["id"], magnitude=event["magnitude"],
             lat=event["lat"], lon=event["lon"], place=event.get("place"),
-            occurred_at=event["occurred_at"], source="CATALOG",
+            occurred_at=event["occurred_at"], source=event["source"],
         ) if event else None,
         forecast=[
             AftershockProbability(

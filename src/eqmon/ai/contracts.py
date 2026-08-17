@@ -126,6 +126,10 @@ MAX_ZONES_IN_CONTEXT = 5
 # Candidate lists exist to show ambiguity, not to enumerate a gazetteer.
 MAX_PLACE_CANDIDATES = 5
 
+# Full impact rollups can contain hundreds of units. The artifact retains all of
+# them; the model receives only the strongest few per administrative level.
+MAX_AFFECTED_UNITS_PER_LEVEL = 5
+
 
 class LargestEvent(_Projection):
     magnitude: float
@@ -167,6 +171,39 @@ class CatalogAnalyticsResult(_Projection):
     active_sequences: int
     largest: LargestEvent | None = None
     top_zones: list[ZoneSummary] = Field(default_factory=list)
+
+
+class AffectedAdminUnitSummary(_Projection):
+    unit_id: int
+    name: str
+    parent: str | None = None
+    maximum_mmi_class: int = Field(ge=1, le=10)
+    representative_mmi: float = Field(ge=1.0, le=10.0)
+
+
+class AdminLevelImpactSummary(_Projection):
+    level: Literal["province", "district", "tehsil"]
+    analyzed_units: int = Field(ge=0)
+    affected_units: int = Field(ge=0)
+    maximum_mmi_class: int | None = Field(None, ge=1, le=10)
+    top_units: list[AffectedAdminUnitSummary] = Field(default_factory=list)
+
+
+class ModeledImpactSummary(_Projection):
+    classification: Literal["modeled"] = "modeled"
+    maximum_mmi_class: int | None = Field(None, ge=1, le=10)
+    admin_levels: list[AdminLevelImpactSummary] = Field(default_factory=list)
+
+
+class EventAnalysisResult(_Projection):
+    """Compact evidence view of one versioned deterministic impact artifact."""
+    schema_version: str = CONTRACTS_SCHEMA_VERSION
+    artifact_id: int = Field(gt=0)
+    artifact_schema_version: str
+    calculation_version: str
+    artifact_created_at: datetime
+    event: EventSummary
+    modeled_impact: ModeledImpactSummary
 
 
 class AftershockProbability(_Projection):

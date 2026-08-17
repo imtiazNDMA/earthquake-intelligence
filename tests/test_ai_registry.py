@@ -99,7 +99,7 @@ def test_registering_a_side_effecting_tool_is_rejected():
 
 def test_default_registry_exposes_the_catalog_tools():
     names = set(default_registry().names())
-    assert {"search_events", "get_event_summary"} <= names
+    assert {"search_events", "get_event_summary", "get_event_analysis"} <= names
 
 
 def test_every_registered_tool_declares_no_side_effects():

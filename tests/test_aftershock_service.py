@@ -47,6 +47,7 @@ def test_event_id_resolves_magnitude_and_location_from_the_catalog(db_conn):
     result = compute_forecast(db_conn, event_id=event_id)
     assert result["event"]["id"] == event_id
     assert result["event"]["magnitude"] == 6.2
+    assert result["event"]["source"] == "USGS"
 
 
 def test_missing_event_is_a_typed_failure(db_conn):
