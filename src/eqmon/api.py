@@ -8,7 +8,6 @@ import os
 import threading
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from functools import lru_cache
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -29,7 +28,7 @@ from .events.search import EVENT_SEARCH_SCHEMA_VERSION, EventSearchSpec
 from .events.sources import PMDSource, USGSSource
 from .impact import compute_event_impact
 from .intensity import compute_mmi_grid
-from .vs30 import Grid, load_grid
+from .vs30 import Grid, get_grid, reset_grid_cache
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -154,20 +153,6 @@ app = FastAPI(title="Earthquake Intensity Platform", lifespan=_lifespan)
 # of this module, which would otherwise swallow /buildings/* and /exposure/*.
 app.include_router(buildings.router)
 app.include_router(exposure.router)
-
-
-def _vs30_path() -> Path:
-    return Path(os.environ.get("EQMON_VS30_TIF", str(config.VS30_TIF)))
-
-
-@lru_cache(maxsize=1)
-def get_grid() -> Grid:
-    return load_grid(_vs30_path())
-
-
-def reset_grid_cache() -> None:
-    """Test hook: clear the cached grid so an env override takes effect."""
-    get_grid.cache_clear()
 
 
 class EventRequest(BaseModel):
