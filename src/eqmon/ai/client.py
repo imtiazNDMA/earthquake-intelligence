@@ -53,10 +53,47 @@ class LMStudioError(RuntimeError):
     """
 
 
+class TruncatedResponseError(LMStudioError):
+    """Generation stopped at the token ceiling instead of finishing.
+
+    The fourth silent failure: LM Studio returns 200 with a partial body and
+    `finish_reason: "length"`. A truncated tool call has malformed arguments; a
+    truncated sentence reads as a complete one. Neither is safe to consume, so
+    the ceiling becomes a typed failure rather than a quiet quality drop.
+    """
+
+
+class UnofferedToolError(LMStudioError):
+    """The model named a tool that was not offered in the request.
+
+    A subclass rather than a flag because the distinction is scored, not just
+    logged: this is a model false-call, whereas its siblings are infrastructure
+    failures. Benchmarks that lump the two together understate model error
+    exactly when the GPU is also flaky.
+    """
+
+
+@dataclass(frozen=True)
+class ToolCall:
+    id: str
+    name: str
+    arguments: dict
+
+
 @dataclass(frozen=True)
 class Message:
+    """One turn in the conversation, including the two tool-threading shapes.
+
+    A bounded agent loop replays the whole exchange on every step, so the
+    assistant turn that requested tools and the results answering it both have
+    to survive a round trip. The wire format is asymmetric — the assistant turn
+    carries `tool_calls` with arguments re-encoded as a JSON string, while each
+    result is its own `role: "tool"` turn keyed by `tool_call_id`.
+    """
     role: str
-    content: str
+    content: str | None
+    tool_calls: tuple[ToolCall, ...] = ()
+    tool_call_id: str | None = None
 
     @staticmethod
     def system(content: str) -> "Message":
@@ -70,15 +107,32 @@ class Message:
     def assistant(content: str) -> "Message":
         return Message("assistant", content)
 
+    @staticmethod
+    def assistant_tool_calls(calls: Iterable[ToolCall]) -> "Message":
+        """The assistant turn that requested tools, replayed back to the model."""
+        return Message("assistant", None, tool_calls=tuple(calls))
+
+    @staticmethod
+    def tool_result(tool_call_id: str, content: str) -> "Message":
+        """One tool's result, bound to the call it answers."""
+        return Message("tool", content, tool_call_id=tool_call_id)
+
     def as_dict(self) -> dict:
-        return {"role": self.role, "content": self.content}
-
-
-@dataclass(frozen=True)
-class ToolCall:
-    id: str
-    name: str
-    arguments: dict
+        payload: dict[str, Any] = {"role": self.role, "content": self.content}
+        if self.tool_calls:
+            payload["tool_calls"] = [{
+                "id": call.id,
+                "type": "function",
+                "function": {
+                    "name": call.name,
+                    # Re-encoded as a string: the API models arguments as JSON
+                    # text on the way in as well as on the way out.
+                    "arguments": json.dumps(call.arguments),
+                },
+            } for call in self.tool_calls]
+        if self.tool_call_id is not None:
+            payload["tool_call_id"] = self.tool_call_id
+        return payload
 
 
 @dataclass(frozen=True)
@@ -88,6 +142,7 @@ class Completion:
     model: str
     usage: dict
     latency_s: float
+    finish_reason: str = ""
 
     @property
     def called_tools(self) -> bool:
@@ -185,6 +240,10 @@ class LMStudio:
             self.breaker.record_success()
             return body
 
+    def close(self) -> None:
+        """Close the underlying transport and its connection pool."""
+        self._client.close()
+
     def is_available(self) -> bool:
         """False when the breaker is open. Callers use this to skip AI work
         entirely rather than to decide whether to catch an exception."""
@@ -222,12 +281,21 @@ class LMStudio:
             raise LMStudioError("LM Studio returned no choices")
 
         choice = choices[0]
+        if not isinstance(choice, dict):
+            raise LMStudioError(f"LM Studio returned a non-object choice: {choice!r}")
+
+        finish_reason = choice.get("finish_reason") or ""
+        if finish_reason == "length":
+            raise TruncatedResponseError(
+                f"response truncated at the {payload['max_tokens']} token ceiling")
+
         return Completion(
             text=extract_text(choice),
-            tool_calls=_parse_tool_calls(choice),
+            tool_calls=_parse_tool_calls(choice, _offered_names(tools)),
             model=body.get("model", payload["model"]),
             usage=body.get("usage") or {},
             latency_s=round(latency, 3),
+            finish_reason=finish_reason,
         )
 
     # -- embeddings --------------------------------------------------------
@@ -252,18 +320,33 @@ class LMStudio:
         return [list(d["embedding"]) for d in ordered]
 
 
-def _parse_tool_calls(choice: dict) -> list[ToolCall]:
-    """Tool calls from one choice, with arguments decoded.
+def _offered_names(tools: list[dict] | None) -> frozenset[str]:
+    """Names of the tools actually sent in the request."""
+    return frozenset(
+        name for tool in (tools or [])
+        if (name := ((tool.get("function") or {}).get("name")))
+    )
+
+
+def _parse_tool_calls(choice: dict, offered: frozenset[str]) -> list[ToolCall]:
+    """Tool calls from one choice, with arguments decoded and names checked.
 
     Small models occasionally emit unparseable argument JSON. That surfaces as
     an LMStudioError so the caller can retry — retries are free locally — rather
     than as a ValueError escaping from json.loads.
+
+    A name that was never offered is rejected here too. Offering a tool is what
+    authorizes it, so a hallucinated name is a malformed response rather than a
+    dispatch decision to make further downstream.
     """
     raw = (choice.get("message") or {}).get("tool_calls") or []
     parsed: list[ToolCall] = []
     for call in raw:
         function = call.get("function") or {}
         name = function.get("name") or ""
+        if name not in offered:
+            raise UnofferedToolError(
+                f"tool call {name!r} was not offered; offered: {sorted(offered)}")
         arguments = function.get("arguments") or "{}"
         try:
             decoded = json.loads(arguments) if isinstance(arguments, str) else arguments
@@ -287,3 +370,15 @@ def get_client() -> LMStudio:
     if _default is None:
         _default = LMStudio()
     return _default
+
+
+def close() -> None:
+    """Release the process-wide client at application shutdown.
+
+    Clears the global as well as closing the transport, so a later `get_client`
+    builds a fresh one rather than handing back a client whose pool is shut.
+    """
+    global _default
+    if _default is not None:
+        _default.close()
+        _default = None

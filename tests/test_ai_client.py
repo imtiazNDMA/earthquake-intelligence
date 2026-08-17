@@ -7,6 +7,8 @@ see ai_implementation.md section 2.
 """
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
@@ -14,7 +16,8 @@ from eqmon.ai import client as ai
 from eqmon.ai.client import LMStudioError, Message, extract_text
 
 
-def _completion(content=None, reasoning=None, tool_calls=None) -> dict:
+def _completion(content=None, reasoning=None, tool_calls=None,
+                finish_reason="stop") -> dict:
     """A /v1/chat/completions body shaped like LM Studio's."""
     message: dict = {"role": "assistant"}
     if content is not None:
@@ -23,9 +26,16 @@ def _completion(content=None, reasoning=None, tool_calls=None) -> dict:
         message["reasoning_content"] = reasoning
     if tool_calls is not None:
         message["tool_calls"] = tool_calls
-    return {"choices": [{"index": 0, "message": message, "finish_reason": "stop"}],
+    return {"choices": [{"index": 0, "message": message,
+                         "finish_reason": finish_reason}],
             "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
             "model": "test-model"}
+
+
+def _tool(name: str) -> dict:
+    """A minimally valid OpenAI-shaped tool schema."""
+    return {"type": "function",
+            "function": {"name": name, "parameters": {"type": "object"}}}
 
 
 def _client(handler) -> ai.LMStudio:
@@ -111,7 +121,8 @@ def test_chat_parses_tool_calls():
     def handler(request):
         return httpx.Response(200, json=_completion(content="", tool_calls=calls))
 
-    result = _client(handler).chat([Message.user("q")], tools=[{"type": "function"}])
+    result = _client(handler).chat([Message.user("q")],
+                                   tools=[_tool("search_events")])
     assert len(result.tool_calls) == 1
     assert result.tool_calls[0].name == "search_events"
     assert result.tool_calls[0].arguments == {"min_magnitude": 5, "place": "Quetta"}
@@ -132,13 +143,111 @@ def test_malformed_tool_arguments_raise_lmstudio_error():
     """Small models occasionally emit unparseable argument JSON. That must be a
     typed failure the caller can retry, not a ValueError from deep inside."""
     calls = [{"id": "c1", "type": "function",
-              "function": {"name": "f", "arguments": "{not json"}}]
+              "function": {"name": "search_events", "arguments": "{not json"}}]
 
     def handler(request):
         return httpx.Response(200, json=_completion(tool_calls=calls))
 
     with pytest.raises(LMStudioError, match="arguments"):
-        _client(handler).chat([Message.user("q")], tools=[{"type": "function"}])
+        _client(handler).chat([Message.user("q")], tools=[_tool("search_events")])
+
+
+def test_tool_call_naming_an_unoffered_tool_is_rejected():
+    """A model that invents a tool name must not reach the dispatcher.
+
+    Offering a tool is the authorization boundary: if the name coming back was
+    never on the way in, the response is malformed and the call is refused here
+    rather than being matched against the registry further downstream.
+    """
+    calls = [{"id": "c1", "type": "function",
+              "function": {"name": "delete_all_events", "arguments": "{}"}}]
+
+    def handler(request):
+        return httpx.Response(200, json=_completion(tool_calls=calls))
+
+    with pytest.raises(ai.UnofferedToolError, match="was not offered"):
+        _client(handler).chat([Message.user("q")], tools=[_tool("search_events")])
+
+
+def test_unoffered_tool_is_distinguishable_from_transport_failure():
+    """Evals must not confuse a hallucinated tool name with a dead GPU.
+
+    Both are LMStudioError so a caller can still catch one type, but the
+    subclass lets the benchmark score a false-call against the model instead of
+    charging it to infrastructure.
+    """
+    calls = [{"id": "c1", "type": "function",
+              "function": {"name": "nope", "arguments": "{}"}}]
+
+    def handler(request):
+        return httpx.Response(200, json=_completion(tool_calls=calls))
+
+    with pytest.raises(LMStudioError):
+        _client(handler).chat([Message.user("q")], tools=[_tool("search_events")])
+
+    def dead(request):
+        raise httpx.ConnectError("refused")
+
+    with pytest.raises(LMStudioError) as transport:
+        _client(dead).chat([Message.user("q")], tools=[_tool("search_events")])
+    assert not isinstance(transport.value, ai.UnofferedToolError)
+
+
+# --- truncation: the fourth silent failure ---------------------------------
+# Hitting max_tokens returns finish_reason "length" with a 200 and a partial
+# body. Nothing raises. A truncated tool call yields malformed arguments; a
+# truncated brief yields a half-finished claim that reads as complete.
+
+def test_truncated_response_is_a_typed_failure():
+    def handler(request):
+        return httpx.Response(200, json=_completion(
+            content="Peak ground acceleration reached 0.3", finish_reason="length"))
+
+    with pytest.raises(ai.TruncatedResponseError, match="truncated"):
+        _client(handler).chat([Message.user("q")])
+
+
+def test_completion_reports_finish_reason():
+    def handler(request):
+        return httpx.Response(200, json=_completion(content="done"))
+
+    assert _client(handler).chat([Message.user("q")]).finish_reason == "stop"
+
+
+# --- multi-step threading: assistant -> tool -> tool-result ----------------
+# A bounded agent loop has to feed each tool result back to the model. The wire
+# shape is unforgiving: the assistant turn must carry `tool_calls` with the
+# arguments re-encoded as a JSON *string*, and each result must reference the
+# call it answers by id. Getting either wrong makes the model silently lose the
+# thread rather than raise.
+
+def test_tool_result_message_threads_back_to_its_call():
+    sent: dict = {}
+
+    def handler(request):
+        sent.update(json.loads(request.content))
+        return httpx.Response(200, json=_completion(content="3 events."))
+
+    call = ai.ToolCall(id="call_1", name="search_events",
+                       arguments={"min_magnitude": 5.0})
+    _client(handler).chat([
+        Message.user("m5 quakes"),
+        Message.assistant_tool_calls([call]),
+        Message.tool_result("call_1", '{"total": 3}'),
+    ])
+
+    assert sent["messages"][1] == {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [{
+            "id": "call_1",
+            "type": "function",
+            "function": {"name": "search_events",
+                         "arguments": '{"min_magnitude": 5.0}'},
+        }],
+    }
+    assert sent["messages"][2] == {
+        "role": "tool", "tool_call_id": "call_1", "content": '{"total": 3}'}
 
 
 # --- failure modes ---------------------------------------------------------
@@ -218,6 +327,28 @@ def test_is_available_reports_breaker_state():
     with pytest.raises(LMStudioError):
         c.chat([Message.user("q")])
     assert c.is_available() is False
+
+
+# --- lifecycle -------------------------------------------------------------
+
+def test_close_releases_the_transport_and_resets_the_process_client():
+    """The process-wide client owns a socket pool; app shutdown must release it.
+
+    Resetting the module global matters as much as closing: a cached client
+    holding a closed transport would fail every later call.
+    """
+    first = ai.get_client()
+    assert ai.get_client() is first
+
+    ai.close()
+    assert first._client.is_closed
+    assert ai.get_client() is not first
+    ai.close()
+
+
+def test_close_is_safe_when_no_client_was_ever_built():
+    ai.close()
+    ai.close()
 
 
 # --- embeddings ------------------------------------------------------------

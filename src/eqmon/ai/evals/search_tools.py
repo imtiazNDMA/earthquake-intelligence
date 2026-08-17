@@ -13,13 +13,14 @@ import httpx
 from pydantic import ValidationError
 
 from eqmon.ai import config
-from eqmon.ai.client import LMStudio, LMStudioError, Message
+from eqmon.ai.client import (LMStudio, LMStudioError, Message,
+                             UnofferedToolError)
 from eqmon.ai.tools import SEARCH_EVENTS_TOOL_NAME, search_events_tool
 from eqmon.events.search import EventSearchSpec
 
 from .search_cases import CASESET_VERSION, SEARCH_CASES
 
-EVALUATOR_VERSION = "1.2"
+EVALUATOR_VERSION = "1.3"
 SYSTEM_PROMPT = """You translate earthquake catalog requests into tool calls.
 Call search_events only for earthquake catalog searches. Extract only constraints
 the user explicitly states. Use ISO 8601 datetimes with a timezone offset. Do
@@ -121,6 +122,16 @@ def _run_trial(client: LMStudio, model: str, case: Mapping, repeat: int,
             [Message.system(SYSTEM_PROMPT), Message.user(str(case["query"]))],
             model=model, tools=[tool], temperature=0, max_tokens=1024,
         )
+    except UnofferedToolError as exc:
+        # A hallucinated tool name is a model failure, not a transport one. The
+        # client refuses it before it can be dispatched, so the harness scores
+        # it here rather than in the wrong_tool branch below.
+        return {**base, "passed": False, "outcome": "wrong_tool",
+                "error_code": type(exc).__name__, "latency_s": None, "actual": None,
+                "actual_raw": str(exc), "field_results": (
+                    {key: False for key in expected} if expected is not None else None),
+                "unexpected_fields": [] if expected is not None else None,
+                "usage": {}}
     except LMStudioError as exc:
         return {**base, "passed": False, "outcome": "client_error",
                 "error_code": type(exc).__name__, "latency_s": None, "actual": None,
