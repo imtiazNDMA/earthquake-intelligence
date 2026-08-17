@@ -1,7 +1,7 @@
 # Agentic AI Integration Plan - eqMonitoring2
 
 **Status:** Reviewed architecture and delivery plan
-**Updated:** 2026-08-13
+**Updated:** 2026-08-17
 **Inference target:** Local models through LM Studio's OpenAI-compatible API
 **Reference hardware:** NVIDIA RTX 6000 Ada, 48 GB VRAM
 
@@ -44,14 +44,42 @@ Status labels used throughout this plan:
   offered-tool-name enforcement, truncation detection, and lifecycle cleanup.
 - `src/eqmon/ai/broker.py`: bounded queue with interactive/batch lanes, separate
   queue and execution deadlines, cancellation, and queue-health telemetry.
+  A timed-out synchronous generation releases its caller but retains the worker
+  slot until the underlying thread returns, preserving one-generation-at-a-time.
 - `src/eqmon/ai/config.py`: environment-configurable endpoint and model roster.
 - `src/eqmon/ai/places.py`: duplicate-safe, spatial-first place resolver with
   orthographic fallback and explicit ambiguity/conflict states.
 - `src/eqmon/analytics_service.py` and `src/eqmon/aftershock_service.py`:
   deterministic orchestration extracted from the API handlers, callable with an
-  explicit connection and no request in flight.
+  explicit connection and no request in flight. `AftershockForecastInput`
+  enforces exclusive request modes, finite values, magnitude 0–10, and WGS84
+  coordinate bounds before database or forecast work.
+- `src/eqmon/ai/contracts.py`, `src/eqmon/ai/registry.py`, and
+  `src/eqmon/ai/tools/`: versioned output projections, authorization checks, and
+  six registered read-only adapters. The aftershock tool schema is generated
+  from the same validated service input contract used at runtime. Every current
+  adapter enforces the projection byte ceiling, and aftershock event evidence
+  preserves its canonical PMD/USGS/MANUAL source. `get_event_analysis` reuses the
+  immutable impact artifact and exposes a bounded projection with no geometry or
+  full administrative rollups.
+- `src/eqmon/analysis_artifacts.py` and
+  `migrations/008_analysis_artifacts.sql`: model-independent immutable artifact
+  records, canonical input/data hashes, calculation versions, and PostgreSQL
+  advisory-lock compute-once semantics. Event impact is the first producer and
+  fingerprints the exact Vs30 COG and relevant administrative boundaries.
+- `src/eqmon/claims.py` and `migrations/009_analysis_claims.sql`: immutable,
+  versioned scalar evidence with exact Decimal values, typed MMI units/entities,
+  canonical RFC 6901 source paths, artifact/version checks, row-level entity
+  binding, and idempotent insertion. Prose rendering is not implemented.
 - `tests/test_ai_client.py`, `tests/test_ai_broker.py`, `tests/test_ai_places.py`,
-  `tests/test_analytics_service.py`, `tests/test_aftershock_service.py`.
+  `tests/test_analytics_service.py`, `tests/test_aftershock_service.py`, and
+  `tests/test_ai_aftershock_contract.py`. Cross-tool guards are covered by
+  `tests/test_ai_tool_contract_guards.py`. Artifact identity, immutability,
+  failure, reuse, and two-connection concurrency are covered by
+  `tests/test_analysis_artifacts.py`; the event-analysis projection and schema
+  are covered by `tests/test_ai_tools_event_analysis.py`; claim validation,
+  persistence, artifact-trigger checks, and real impact binding are covered by
+  `tests/test_claims.py`. The full suite currently passes 354 tests without a GPU.
 
 Four silent local-model failures are now pinned in CI rather than three. The
 fourth is truncation: `finish_reason: "length"` returns HTTP 200 with a partial
@@ -59,8 +87,9 @@ body, so a truncated tool call carries malformed arguments and a truncated
 sentence reads as a finished one. It is a typed failure.
 
 These remain scaffolding, not product integration. There are still no AI routes,
-tool wrappers, orchestrator, claim ledger, audit migration, brief UI, or ingest
-review queue.
+orchestrator, claim rendering/prose guard, job store, audit migration, connected
+analyst UI, or ingest review queue. The model-independent claim ledger exists;
+the frontend analyst console remains offline and its composer remains disabled.
 
 ### 2.2 Preliminary live probe
 
@@ -162,16 +191,19 @@ Domain services -> PostGIS / Vs30 COG / approved external services
 Proposed modules:
 
 ```text
-src/eqmon/ai/
-  client.py       low-level LM Studio protocol adapter
-  config.py       validated inference configuration and model roster
-  contracts.py    model-facing tool request/result schemas
-  tools.py        authorized adapters over deterministic domain services
-  orchestrator.py named workflows and bounded state transitions
-  claims.py       claim ledger and evidence validation
-  jobs.py         artifact/job state machine
-  audit.py        redacted audit metadata
-  evals/          runner, cases, manifests, and reports
+src/eqmon/
+  analysis_artifacts.py  deterministic artifact identity and persistence
+  claims.py              deterministic evidence validation and persistence
+  ai/
+    client.py       low-level LM Studio protocol adapter
+    config.py       validated inference configuration and model roster
+    contracts.py    model-facing result schemas and typed failures
+    registry.py     tool authorization, allowlists, and cost metadata
+    tools/          authorized adapters and schemas over deterministic services
+    orchestrator.py named workflows and bounded state transitions
+    jobs.py         artifact/job state machine
+    audit.py        redacted audit metadata
+    evals/          runner, cases, manifests, and reports
 ```
 
 `src/eqmon/ai/` contains no seismological formulas. Domain capabilities missing
@@ -180,8 +212,9 @@ hidden inside AI wrappers.
 
 ### 4.2 Inference broker
 
-The current process-local lock is acceptable only for prototyping. Production
-requires one supervised broker per GPU with:
+The implemented in-process broker makes prototype load explicit and bounded, but
+it is still process-local. Production requires one supervised broker per GPU
+with:
 
 - a bounded priority queue and queue-full response;
 - queue and execution deadlines;
@@ -191,6 +224,13 @@ requires one supervised broker per GPU with:
 - per-user and per-role quotas;
 - queue depth, wait time, execution time, tokens, and GPU telemetry; and
 - explicit overload behavior using `429` or `503`.
+
+The LM Studio transport is synchronous, so an execution deadline cannot cancel
+an HTTP call already running in a worker thread. The caller stops waiting at the
+deadline, while the broker deliberately keeps the GPU slot occupied until that
+thread returns. A two-request regression test proves the next request is not
+dispatched early. Hard interruption still requires an async/cancellable
+transport.
 
 Raw `reasoning_content` is never displayed or persisted as an operator answer.
 A missing final answer is a typed model failure. Model-specific adapters may use
@@ -258,12 +298,31 @@ claims. Generated prose may connect and summarize those sentences but may not
 introduce uncited quantities. Validation checks entity binding, units, source
 paths, and artifact versions, not merely whether a number appears somewhere.
 
+The model-independent ledger is implemented before AI jobs. Version 1 supports
+direct scalar evidence from impact artifacts only: event maximum MMI class and
+administrative maximum/representative MMI. Values are exact decimals and paths
+are canonical RFC 6901 pointers into immutable artifact fields. Claims pin the
+artifact kind, schema, and calculation version and bind administrative claims to
+the exact rollup row, not merely to a matching number. Database triggers enforce
+artifact metadata agreement and immutability. Deterministic sentence rendering,
+brief membership, and unbound-quantity rejection remain Phase 2 work.
+
 ### 5.5 Analysis artifacts
 
 Compute event intensity, impact, exposure, analytics, and aftershock products
 once per input/data/calculation version. Store compact immutable metadata,
 hashes, provenance, and references rather than duplicating contour geometry in
 the audit table. Briefs and citations reuse these artifacts.
+
+The model-independent artifact store is now implemented before AI jobs by
+design. `analysis_artifact` has no `ai_job` dependency. Canonical JSON identity
+combines scientific input and data fingerprints; schema and calculation versions
+complete the unique key. A transaction-scoped advisory lock plus a second lookup
+guarantees same-key concurrent callers compute once. Failed callbacks insert
+nothing, and database triggers reject updates and deletes. Event impact is the
+first integrated producer, with Vs30 COG and administrative-boundary SHA-256
+fingerprints. Exposure remains excluded until ARC revision/freshness semantics
+are defined.
 
 ### 5.6 Audit policy
 
@@ -293,10 +352,10 @@ Initial deterministic capabilities:
 | Capability | Required domain work |
 |---|---|
 | `search_events` | Add explicit dates, point/radius, mainshock state, canonical/source semantics, result caps, and catalog completeness |
-| `get_event_summary` | Allowlisted event fields; omit raw `usgs_detail` |
-| `get_event_analysis` | Reuse a versioned event analysis artifact |
+| `get_event_summary` | Implemented: allowlisted event fields, raw `usgs_detail` omitted, projection byte ceiling enforced |
+| `get_event_analysis` | Implemented: reuses versioned impact artifact; bounded modeled-impact projection excludes geometry and full rollups |
 | `get_exposure_summary` | Deadline-bound ARC summary with freshness and partial-failure state |
-| `get_aftershock_summary` | Extract zone lookup and fallback behavior from the API into a deterministic service |
+| `get_aftershock_summary` | Implemented: deterministic zone lookup/fallback service, shared exclusive-mode finite/range validation, and canonical source provenance |
 | `get_catalog_analytics` | Extract API orchestration into a deterministic service with a compact result |
 | `resolve_place` | Implemented: spatial resolution first when coordinates exist; orthographic matching only as fallback/corroboration. Full-gazetteer evaluation remains pending |
 
@@ -357,7 +416,14 @@ feature.
 - [x] Add point/radius and mainshock filtering with spatial indexes/tests.
 - [x] Define point-distance semantics and catalog coverage metadata.
 - [x] Extract reusable aftershock and analytics services from API handlers.
-- [ ] Define versioned analysis artifacts and claim ledger schemas.
+- [x] Validate aftershock request modes and numeric ranges independently of the
+  model, and derive the offered tool schema from that shared contract.
+- [x] Enforce the projection byte ceiling on single-event summaries and preserve
+  canonical source provenance in aftershock event evidence.
+- [x] Define versioned analysis artifacts and compute-once semantics.
+- [x] Define the model-independent claim ledger schema and validation: immutable
+  exact scalar values, typed units/entities, canonical source paths, artifact
+  version checks, and row-level entity binding.
 - [x] Preserve duplicate place names and resolve coordinates spatially before
   using text as fallback or corroboration.
 - [x] Add a versioned place-resolution evaluator and development calibration over
@@ -373,17 +439,18 @@ feature.
 - [x] Basic `httpx` LM Studio transport and mock tests.
 - [x] Initial model configuration.
 - [x] Duplicate-safe, spatial-first place resolver with orthographic fallback.
-- [x] Replace process-local single-flight with a bounded inference broker.
+- [x] Replace process-local single-flight with a bounded inference broker;
+  retain the worker slot while a timed-out synchronous generation finishes.
 - [x] Add complete assistant-tool-tool-result message support.
 - [x] Validate all response shapes and offered tool names.
 - [x] Add wall-clock deadlines, cancellation, and lifecycle cleanup.
 - [ ] Add a safe retry policy. Deliberately deferred: retries are only free
   locally when the failure is transient, and retrying a truncation or an
   invalid-argument failure without changing the request repeats it.
-- [x] Build tool adapters over Phase 0B contracts. Five of seven registered:
+- [x] Build tool adapters over Phase 0B contracts. Six of seven registered:
   `search_events`, `get_event_summary`, `get_catalog_analytics`,
-  `get_aftershock_summary`, `resolve_place`. `get_event_analysis` awaits the
-  analysis artifact schema; `get_exposure_summary` awaits async
+  `get_aftershock_summary`, `get_event_analysis`, `resolve_place`.
+  `get_exposure_summary` awaits async
   external-service handling with freshness and partial-failure state.
 - [x] Build and archive deterministic place-resolution development calibration.
 - [x] Build a live `search_events` tool benchmark and archive sanitized
@@ -496,7 +563,7 @@ explicit stakeholder sign-off.
    cases; compare the primary and cross-check models.
 3. Specify identity, authorization, governance, and audit policies with the
    relevant stakeholders.
-4. Design the inference broker and claim ledger before adding an AI endpoint.
+4. Capture parser rejects with typed reason codes before records are dropped.
 
 The deterministic place calibration and initial live search-tool development
 runs are archived under `docs/ai/evals/`. The next engineering milestone is an

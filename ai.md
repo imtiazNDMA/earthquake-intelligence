@@ -1,6 +1,7 @@
 # Agentic AI Integration — Engineering Implementation Plan
 
-**Status:** proposed
+**Status:** in progress — Phase 0 groundwork
+**Updated:** 2026-08-17
 **Owner:** AI engineering
 **Companion document:** `ai_implementation.md` (principles, safety posture, governance gates)
 
@@ -40,16 +41,21 @@ Confirmed against the working tree, not assumed.
 | Path | State |
 |---|---|
 | `src/eqmon/ai/client.py` | LM Studio transport, breaker, `reasoning_content` fallback, tool-result threading, offered-name enforcement, truncation guard, lifecycle |
-| `src/eqmon/ai/broker.py` | Bounded queue, interactive/batch lanes, queue + execution deadlines, cancellation, telemetry |
+| `src/eqmon/ai/broker.py` | Bounded queue, interactive/batch lanes, queue + execution deadlines, cancellation, telemetry; timed-out sync calls retain the worker slot until return |
 | `src/eqmon/ai/config.py` | Env-overridable model roster, timeouts, breaker, sampling |
 | `src/eqmon/ai/places.py` | Spatial-first place resolver, orthographic fallback, explicit `ambiguous`/`conflict` states |
-| `src/eqmon/ai/tools.py` | `search_events` schema derived from `EventSearchSpec` |
+| `src/eqmon/ai/contracts.py`, `registry.py`, `tools/` | Versioned projections, authorization registry, and six registered read-only adapters |
 | `src/eqmon/ai/evals/` | Place + search-tool case corpora and runners |
 | `src/eqmon/events/search.py` | `EventSearchSpec` v1.0 — validated, model-independent |
 | `src/eqmon/analytics_service.py` | `compute_analytics()` — two-pass Mc estimation, zone rollup, typed failures |
-| `src/eqmon/aftershock_service.py` | `compute_forecast()` — zone lookup in a savepoint, latitude-band fallback |
+| `src/eqmon/aftershock_service.py` | `AftershockForecastInput` + `compute_forecast()` — exclusive input modes, finite/range validation, zone lookup in a savepoint, latitude-band fallback |
+| `src/eqmon/analysis_artifacts.py` | Canonical input/data identity, immutable artifact contract, advisory-lock compute-once repository |
+| `migrations/008_analysis_artifacts.sql` | Model-independent artifact store; unique versioned identity and database-enforced immutability |
+| `src/eqmon/impact.py` | Versioned event-impact artifact producer keyed by event state, Vs30 COG SHA-256, and admin-boundary SHA-256 |
+| `src/eqmon/claims.py` | Versioned scalar claims, RFC 6901 source resolution, exact value/unit/entity/version validation, idempotent persistence |
+| `migrations/009_analysis_claims.sql` | Immutable model-independent claim ledger with artifact/version FK checks |
 
-**277 tests passing.** The AI modules are mock-only and need no GPU in CI.
+**354 tests passing.** The AI modules are mock-only and need no GPU in CI.
 
 Archived evidence: `docs/ai/evals/place_resolution_v1.md`,
 `docs/ai/evals/search_tool_gemma_v1.md`,
@@ -57,13 +63,15 @@ Archived evidence: `docs/ai/evals/place_resolution_v1.md`,
 
 ### 1.2 What does not exist
 
-No AI routes in `api.py`, no orchestrator, no claim ledger, no job store, no
-audit migration, and no authentication anywhere in the platform. The only
-non-AI touch point is a shutdown hook releasing the client's socket pool, which
-opens no connection and satisfies P2.
+No AI routes in `api.py`, no orchestrator, no claim rendering or prose guard, no
+job store, no audit migration, and no authentication anywhere in the platform.
+The model-independent claim ledger and six read-only tool adapters exist, but
+nothing dispatches model calls to them. The only
+non-AI backend touch point is a shutdown hook releasing the client's socket pool,
+which opens no connection and satisfies P2.
 
-The uncommitted `web/` change is an intentionally inert AI panel shell —
-disabled input, "inference not connected". That stays inert until Phase 1 exits.
+The frontend includes an intentionally inert catalog-analyst console with a
+disabled input and offline status. It stays inert until Phase 1 exits.
 
 ### 1.3 Constraints the baseline imposes
 
@@ -214,6 +222,12 @@ infrastructure work; everything above it assumes bounded, cancellable inference.
 - Telemetry per submission: queue depth at arrival, wait time, execution time,
   prompt/completion tokens, model, outcome.
 
+**Implemented sync-transport behavior:** an execution deadline releases the
+caller immediately but cannot interrupt the LM Studio HTTP call. The broker keeps
+that worker slot occupied until the underlying thread returns, so later requests
+do not overlap it or consume their own execution deadlines behind hidden work.
+This two-request invariant is regression-tested in `test_ai_broker.py`.
+
 **Explicitly out of scope:** batching, speculative decoding, model hot-swap.
 
 ### 4.2 Tool contracts — `contracts.py`
@@ -279,7 +293,8 @@ Loop invariants, each of which gets a direct unit test:
    models loop on unchanged arguments.
 5. No step may mutate state (`side_effects == "none"` enforced at dispatch).
 6. Assistant → tool → tool-result message threading is complete and correctly
-   ordered — currently unsupported by `client.py` and required before L2.
+   ordered — now supported and regression-tested in `client.py`, and required
+   by every L2 workflow.
 
 ### 4.5 Claim ledger — `claims.py`
 
@@ -288,14 +303,23 @@ explicitly rejected as insufficient.
 
 ```text
 Claim
-  id, artifact_id, claim_type
+  id, schema_version, claim_type
   entity_type, entity_id, display_name
   value, unit
   source_kind, source_artifact_id, source_path
-  calculation_version
+  source_artifact_schema_version, calculation_version
   observed_at, freshness
   limitation
 ```
+
+The model-independent ledger is implemented in `claims.py` and
+`009_analysis_claims.sql`. Version 1 admits only direct scalar impact evidence:
+event maximum MMI class and administrative maximum/representative MMI. Values use
+exact decimals; source paths are canonical RFC 6901 pointers; validation binds
+the exact artifact kind/schema/calculation version, source scalar, unit, and
+entity row. Claims are immutable and idempotent. There is no owning `artifact_id`
+yet because no brief/job artifact exists; a future job-claim association will
+reference reusable claim IDs rather than duplicating claims.
 
 **Rendering rule:** every sentence containing a quantity is rendered
 deterministically from a validated claim. The model may generate connective and
@@ -304,6 +328,8 @@ Validation checks entity binding, unit correctness, source path resolution, and
 artifact version — not merely that a number appears somewhere in a tool result.
 
 An unbound quantity in model output fails the artifact. It is not repaired.
+That rendering/output enforcement remains Phase 2 work; this phase establishes
+the validated evidence ledger it depends on.
 
 ### 4.6 Jobs and artifacts — `jobs.py`
 
@@ -317,6 +343,16 @@ Analysis artifacts (intensity, impact, exposure, analytics, aftershock) are
 computed **once per input + data + calculation version**, stored as compact
 immutable metadata with hashes and provenance, and referenced by ID. Briefs cite
 artifact IDs; they never duplicate geometry.
+
+The model-independent foundation is implemented in `analysis_artifacts.py` and
+`008_analysis_artifacts.sql`. Identity uses canonical JSON over computation input
+and data fingerprints plus an explicit calculation version. Same-key callers
+serialize on a transaction-scoped PostgreSQL advisory lock and recheck after
+acquiring it, so expensive work runs once rather than merely deduplicating two
+completed inserts. Event impact is the first producer: it stores contour geometry
+once with rollups and fingerprints the exact Vs30 COG and relevant boundaries.
+AI jobs and claims reference these domain artifacts later; artifacts do not
+depend on an AI job.
 
 ### 4.7 Prompt and context assembly — `prompts/`, `sanitize.py`
 
@@ -336,14 +372,14 @@ artifact IDs; they never duplicate geometry.
 | Tool | Wraps | Status |
 |---|---|---|
 | `search_events` | `repo.list_events` | ✅ adapter + registered. Caps at `MAX_EVENTS_IN_CONTEXT`, reports true `total` |
-| `get_event_summary` | `repo.get_event` | ✅ adapter + registered. `usgs_detail`, `url`, `detail_url` excluded |
+| `get_event_summary` | `repo.get_event` | ✅ adapter + registered. `usgs_detail`, `url`, `detail_url` excluded; projection byte ceiling enforced |
 | `resolve_place` | `ai/places.py` | ✅ adapter + registered. Four states passed through; expand eval corpus before Phase 1 |
-| `get_aftershock_summary` | `aftershock_service.compute_forecast` | ✅ adapter + registered. Fitted parameters (k, c, p, alpha, Mref) dropped |
+| `get_aftershock_summary` | `aftershock_service.compute_forecast` | ✅ adapter + registered. Shared input contract enforces exactly one mode, finite magnitude 0–10, and WGS84 ranges; catalog source provenance preserved; fitted parameters (k, c, p, alpha, Mref) dropped |
 | `get_catalog_analytics` | `analytics_service.compute_analytics` | ✅ adapter + registered. Grid, FMD, rate series, depth scatter dropped |
-| `get_event_analysis` | `impact.py`, `intensity.py` | ⏳ blocked on the versioned analysis artifact schema |
+| `get_event_analysis` | `impact.py`, `intensity.py` | ✅ adapter + registered. Reuses immutable impact artifact; source facts separated from modeled impact; geometry/full rollups excluded; strongest five units per level |
 | `get_exposure_summary` | `exposure.py` | ⏳ async + external; needs deadline, freshness, ARC partial-failure state |
 
-Five of seven are live. Every registered tool declares `side_effects="none"`,
+Six of seven are live. Every registered tool declares `side_effects="none"`,
 enforced at registration — the registry refuses to hold a writing tool at all.
 
 **Note on `get_exposure_summary`:** ARC keys `cumulative[].mmi_min` on a band's
@@ -384,9 +420,9 @@ New migrations, continuing from `007_event_search.sql`:
 
 | Migration | Contents |
 |---|---|
-| `008_ai_jobs.sql` | `ai_job` — id, actor, role, workflow, workflow_version, status, timestamps, budgets, outcome |
-| `009_ai_artifacts.sql` | `ai_artifact` — id, job_id, kind, calculation_version, input_hash, payload, provenance |
-| `010_ai_claims.sql` | `ai_claim` — full ledger schema from §4.5, FK to artifact |
+| `008_analysis_artifacts.sql` | ✅ `analysis_artifact` — model-independent immutable deterministic results, canonical input/data hash, calculation version, payload, provenance |
+| `009_analysis_claims.sql` | ✅ `analysis_claim` — immutable versioned scalar evidence, exact values/units/entities/source paths, FK to deterministic artifact |
+| `010_ai_jobs.sql` | `ai_job` — id, actor, role, workflow, workflow_version, status, timestamps, budgets, outcome; may reference deterministic artifact and claim IDs |
 | `011_ai_audit.sql` | `ai_audit` — request id, actor, prompt version, model checksum, tool schema versions, timings, tokens, status, review/export state |
 | `012_ingest_rejects.sql` | Typed parser reject capture (Phase 0B leftover, independent of AI) |
 
@@ -514,8 +550,11 @@ Every intended tool must be callable and testable **without a model**.
 - [x] Versioned place-resolution evaluator over all 757 boundaries
 - [x] **Implement `analytics_service.py`** — extracted from the `/analytics` handler; two-pass Mc sequencing named and tested
 - [x] **Extract aftershock service** — zone lookup + lat-band fallback out of the `/aftershock` handler, lookup contained in a savepoint
-- [ ] Define versioned analysis artifact schema + compute-once semantics
-- [ ] Define claim ledger schema
+- [x] **Validate aftershock inputs independently of the model** — exactly one of catalog ID or complete inline mainshock; finite magnitude and WGS84 bounds; generated tool schema carries the same ranges and mode rules
+- [x] **Enforce model-facing event guards** — single-event summaries use the projection byte ceiling; aftershock event evidence retains the canonical PMD/USGS/MANUAL source instead of a synthetic label
+- [x] **Define versioned analysis artifact schema + compute-once semantics** — immutable `analysis_artifact` rows; canonical input/data identity; calculation versions; same-key advisory locking; failed computations store nothing; event impact is the first producer
+- [x] **Expose compact event analysis** — registered read-only adapter over the reusable impact artifact; source event facts and modeled output remain distinct; geometry and unbounded rollups stay out of model context
+- [x] **Define claim ledger schema** — immutable `analysis_claim`; exact Decimal values; typed MMI units/entities; RFC 6901 source paths; artifact/schema/calculation-version checks; row-level entity binding; idempotent insertion
 - [ ] Expand place evaluation with held-out feed/operator cases and boundary-edge/gap cases
 - [ ] Capture parser rejects with typed reason codes before records are dropped (`012`)
 
@@ -530,15 +569,15 @@ Every intended tool must be callable and testable **without a model**.
 - [x] Deterministic place resolver with orthographic fallback
 - [x] Archived place-resolution calibration
 - [x] Live `search_events` tool benchmark, sanitized records archived
-- [x] **`broker.py`** — bounded queue, lanes, dual deadlines, cancellation, telemetry
+- [x] **`broker.py`** — bounded queue, lanes, dual deadlines, cancellation, telemetry; timed-out sync generations retain the worker slot until they physically return
 - [x] **Complete assistant → tool → tool-result message threading** in `client.py`
 - [x] Validate every response shape and reject unoffered tool names
 - [x] Wall-clock deadlines, cancellation, lifecycle cleanup
 - [ ] Safe retry policy — deferred; retrying truncation or invalid arguments
       without changing the request just repeats the failure
 - [x] `contracts.py` + `registry.py` + `tools/` adapters over Phase 0B services
-      (5 of 7 tools; the remaining two are blocked on the artifact schema and on
-      async external-service handling)
+      (6 of 7 tools; only exposure remains blocked on async external-service
+      handling, freshness, and partial-failure semantics)
 - [ ] Locked release case set, built by someone who did not write the prompts
 - [ ] Adversarial case set including indirect prompt injection
 - [ ] Multi-tool, abstention, and repeatability benchmark
@@ -556,7 +595,8 @@ filter contract**, not a narrative.
 **Steps**
 
 1. `workflows/catalog_query.py` — L1, single tool, `search_events` only
-2. `jobs.py` + migrations `008`/`009`
+2. `jobs.py` + migration `010` (`008_analysis_artifacts.sql` and
+   `009_analysis_claims.sql` are complete)
 3. `POST /ai/catalog-query`, authenticated, quota-checked
 4. **Shadow mode:** run on real operator queries, persist, show nothing. Compare
    the model's spec against what the operator actually submitted.
@@ -674,11 +714,14 @@ done; see §1.1.
 2. ~~Implement `analytics_service.py` and extract the aftershock service.~~ done
 3. ~~Build `broker.py`.~~ done
 4. ~~Complete tool-result message threading in `client.py`.~~ done
-5. **Build `contracts.py`, `registry.py`, and the `tools/` adapters.** Next.
-   The two domain blockers are cleared, so all seven tools are now reachable.
+5. **Finish `contracts.py`, `registry.py`, and the `tools/` adapters.** Six of
+   seven are complete. Only `get_exposure_summary` remains, blocked on
+   deadline-bound async external-service handling, freshness, and partial-failure
+   semantics.
 6. **Build the locked release and adversarial case sets** — by someone who did
    not write the prompts.
-7. **Design the claim ledger schema** before writing any brief code.
+7. ~~Design the model-independent claim ledger schema.~~ done. Deterministic
+   sentence rendering and unbound-quantity rejection remain Phase 2 work.
 
 Items 5–7 carry no governance risk because none of them expose a route, so they
 proceed in parallel with item 1.
