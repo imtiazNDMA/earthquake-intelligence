@@ -3171,6 +3171,27 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const closeBtn = document.getElementById("as-expanded-close");
   if (closeBtn) closeBtn.addEventListener("click", _asCloseExpanded);
+
+  const chat = document.getElementById("ai-chat");
+  const chatTrigger = document.getElementById("ai-chat-trigger");
+  const chatClose = document.getElementById("ai-chat-close");
+  if (chat && chatTrigger && chatClose) {
+    const setChatOpen = open => {
+      chat.hidden = !open;
+      chatTrigger.setAttribute("aria-expanded", String(open));
+      chatTrigger.setAttribute("aria-label",
+        open ? "Close AI analyst preview" : "Open AI analyst preview");
+      if (open) chatClose.focus();
+      else chatTrigger.focus();
+    };
+    chatTrigger.addEventListener("click", () => {
+      setChatOpen(chatTrigger.getAttribute("aria-expanded") !== "true");
+    });
+    chatClose.addEventListener("click", () => setChatOpen(false));
+    document.addEventListener("keydown", event => {
+      if (event.key === "Escape" && !chat.hidden) setChatOpen(false);
+    });
+  }
 });
 
 // Load catalog events when aftershock section is shown
