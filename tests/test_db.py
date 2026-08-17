@@ -14,10 +14,14 @@ def test_apply_schema_creates_tables(db_conn):
     rows = db_conn.execute(
         "SELECT table_name FROM information_schema.tables "
         "WHERE table_schema='public' AND table_name IN "
-        "('seismic_event','admin_boundary','_schema_migrations')"
+        "('seismic_event','admin_boundary','analysis_artifact','analysis_claim',"
+        " '_schema_migrations')"
     ).fetchall()
     names = {r[0] for r in rows}
-    assert names == {"seismic_event", "admin_boundary", "_schema_migrations"}
+    assert names == {
+        "seismic_event", "admin_boundary", "analysis_artifact", "analysis_claim",
+        "_schema_migrations",
+    }
 
 
 def test_migrations_are_recorded(db_conn):
