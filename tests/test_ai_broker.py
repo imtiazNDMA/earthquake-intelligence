@@ -11,6 +11,7 @@ has no other async tests and this needs no event-loop fixtures.
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 
 import pytest
@@ -194,6 +195,50 @@ def test_generation_past_its_execution_deadline_stops_the_caller_waiting():
             await broker.aclose()
 
     assert asyncio.run(scenario()) == 1
+
+
+def test_timed_out_generation_holds_worker_slot_until_client_returns():
+    """A sync request keeps running after its caller's deadline. The broker
+    must not dispatch another request until that abandoned call really ends."""
+    class BlockingClient(_FakeClient):
+        def __init__(self):
+            super().__init__()
+            self.first_started = threading.Event()
+            self.second_started = threading.Event()
+            self.release_first = threading.Event()
+
+        def chat(self, messages, **kwargs) -> Completion:
+            call_number = self.started + 1
+            self.started = call_number
+            self.calls.append({"messages": list(messages), **kwargs})
+            if call_number == 1:
+                self.first_started.set()
+                assert self.release_first.wait(timeout=1)
+            else:
+                self.second_started.set()
+            return self.result
+
+    async def scenario():
+        client = BlockingClient()
+        broker = await _broker(client, exec_deadline_s=0.05)
+        try:
+            with pytest.raises(ExecutionDeadlineError):
+                await broker.submit([Message.user("first")])
+            assert client.first_started.is_set()
+
+            second = asyncio.create_task(
+                broker.submit([Message.user("second")], exec_deadline_s=0.5))
+            await asyncio.sleep(0.03)
+            dispatched_while_first_running = client.second_started.is_set()
+
+            client.release_first.set()
+            await second
+            return dispatched_while_first_running
+        finally:
+            client.release_first.set()
+            await broker.aclose()
+
+    assert asyncio.run(scenario()) is False
 
 
 # --- lanes: an overnight job must not block an operator --------------------

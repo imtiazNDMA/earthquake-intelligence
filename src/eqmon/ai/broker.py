@@ -252,9 +252,13 @@ class Broker:
             return
 
         started = time.monotonic()
+        generation = asyncio.create_task(
+            asyncio.to_thread(self._chat, request),
+            name="ai-generation",
+        )
         try:
             completion = await asyncio.wait_for(
-                asyncio.to_thread(self._chat, request),
+                asyncio.shield(generation),
                 timeout=request.exec_deadline_s,
             )
         except asyncio.TimeoutError:
@@ -263,6 +267,13 @@ class Broker:
                 request.future.set_exception(ExecutionDeadlineError(
                     f"generation exceeded its {request.exec_deadline_s:.0f}s "
                     "execution deadline"))
+            # `to_thread` cannot stop the synchronous HTTP call. Keep this
+            # worker occupied until it really returns so the next request does
+            # not spend its own deadline waiting behind an invisible call.
+            try:
+                await generation
+            except Exception as exc:
+                logger.warning("Timed-out AI generation later failed: %s", exc)
             return
         except Exception as exc:  # model/transport failure belongs to the caller
             self.stats.failed += 1
