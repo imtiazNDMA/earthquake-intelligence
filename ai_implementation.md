@@ -39,15 +39,27 @@ Status labels used throughout this plan:
 
 ### 2.1 Implemented and mock-tested
 
-- `src/eqmon/ai/client.py`: synchronous LM Studio HTTP transport, basic
-  single-process serialization, response parsing, and a basic circuit breaker.
+- `src/eqmon/ai/client.py`: synchronous LM Studio HTTP transport, response
+  parsing, circuit breaker, complete assistant-tool-tool-result threading,
+  offered-tool-name enforcement, truncation detection, and lifecycle cleanup.
+- `src/eqmon/ai/broker.py`: bounded queue with interactive/batch lanes, separate
+  queue and execution deadlines, cancellation, and queue-health telemetry.
 - `src/eqmon/ai/config.py`: environment-configurable endpoint and model roster.
 - `src/eqmon/ai/places.py`: duplicate-safe, spatial-first place resolver with
   orthographic fallback and explicit ambiguity/conflict states.
-- `tests/test_ai_client.py` and `tests/test_ai_places.py`.
+- `src/eqmon/analytics_service.py` and `src/eqmon/aftershock_service.py`:
+  deterministic orchestration extracted from the API handlers, callable with an
+  explicit connection and no request in flight.
+- `tests/test_ai_client.py`, `tests/test_ai_broker.py`, `tests/test_ai_places.py`,
+  `tests/test_analytics_service.py`, `tests/test_aftershock_service.py`.
 
-These are scaffolding, not product integration. There are no AI routes, tool
-wrappers, orchestrator, audit migration, evaluation runner, brief UI, or ingest
+Four silent local-model failures are now pinned in CI rather than three. The
+fourth is truncation: `finish_reason: "length"` returns HTTP 200 with a partial
+body, so a truncated tool call carries malformed arguments and a truncated
+sentence reads as a finished one. It is a typed failure.
+
+These remain scaffolding, not product integration. There are still no AI routes,
+tool wrappers, orchestrator, claim ledger, audit migration, brief UI, or ingest
 review queue.
 
 ### 2.2 Preliminary live probe
@@ -344,7 +356,7 @@ feature.
 - [x] Implement a versioned `EventSearchSpec` independent of AI.
 - [x] Add point/radius and mainshock filtering with spatial indexes/tests.
 - [x] Define point-distance semantics and catalog coverage metadata.
-- [ ] Extract reusable aftershock and analytics services from API handlers.
+- [x] Extract reusable aftershock and analytics services from API handlers.
 - [ ] Define versioned analysis artifacts and claim ledger schemas.
 - [x] Preserve duplicate place names and resolve coordinates spatially before
   using text as fallback or corroboration.
@@ -361,12 +373,18 @@ feature.
 - [x] Basic `httpx` LM Studio transport and mock tests.
 - [x] Initial model configuration.
 - [x] Duplicate-safe, spatial-first place resolver with orthographic fallback.
-- [ ] Replace process-local single-flight with a bounded inference broker.
-- [ ] Add complete assistant-tool-tool-result message support.
-- [ ] Validate all response shapes and offered tool names.
-- [ ] Add wall-clock deadlines, safe retry policy, cancellation, and lifecycle
-  cleanup.
-- [ ] Build tool adapters over Phase 0B contracts.
+- [x] Replace process-local single-flight with a bounded inference broker.
+- [x] Add complete assistant-tool-tool-result message support.
+- [x] Validate all response shapes and offered tool names.
+- [x] Add wall-clock deadlines, cancellation, and lifecycle cleanup.
+- [ ] Add a safe retry policy. Deliberately deferred: retries are only free
+  locally when the failure is transient, and retrying a truncation or an
+  invalid-argument failure without changing the request repeats it.
+- [x] Build tool adapters over Phase 0B contracts. Five of seven registered:
+  `search_events`, `get_event_summary`, `get_catalog_analytics`,
+  `get_aftershock_summary`, `resolve_place`. `get_event_analysis` awaits the
+  analysis artifact schema; `get_exposure_summary` awaits async
+  external-service handling with freshness and partial-failure state.
 - [x] Build and archive deterministic place-resolution development calibration.
 - [x] Build a live `search_events` tool benchmark and archive sanitized
   development trial records, prompt/schema/case snapshots, and observable model
