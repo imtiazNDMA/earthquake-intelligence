@@ -12,6 +12,10 @@ from __future__ import annotations
 
 import os
 
+AI_ROUTES_ENABLED = os.getenv("EQMON_AI_ENABLED", "false").lower() in {
+    "1", "true", "yes", "on",
+}
+
 # LM Studio's OpenAI-compatible server. The API key is required by the protocol
 # but ignored by LM Studio; it is not a secret and does not belong in .env.
 LMSTUDIO_BASE_URL = os.getenv("LMSTUDIO_BASE_URL", "http://localhost:1234/v1").rstrip("/")
@@ -44,6 +48,7 @@ MODEL_EMBED = os.getenv("EQMON_AI_MODEL_EMBED", "text-embedding-nomic-embed-text
 # request into a hard failure.
 CHAT_TIMEOUT_S = float(os.getenv("EQMON_AI_TIMEOUT_S", "120"))
 EMBED_TIMEOUT_S = float(os.getenv("EQMON_AI_EMBED_TIMEOUT_S", "60"))
+EXPOSURE_TOOL_TIMEOUT_S = float(os.getenv("EQMON_AI_EXPOSURE_TIMEOUT_S", "180"))
 
 # --- Circuit breaker -------------------------------------------------------
 # AI is additive, never load-bearing. When LM Studio is down the breaker fails

@@ -19,7 +19,11 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8.0", "httpx>=0.27"]
+dev = [
+    "pytest>=8.0",
+    "httpx>=0.27",
+    "rio-pmtiles>=1.2,<2",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

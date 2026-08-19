@@ -21,7 +21,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import (BaseModel, ConfigDict, Field, field_validator,
+                      model_validator)
 
 CONTRACTS_SCHEMA_VERSION = "1.0"
 
@@ -129,6 +130,11 @@ MAX_PLACE_CANDIDATES = 5
 # Full impact rollups can contain hundreds of units. The artifact retains all of
 # them; the model receives only the strongest few per administrative level.
 MAX_AFFECTED_UNITS_PER_LEVEL = 5
+EXPOSURE_LAYERS = (
+    "population", "settlements", "hospitals", "schools", "roads", "bridges",
+    "airports",
+)
+MAX_EXPOSURE_BANDS = 9
 
 
 class LargestEvent(_Projection):
@@ -204,6 +210,80 @@ class EventAnalysisResult(_Projection):
     artifact_created_at: datetime
     event: EventSummary
     modeled_impact: ModeledImpactSummary
+
+
+class EventIdInput(_Projection):
+    event_id: int = Field(gt=0)
+
+
+class CatalogAnalyticsInput(_Projection):
+    window: Literal["30d", "1y", "5y", "all"] = "1y"
+    min_mag: str = Field("mc", pattern=r"^(mc|-?\d+(\.\d+)?)$")
+
+
+class PlaceResolutionInput(_Projection):
+    probe: str | None = Field(None, min_length=1, max_length=200)
+    lat: float | None = Field(None, ge=-90, le=90)
+    lon: float | None = Field(None, ge=-180, le=180)
+    level: Literal["national", "province", "district", "tehsil"] | None = None
+    parent: str | None = Field(None, min_length=1, max_length=200)
+
+    @model_validator(mode="after")
+    def require_probe_or_point(self) -> "PlaceResolutionInput":
+        if (self.lat is None) != (self.lon is None):
+            raise ValueError("lat and lon must be provided together")
+        if self.probe is None and self.lat is None:
+            raise ValueError("provide probe or lat+lon")
+        return self
+
+
+class ExposureSummaryInput(EventIdInput):
+    layers: list[Literal[
+        "population", "settlements", "hospitals", "schools", "roads",
+        "bridges", "airports",
+    ]] | None = Field(None, min_length=1, max_length=len(EXPOSURE_LAYERS))
+
+    @field_validator("layers")
+    @classmethod
+    def unique_layers(cls, value: list[str] | None) -> list[str] | None:
+        if value is not None and len(set(value)) != len(value):
+            raise ValueError("layers must not contain duplicates")
+        return value
+
+
+class ExposureMetrics(_Projection):
+    population: float | None = Field(None, ge=0)
+    settlements: int | None = Field(None, ge=0)
+    hospitals: int | None = Field(None, ge=0)
+    schools: int | None = Field(None, ge=0)
+    roads: int | None = Field(None, ge=0)
+    bridges: int | None = Field(None, ge=0)
+    airports: int | None = Field(None, ge=0)
+
+
+class ExposureBandSummary(_Projection):
+    mmi_lower: int = Field(ge=1, le=10)
+    mmi_upper: int = Field(ge=2, le=11)
+    area_km2: float = Field(ge=0)
+    elements: ExposureMetrics
+
+
+class ExposureSummaryResult(_Projection):
+    schema_version: str = CONTRACTS_SCHEMA_VERSION
+    artifact_id: int = Field(gt=0)
+    artifact_schema_version: str
+    calculation_version: str
+    artifact_created_at: datetime
+    source_impact_artifact_id: int = Field(gt=0)
+    event_id: int = Field(gt=0)
+    arc_data_version: str = Field(min_length=1)
+    status: Literal["complete", "partial"]
+    requested_layers: list[str]
+    missing_layers: list[str]
+    min_mmi: int = Field(ge=1, le=10)
+    at_min_mmi_area_km2: float = Field(ge=0)
+    at_min_mmi: ExposureMetrics
+    bands: list[ExposureBandSummary] = Field(max_length=MAX_EXPOSURE_BANDS)
 
 
 class AftershockProbability(_Projection):

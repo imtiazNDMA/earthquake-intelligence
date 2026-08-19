@@ -24,6 +24,10 @@ ARC_URL = os.getenv("ARC_URL", "http://172.18.0.12:5002").rstrip("/")
 # A full analysis scans every element layer — roads alone is ~375k features —
 # and measured ~11 s for a M7 footprint. This is a job timeout, not a hop.
 ARC_TIMEOUT_S = float(os.getenv("ARC_TIMEOUT_S", "180"))
+# Stable identity of the ARC element datasets/caches. Exposure artifacts are
+# unsafe to reuse without this: a moving service can otherwise return different
+# facts under the same artifact key after a cache refresh.
+ARC_DATA_VERSION = os.getenv("ARC_DATA_VERSION", "").strip()
 
 # Headline exposure threshold. Our bands run down to MMI 2, which for a large
 # event covers most of the country: the honest whole-footprint total is a

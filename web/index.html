@@ -17,6 +17,21 @@
 </head>
 <body>
   <div id="map"></div>
+  <section id="map-time-control" aria-labelledby="map-time-title" hidden>
+    <div class="map-time-head">
+      <div><span id="map-time-title">Event window</span><strong id="map-time-count">0 events</strong></div>
+      <button id="map-time-reset" type="button">All dates</button>
+    </div>
+    <div class="map-time-values">
+      <label for="map-time-start"><span>From</span><output id="map-time-start-label">No data</output></label>
+      <label for="map-time-end"><span>To</span><output id="map-time-end-label">No data</output></label>
+    </div>
+    <div class="map-time-track" id="map-time-track">
+      <div class="map-time-fill" aria-hidden="true"></div>
+      <input id="map-time-start" type="range" min="0" max="0" value="0" aria-label="Start of earthquake time window" />
+      <input id="map-time-end" type="range" min="0" max="0" value="0" aria-label="End of earthquake time window" />
+    </div>
+  </section>
   <header id="statusbar" aria-label="Operational status">
     <div class="sb-brand">EQ</div>
     <div class="sb-alert" id="alert-chip">
@@ -144,7 +159,7 @@
       </section>
       <section id="sec-map-events">
         <h4>Earthquake Map</h4>
-        <div class="map-events-note">Recent USGS and PMD catalog events rendered directly on the map.</div>
+        <div class="map-events-note">Explore recent catalog events by magnitude, depth, and time.</div>
         <div class="map-events-controls">
           <label class="map-events-check"><input id="map-src-usgs" type="checkbox" checked /> USGS</label>
           <label class="map-events-check"><input id="map-src-pmd" type="checkbox" checked /> PMD</label>
@@ -152,22 +167,37 @@
         <div class="grid2">
           <div><span class="field-label">Min mag</span>
             <input id="map-minmag" type="number" value="2.5" step="0.5" min="0" /></div>
-          <div><span class="field-label">Limit</span>
+          <div><span class="field-label">Max bubbles</span>
             <input id="map-limit" type="number" value="250" step="50" min="1" max="1000" /></div>
+        </div>
+        <div class="map-date-range" role="group" aria-labelledby="map-date-range-label">
+          <span class="field-label" id="map-date-range-label">Catalog period</span>
+          <div class="grid2">
+            <label><span>From</span><input id="map-date-from" type="date" value="1900-01-01" min="1900-01-01" /></label>
+            <label><span>To</span><input id="map-date-to" type="date" min="1900-01-01" /></label>
+          </div>
         </div>
         <button id="map-events-refresh" class="btn-primary">Show earthquakes</button>
         <div id="map-events-status" role="status" aria-live="polite"></div>
+        <div class="map-catalog-coverage" id="map-catalog-coverage">Observed source coverage; completeness not asserted.</div>
         <div class="map-events-legend" id="map-events-legend">
-          <div style="font-size:15px;font-weight:600;color:var(--slate);margin-bottom:4px">Magnitude</div>
-          <div style="display:flex;flex-direction:column;gap:3px">
-            <div style="display:flex;align-items:center;gap:6px"><span class="quake-legend-swatch" style="background:#6E7B85"></span><span style="font-size:15px;color:var(--text-muted)">≤ 3.0</span></div>
-            <div style="display:flex;align-items:center;gap:6px"><span class="quake-legend-swatch" style="background:#9AA4AF"></span><span style="font-size:15px;color:var(--text-muted)">3.1 – 4.0</span></div>
-            <div style="display:flex;align-items:center;gap:6px"><span class="quake-legend-swatch" style="background:#D8B22C"></span><span style="font-size:15px;color:var(--text-muted)">4.1 – 5.0</span></div>
-            <div style="display:flex;align-items:center;gap:6px"><span class="quake-legend-swatch" style="background:#E08A34"></span><span style="font-size:15px;color:var(--text-muted)">5.1 – 6.0</span></div>
-            <div style="display:flex;align-items:center;gap:6px"><span class="quake-legend-swatch" style="background:#DD5730"></span><span style="font-size:15px;color:var(--text-muted)">6.1 – 7.0</span></div>
-            <div style="display:flex;align-items:center;gap:6px"><span class="quake-legend-swatch" style="background:#A32226"></span><span style="font-size:15px;color:var(--text-muted)">≥ 7.1</span></div>
+          <div class="map-events-legend-title">Depth</div>
+          <div class="depth-legend-list">
+            <div><span class="quake-legend-swatch" style="background:#E15A43"></span><span><b>Shallow</b> 0-35 km</span></div>
+            <div><span class="quake-legend-swatch" style="background:#D9A52E"></span><span><b>Upper crust</b> 35-70 km</span></div>
+            <div><span class="quake-legend-swatch" style="background:#8DAA73"></span><span><b>Intermediate</b> 70-150 km</span></div>
+            <div><span class="quake-legend-swatch" style="background:#668FA3"></span><span><b>Deep</b> 150-300 km</span></div>
+            <div><span class="quake-legend-swatch" style="background:#756C9D"></span><span><b>Very deep</b> 300+ km</span></div>
+            <div><span class="quake-legend-swatch" style="background:#6E7B85"></span><span><b>Unknown</b> Not reported</span></div>
           </div>
-          <div class="map-events-hint">Bubble size & color reflect magnitude. Click a point for event details.</div>
+          <div class="map-events-hint">Bubble size shows magnitude. Color shows depth.</div>
+        </div>
+        <div class="map-events-display">
+          <label class="map-events-check map-plates-check"><input id="map-plates-toggle" type="checkbox" /> Plate annotations</label>
+          <label class="map-opacity-control" for="map-bubble-opacity">
+            <span>Bubble opacity</span>
+            <span><input id="map-bubble-opacity" class="ov-opacity" type="range" min="0.2" max="1" step="0.05" value="0.85" /><output id="map-bubble-opacity-value">85%</output></span>
+          </label>
         </div>
       </section>
       <section id="sec-aftershock">
@@ -215,16 +245,47 @@
         <div id="dash-sidebar"><div style="font-size:15px;color:var(--text-muted)">Open national overview in main view</div></div>
       </section>
       <section id="sec-config">
-        <h4>Map configuration</h4>
-        <div class="cfg-group"><div class="field-label">Current earthquake</div>
-          <label class="cfg-row"><input id="current-mmi-toggle" type="checkbox" checked />
-            <span class="ov-name">Show MMI polygons</span></label>
-          <div class="cfg-note">Epicenter stays visible; toggle the shaking footprint when you need a cleaner map.</div>
+        <header class="cfg-panel-head">
+          <h4>Map configuration</h4>
+          <div class="cfg-visible-summary">
+            <strong id="cfg-visible-count">4</strong><span>Visible layers</span>
+          </div>
+          <p>Open only the group you need. Active settings remain one step away.</p>
+        </header>
+        <label class="cfg-current-toggle cfg-row">
+          <input id="current-mmi-toggle" type="checkbox" checked />
+          <span><strong>Earthquake footprint</strong>
+            <small>MMI polygons and epicenter</small></span>
+          <b id="current-mmi-state">On</b>
+        </label>
+        <div class="cfg-accordion open">
+          <button class="cfg-accordion-head" type="button" aria-expanded="true" aria-controls="cfg-reference-body">
+            <strong>Reference overlays</strong><span id="cfg-overlay-active">3 active</span>
+          </button>
+          <div class="cfg-accordion-body" id="cfg-reference-body">
+            <div class="cfg-group"><div id="overlay-list"></div></div>
+          </div>
         </div>
-        <div class="cfg-group"><div class="field-label">Overlays</div>
-          <div id="overlay-list"></div></div>
-        <div class="cfg-group"><div class="field-label">Basemap</div>
-          <div id="basemap-list"></div></div>
+        <div class="cfg-accordion" id="cfg-hazard-group">
+          <button class="cfg-accordion-head" type="button" aria-expanded="false" aria-controls="cfg-hazard-layers">
+            <strong>Hazard layers</strong><span id="cfg-hazard-active">0 active</span>
+          </button>
+          <div class="cfg-accordion-body" id="cfg-hazard-layers"></div>
+        </div>
+        <div class="cfg-accordion open">
+          <button class="cfg-accordion-head" type="button" aria-expanded="true" aria-controls="cfg-basemap-body">
+            <strong>Basemap</strong><span id="cfg-basemap-active">Dark</span>
+          </button>
+          <div class="cfg-accordion-body" id="cfg-basemap-body">
+            <div class="cfg-group"><div id="basemap-list"></div></div>
+          </div>
+        </div>
+        <div class="cfg-accordion">
+          <button class="cfg-accordion-head" type="button" aria-expanded="false" aria-controls="cfg-display-settings">
+            <strong>Display settings</strong><span id="cfg-display-value">50%</span>
+          </button>
+          <div class="cfg-accordion-body" id="cfg-display-settings"></div>
+        </div>
       </section>
     </div>
   </div>
@@ -281,62 +342,44 @@
     </div>
   </div>
 
-  <!-- AI analyst preview. The shell is intentionally non-functional until the
-       authenticated, evaluated AI route is ready. -->
-  <aside id="ai-chat" class="ai-chat" aria-labelledby="ai-chat-title" hidden>
+  <aside id="ai-chat" class="ai-chat" role="dialog" aria-labelledby="ai-chat-title" hidden>
     <header class="ai-chat-head">
-      <div>
-        <span class="ai-chat-kicker">Local inference</span>
-        <h2 id="ai-chat-title">AI analyst</h2>
+      <h2 id="ai-chat-title">Assistant</h2>
+      <div id="ai-chat-state" class="ai-chat-state" role="status" aria-live="polite">
+        <span class="ai-chat-state-dot" aria-hidden="true"></span>
+        <span id="ai-chat-health">Checking</span>
       </div>
       <button id="ai-chat-close" class="ai-chat-close" type="button"
-              aria-label="Close AI analyst preview">&#10005;</button>
+              aria-label="Close assistant">&#10005;</button>
     </header>
-    <div class="ai-chat-state" role="status">
-      <span class="ai-chat-state-dot" aria-hidden="true"></span>
-      Interface preview · inference not connected
-    </div>
-    <div class="ai-chat-body">
-      <div class="ai-chat-message">
-        <span class="ai-chat-message-label">Analyst</span>
-        <p>This workspace will translate plain-language questions into reviewed catalog filters and evidence-backed analysis.</p>
-      </div>
-      <div class="ai-chat-prompts" aria-label="Example future questions">
-        <span>M5+ mainshocks near Quetta</span>
-        <span>Compare this event with the catalog</span>
-        <span>Draft an evidence-cited brief</span>
-      </div>
-    </div>
-    <form class="ai-chat-compose" aria-label="AI analyst input preview">
-      <label for="ai-chat-input">Question</label>
+    <div id="ai-chat-history" class="ai-chat-history" role="log"
+         aria-live="polite" aria-relevant="additions"></div>
+    <form id="ai-chat-form" class="ai-chat-compose" aria-label="Assistant message">
+      <label for="ai-chat-input">Message</label>
       <div class="ai-chat-input-row">
-        <textarea id="ai-chat-input" rows="2" disabled
-                  placeholder="AI connection will be added in a later phase"></textarea>
-        <button type="button" disabled>Send</button>
+        <textarea id="ai-chat-input" rows="2" disabled maxlength="1000"
+                  placeholder="Assistant unavailable"></textarea>
+        <button id="ai-chat-send" type="submit" disabled>Send</button>
       </div>
-      <small>Drafts will require operator review before export or distribution.</small>
+      <div id="ai-chat-error" class="ai-chat-error" role="status" aria-live="polite"></div>
     </form>
   </aside>
   <button id="ai-chat-trigger" class="ai-chat-trigger" type="button"
-          aria-label="Open AI analyst preview" aria-controls="ai-chat"
-          aria-expanded="false">
+           aria-label="Open assistant" aria-controls="ai-chat" aria-expanded="false">
     <span class="ai-chat-orbit" aria-hidden="true">
-      <dotlottie-wc src="/chatbot.lottie" autoplay loop></dotlottie-wc>
-      <svg class="ai-chat-fallback" viewBox="0 0 24 24" fill="none"
-           stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-           stroke-linejoin="round">
-        <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/>
-        <path d="M8 9h8M8 13h5"/>
-      </svg>
+      <dotlottie-wc src="/chatbot.lottie" loop></dotlottie-wc>
+      <span class="ai-chat-fallback">AI</span>
     </span>
-    <span class="ai-chat-trigger-copy"><b>AI analyst</b><small>Preview</small></span>
   </button>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
           integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
           crossorigin="anonymous"></script>
   <script src="https://unpkg.com/protomaps-leaflet@5.1.0/dist/protomaps-leaflet.js"
-          integrity="sha384-pAKrddYWxjFAIJwatOtmmtq9ebz3ZwluHCEg3pqOMpOporUofLqz/l5hs+0LAWaH"
+           integrity="sha384-pAKrddYWxjFAIJwatOtmmtq9ebz3ZwluHCEg3pqOMpOporUofLqz/l5hs+0LAWaH"
+           crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/pmtiles@4.3.0/dist/pmtiles.js"
+          integrity="sha384-sbRi6hoEcyvy8Ae92XrinfKW1tLhIVWAeyb4DMQF50X4w93ICW9vjK0bHudXP/dJ"
           crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"
           integrity="sha384-vsrfeLOOY6KuIYKDlmVH5UiBmgIdB1oEf7p01YgWHuqmOHfZr374+odEv96n9tNC"
@@ -358,8 +401,11 @@
           integrity="sha384-bf8L80dNwjBEi4FgXyW4kkgy4Xtjb/N7jrRuTHK5aE230r3JU+18czMr9VEtEc2F"
            crossorigin="anonymous" defer></script>
   <script type="module"
-          src="https://unpkg.com/@lottiefiles/dotlottie-wc@0.6.2/dist/dotlottie-wc.js"></script>
+          src="https://unpkg.com/@lottiefiles/dotlottie-wc@0.8.1/dist/dotlottie-wc.js"></script>
   <script src="app.js"></script>
+  <!-- Loads after app.js so it can reuse the map and config panel. Data stays
+       lazy: no landslide archive is requested until the operator enables it. -->
+  <script src="landslides.js"></script>
   <!-- Must load after app.js: reuses its `map` global and appends into #sec-config. -->
   <script src="buildings.js"></script>
 </body>

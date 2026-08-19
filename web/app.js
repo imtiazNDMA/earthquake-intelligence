@@ -108,6 +108,8 @@ const map = L.map("map").setView([30.4, 69.3], 5); // Primary Focus Country: Pak
 map.createPane("referencePane");
 map.getPane("referencePane").style.zIndex = 410;
 map.getPane("referencePane").style.pointerEvents = "none";
+map.createPane("eventPane");
+map.getPane("eventPane").style.zIndex = 450;
 map.on("click", () => {
   if (_selectedMmiLevel != null) {
     _selectedMmiLevel = null;
@@ -496,14 +498,11 @@ function refreshMmiLayerStyles() {
 }
 
 function buildMmiOpacityControl() {
-  const section = document.getElementById("sec-config");
+  const section = document.getElementById("cfg-display-settings") || document.getElementById("sec-config");
   if (!section) return;
 
   const group = document.createElement("div");
   group.className = "cfg-group";
-  const title = document.createElement("div");
-  title.className = "field-label";
-  title.textContent = "MMI intensity";
   const row = document.createElement("label");
   row.className = "cfg-row";
   const txt = document.createElement("span");
@@ -519,9 +518,15 @@ function buildMmiOpacityControl() {
   slider.step = "0.05";
   slider.value = String(MMI_STYLE.opacity);
   slider.title = "MMI polygon opacity";
+  slider.setAttribute("aria-label", "MMI polygon opacity");
   const value = document.createElement("span");
   value.className = "cfg-value";
-  const syncValue = () => { value.textContent = `${Math.round(parseFloat(slider.value) * 100)}%`; };
+  const syncValue = () => {
+    const displayValue = `${Math.round(parseFloat(slider.value) * 100)}%`;
+    value.textContent = displayValue;
+    const summary = document.getElementById("cfg-display-value");
+    if (summary) summary.textContent = displayValue;
+  };
   syncValue();
   slider.addEventListener("input", () => {
     MMI_STYLE.opacity = parseFloat(slider.value);
@@ -530,8 +535,44 @@ function buildMmiOpacityControl() {
   });
   controls.append(slider, value);
   row.append(txt, controls);
-  group.append(title, row);
+  group.append(row);
   section.appendChild(group);
+}
+
+function updateConfigSummary() {
+  const section = document.getElementById("sec-config");
+  if (!section) return;
+  const checked = section.querySelectorAll('input[type="checkbox"]:checked').length;
+  const overlayChecked = document.querySelectorAll('#overlay-list input[type="checkbox"]:checked').length;
+  const hazardChecked = document.querySelectorAll('#cfg-hazard-layers input[type="checkbox"]:checked').length;
+  const currentMmi = document.getElementById("current-mmi-toggle");
+  const basemap = document.querySelector('#basemap-list input[type="radio"]:checked')?.nextElementSibling?.textContent || "";
+  const basemapSummary = basemap.replace(" (Dark Matter)", "");
+  const count = document.getElementById("cfg-visible-count");
+  const overlays = document.getElementById("cfg-overlay-active");
+  const hazards = document.getElementById("cfg-hazard-active");
+  const mmiState = document.getElementById("current-mmi-state");
+  const base = document.getElementById("cfg-basemap-active");
+  if (count) count.textContent = String(checked);
+  if (overlays) overlays.textContent = `${overlayChecked} active`;
+  if (hazards) hazards.textContent = `${hazardChecked} active`;
+  if (mmiState) mmiState.textContent = currentMmi?.checked ? "On" : "Off";
+  if (base && basemapSummary) base.textContent = basemapSummary;
+}
+
+function initConfigAccordions() {
+  const section = document.getElementById("sec-config");
+  if (!section) return;
+  section.querySelectorAll(".cfg-accordion-head").forEach(button => {
+    button.addEventListener("click", () => {
+      const accordion = button.closest(".cfg-accordion");
+      const open = accordion.classList.toggle("open");
+      button.setAttribute("aria-expanded", String(open));
+    });
+  });
+  section.addEventListener("change", event => {
+    if (event.target.matches('input[type="checkbox"], input[type="radio"]')) updateConfigSummary();
+  });
 }
 
 function buildConfigPanel() {
@@ -543,6 +584,7 @@ function buildConfigPanel() {
     const cb = document.createElement("input");
     cb.type = "checkbox";
     cb.checked = !!c.defaultOn;
+    cb.setAttribute("aria-label", name);
     cb.addEventListener("change", () => {
       if (cb.checked) OVERLAYS[name].addTo(map);
       else map.removeLayer(OVERLAYS[name]);
@@ -564,6 +606,7 @@ function buildConfigPanel() {
     w.value = c.width;
     w.step = "0.1"; w.min = "0.1"; w.max = "5";
     w.title = "Line width";
+    w.setAttribute("aria-label", `${name} line width`);
     w.addEventListener("change", () => { c.width = parseFloat(w.value) || c.width; rebuildOverlay(name); });
     controls.appendChild(w);
     const colPick = document.createElement("input");
@@ -571,6 +614,7 @@ function buildConfigPanel() {
     colPick.className = "ov-color";
     colPick.value = c.color;
     colPick.title = "Line color";
+    colPick.setAttribute("aria-label", `${name} line color`);
     colPick.addEventListener("input", () => {
       c.color = colPick.value;
       sw.style.background = c.color;
@@ -584,6 +628,7 @@ function buildConfigPanel() {
     o.className = "ov-opacity";
     o.min = "0"; o.max = "1"; o.step = "0.05"; o.value = c.opacity ?? 1;
     o.title = "Opacity";
+    o.setAttribute("aria-label", `${name} opacity`);
     o.addEventListener("input", () => {
       const v = parseFloat(o.value);
       c.opacity = v;
@@ -629,6 +674,8 @@ function buildConfigPanel() {
 }
 buildConfigPanel();
 buildMmiOpacityControl();
+initConfigAccordions();
+updateConfigSummary();
 
 // --- Seismic hazard: PGA return-period overlays -------------------------
 // Probabilistic peak ground acceleration, one grid per return period, rendered
@@ -712,7 +759,7 @@ function _pgaRenderLegend() {
 }
 
 function _pgaBuildPanel() {
-  const section = document.getElementById("sec-config");
+  const section = document.getElementById("cfg-hazard-layers") || document.getElementById("sec-config");
   if (!section) return;
   const group = document.createElement("div");
   group.className = "cfg-group";
@@ -751,6 +798,7 @@ function _pgaBuildPanel() {
     _pga.enabled = _pga.els.toggle.checked;
     _pga.els.controls.style.display = _pga.enabled ? "block" : "none";
     _pgaRender();
+    updateConfigSummary();
   });
   _pga.els.period.addEventListener("change", () => {
     _pga.period = parseInt(_pga.els.period.value, 10);
@@ -2282,6 +2330,11 @@ refreshEvents();
 // --- USGS/PMD earthquake map tab ---
 let _mapEventsLayer = null;
 let _mapEventsLoaded = false;
+let _mapPlateAnnotationsLayer = null;
+const _mapEventState = {
+  events: [], timeOrdered: [], startIndex: 0, endIndex: 0, opacity: 0.85,
+  totalMatches: 0,
+};
 
 function _magRadius(mag) {
   // Quadratic scaling for area proportional to energy release (~10^(1.5*M))
@@ -2292,23 +2345,194 @@ function _magRadius(mag) {
 
 function _quakeMarker(event) {
   const mag = Math.max(0, event.magnitude || 0);
-  const color = _magColor(mag);
+  const depth = event.depth_km == null ? NaN : Number(event.depth_km);
+  const color = _depthColor(depth);
   const radius = _magRadius(mag);
   const marker = L.circleMarker([event.lat, event.lon], {
     radius,
-    color: "#fff",
-    weight: 1.2,
+    color: getComputedStyle(document.documentElement).getPropertyValue("--text").trim() || "#F4F6F8",
+    weight: 1.4,
     fillColor: color,
-    fillOpacity: 0.85,
+    fillOpacity: _mapEventState.opacity,
     opacity: 0.95,
     className: "quake-scatter-point",
+    pane: "eventPane",
   });
+  const occurredAt = new Date(event.occurred_at);
+  const date = Number.isNaN(occurredAt.getTime()) ? "Unknown" : occurredAt.toISOString().slice(0, 10);
+  const time = Number.isNaN(occurredAt.getTime()) ? "Unknown" : occurredAt.toISOString().slice(11, 19) + " UTC";
+  const lat = Number(event.lat);
+  const lon = Number(event.lon);
+  const magnitude = Number(event.magnitude);
+  const depthLabel = Number.isFinite(depth) ? `${depth.toFixed(1)} km` : "Unknown";
   marker.bindPopup(
-    `<strong>M${Number(event.magnitude).toFixed(1)}</strong><br>` +
-    `${escapeHtml(event.place || "Unknown location")}<br>` +
-    `<span style="color:var(--text-muted)">${new Date(event.occurred_at).toLocaleString()}</span>`
+    `<div class="quake-popup-title"><strong>${escapeHtml(event.place || "Earthquake")}</strong></div>` +
+    `<dl class="quake-popup-grid">` +
+      `<dt>Date</dt><dd>${escapeHtml(date)}</dd>` +
+      `<dt>Time</dt><dd>${escapeHtml(time)}</dd>` +
+      `<dt>Latitude</dt><dd>${Number.isFinite(lat) ? lat.toFixed(3) + "°" : "Unknown"}</dd>` +
+      `<dt>Longitude</dt><dd>${Number.isFinite(lon) ? lon.toFixed(3) + "°" : "Unknown"}</dd>` +
+      `<dt>Magnitude</dt><dd>${Number.isFinite(magnitude) ? "M" + magnitude.toFixed(1) : "Unknown"}</dd>` +
+      `<dt>Depth</dt><dd>${escapeHtml(depthLabel)}</dd>` +
+    `</dl>`,
+    { className: "quake-event-popup" }
   );
+  marker.on("add", () => {
+    const path = marker.getElement();
+    if (!path) return;
+    path.setAttribute("tabindex", "0");
+    path.setAttribute("role", "button");
+    path.setAttribute("aria-label",
+      `${event.place || "Earthquake"}, magnitude ${Number.isFinite(magnitude) ? magnitude.toFixed(1) : "unknown"}, depth ${depthLabel}`);
+    path.addEventListener("keydown", keyEvent => {
+      if (keyEvent.key === "Enter" || keyEvent.key === " ") {
+        keyEvent.preventDefault();
+        marker.openPopup();
+      }
+    });
+  });
   return marker;
+}
+
+function _depthColor(depth) {
+  if (!Number.isFinite(depth)) return "#6E7B85";
+  if (depth < 35) return "#E15A43";
+  if (depth < 70) return "#D9A52E";
+  if (depth < 150) return "#8DAA73";
+  if (depth < 300) return "#668FA3";
+  return "#756C9D";
+}
+
+function _mapEventTime(event) {
+  const value = Date.parse(event.occurred_at);
+  return Number.isFinite(value) ? value : null;
+}
+
+function _formatMapTime(timestamp) {
+  if (!Number.isFinite(timestamp)) return "No data";
+  return new Date(timestamp).toLocaleString([], {
+    year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+  });
+}
+
+function _setMapTimeDomain(events) {
+  _mapEventState.timeOrdered = events
+    .filter(event => _mapEventTime(event) != null)
+    .sort((a, b) => _mapEventTime(a) - _mapEventTime(b));
+  const max = Math.max(0, _mapEventState.timeOrdered.length - 1);
+  _mapEventState.startIndex = 0;
+  _mapEventState.endIndex = max;
+  const start = document.getElementById("map-time-start");
+  const end = document.getElementById("map-time-end");
+  for (const input of [start, end]) {
+    if (!input) continue;
+    input.min = "0";
+    input.max = String(max);
+    input.disabled = max === 0;
+  }
+  if (start) start.value = "0";
+  if (end) end.value = String(max);
+  _syncMapTimeControl();
+}
+
+function _filteredMapEvents() {
+  if (!_mapEventState.timeOrdered.length) return [];
+  const startEvent = _mapEventState.timeOrdered[_mapEventState.startIndex];
+  const endEvent = _mapEventState.timeOrdered[_mapEventState.endIndex];
+  const startTime = _mapEventTime(startEvent);
+  const endTime = _mapEventTime(endEvent);
+  return _mapEventState.events.filter(event => {
+    const time = _mapEventTime(event);
+    return time != null && time >= startTime && time <= endTime;
+  });
+}
+
+function _syncMapTimeControl() {
+  const ordered = _mapEventState.timeOrdered;
+  const max = Math.max(1, ordered.length - 1);
+  const startTime = ordered.length ? _mapEventTime(ordered[_mapEventState.startIndex]) : null;
+  const endTime = ordered.length ? _mapEventTime(ordered[_mapEventState.endIndex]) : null;
+  const startLabel = document.getElementById("map-time-start-label");
+  const endLabel = document.getElementById("map-time-end-label");
+  const track = document.getElementById("map-time-track");
+  if (startLabel) startLabel.textContent = _formatMapTime(startTime);
+  if (endLabel) endLabel.textContent = _formatMapTime(endTime);
+  if (track) {
+    track.style.setProperty("--time-start", `${(_mapEventState.startIndex / max) * 100}%`);
+    track.style.setProperty("--time-end", `${(_mapEventState.endIndex / max) * 100}%`);
+  }
+}
+
+function _renderMapEvents({ fit = false } = {}) {
+  const events = _filteredMapEvents();
+  if (_mapEventsLayer) map.removeLayer(_mapEventsLayer);
+  _mapEventsLayer = L.layerGroup(events.map(_quakeMarker)).addTo(map);
+  const status = document.getElementById("map-events-status");
+  const count = document.getElementById("map-time-count");
+  const label = `${events.length} of ${_mapEventState.events.length} events`;
+  if (count) count.textContent = label;
+  if (status) {
+    status.textContent = events.length
+      ? `${events.length} shown of ${_mapEventState.totalMatches} catalog matches`
+      : "No earthquakes in this time window";
+  }
+  if (fit && events.length) {
+    const bounds = L.latLngBounds(events.map(event => [event.lat, event.lon]));
+    if (bounds.isValid()) map.fitBounds(bounds.pad(0.15));
+  }
+}
+
+function _buildMapPlateAnnotations() {
+  const boundaries = buildOverlay("Plate boundaries");
+  const plateText = new protomapsL.CenteredTextSymbolizer({
+    labelProps: ["PLATE"], fontFamily: "JetBrains Mono", fontSize: 12,
+    fontWeight: 500, fill: "#E6CF5A", stroke: "#101418", width: 3,
+  });
+  // Polygon vector tiles clip one plate into several display tiles. Give every
+  // label for the same plate a shared key so the labeler keeps one annotation
+  // rather than stamping the name once per tile.
+  const deduplicatedPlateText = {
+    place(layout, geom, feature) {
+      const labels = plateText.place(layout, geom, feature);
+      labels?.forEach(label => {
+        label.deduplicationKey = String(feature.props.PLATE || "plate");
+        label.deduplicationDistance = 500;
+      });
+      return labels;
+    },
+  };
+  const labels = protomapsL.leafletLayer({
+    url: "/tiles/plates.pmtiles",
+    paintRules: [],
+    labelRules: [{
+      dataLayer: "plates", minzoom: 2, maxzoom: 8,
+      filter: (_zoom, feature) => Boolean(feature.props.PLATE),
+      symbolizer: deduplicatedPlateText,
+    }],
+    backgroundColor: "rgba(0,0,0,0)",
+    pane: "referencePane",
+  });
+  const group = L.layerGroup([boundaries, labels]);
+  group._mapBoundaryLayer = boundaries;
+  group._mapLabelLayer = labels;
+  return group;
+}
+
+function _syncMapPlateAnnotations() {
+  const toggle = document.getElementById("map-plates-toggle");
+  if (!toggle?.checked) {
+    if (_mapPlateAnnotationsLayer && map.hasLayer(_mapPlateAnnotationsLayer)) map.removeLayer(_mapPlateAnnotationsLayer);
+    return;
+  }
+  if (!_mapPlateAnnotationsLayer) _mapPlateAnnotationsLayer = _buildMapPlateAnnotations();
+  const boundary = _mapPlateAnnotationsLayer._mapBoundaryLayer;
+  const globalBoundaryVisible = map.hasLayer(OVERLAYS["Plate boundaries"]);
+  if (globalBoundaryVisible && _mapPlateAnnotationsLayer.hasLayer(boundary)) {
+    _mapPlateAnnotationsLayer.removeLayer(boundary);
+  } else if (!globalBoundaryVisible && !_mapPlateAnnotationsLayer.hasLayer(boundary)) {
+    _mapPlateAnnotationsLayer.addLayer(boundary);
+  }
+  if (!map.hasLayer(_mapPlateAnnotationsLayer)) _mapPlateAnnotationsLayer.addTo(map);
 }
 
 // Magnitude is ordered, so it reads as one ramp from quiet steel to hot ember
@@ -2329,6 +2553,8 @@ async function loadMapEvents({ fit = true } = {}) {
   const includePMD = document.getElementById("map-src-pmd")?.checked;
   const minmag = document.getElementById("map-minmag")?.value || "";
   const limit = Math.max(1, Math.min(1000, parseInt(document.getElementById("map-limit")?.value || "250", 10)));
+  const dateFrom = document.getElementById("map-date-from")?.value || "";
+  const dateTo = document.getElementById("map-date-to")?.value || "";
   const sources = new Set([
     ...(includeUSGS ? ["USGS"] : []),
     ...(includePMD ? ["PMD"] : []),
@@ -2337,24 +2563,37 @@ async function loadMapEvents({ fit = true } = {}) {
   if (btn) { btn.disabled = true; btn.innerHTML = spinnerHTML() + " Loading…"; }
   if (status) status.textContent = "Loading recent earthquakes…";
 
+  if (dateFrom && dateTo && dateFrom > dateTo) {
+    if (status) status.textContent = "From date must not be later than To date";
+    if (btn) { btn.disabled = false; btn.textContent = "Show earthquakes"; }
+    return;
+  }
+
   try {
-    let url = `/events?limit=${encodeURIComponent(limit)}&orderby=time`;
-    if (minmag) url += `&min_magnitude=${encodeURIComponent(minmag)}`;
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error("HTTP " + resp.status);
-    const data = await resp.json();
-    const events = (data.events || data)
-      .filter(e => sources.has(e.source) && e.lat != null && e.lon != null);
+    const common = new URLSearchParams({ limit: String(limit), orderby: "time" });
+    if (minmag) common.set("min_magnitude", minmag);
+    if (dateFrom) common.set("occurred_after", dateFrom + "T00:00:00Z");
+    if (dateTo) common.set("occurred_before", dateTo + "T23:59:59.999Z");
+    const responses = await Promise.all([...sources].map(async source => {
+      const params = new URLSearchParams(common);
+      params.set("source", source);
+      const response = await fetch(`/events?${params}`);
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      return response.json();
+    }));
+    const events = responses
+      .flatMap(data => data.events || data)
+      .filter(event => event.lat != null && event.lon != null)
+      .sort((a, b) => _mapEventTime(b) - _mapEventTime(a))
+      .slice(0, limit);
 
-    if (_mapEventsLayer) map.removeLayer(_mapEventsLayer);
-    _mapEventsLayer = L.layerGroup(events.map(_quakeMarker)).addTo(map);
+    _mapEventState.totalMatches = responses.reduce(
+      (sum, data) => sum + (Number(data.total) || (data.events || data).length), 0);
+    _mapEventState.events = events;
+    _setMapTimeDomain(events);
+    _renderMapEvents({ fit });
     _mapEventsLoaded = true;
-    if (status) status.textContent = events.length ? "Earthquakes shown on map" : "No matching USGS/PMD events found";
-
-    if (fit && events.length) {
-      const bounds = L.latLngBounds(events.map(e => [e.lat, e.lon]));
-      if (bounds.isValid()) map.fitBounds(bounds.pad(0.15));
-    }
+    if (!events.length && status) status.textContent = "No matching USGS/PMD events found";
   } catch (err) {
     if (status) status.textContent = "";
     toast("Could not load earthquake map: " + err.message, "error");
@@ -2366,6 +2605,74 @@ async function loadMapEvents({ fit = true } = {}) {
 document.getElementById("map-events-refresh")?.addEventListener("click", () => loadMapEvents());
 ["map-src-usgs", "map-src-pmd"].forEach(id => {
   document.getElementById(id)?.addEventListener("change", () => loadMapEvents({ fit: false }));
+});
+const mapDateFrom = document.getElementById("map-date-from");
+const mapDateTo = document.getElementById("map-date-to");
+const mapToday = new Date().toISOString().slice(0, 10);
+if (mapDateFrom) mapDateFrom.max = mapToday;
+if (mapDateTo) {
+  mapDateTo.max = mapToday;
+  mapDateTo.value = mapToday;
+}
+[mapDateFrom, mapDateTo].forEach(input => input?.addEventListener("change", () => {
+  if (mapDateFrom && mapDateTo && mapDateFrom.value > mapDateTo.value) {
+    if (input === mapDateFrom) mapDateTo.value = mapDateFrom.value;
+    else mapDateFrom.value = mapDateTo.value;
+  }
+  loadMapEvents({ fit: false });
+}));
+
+async function loadMapCatalogCoverage() {
+  const element = document.getElementById("map-catalog-coverage");
+  if (!element) return;
+  try {
+    const response = await fetch("/events/catalog/coverage");
+    if (!response.ok) return;
+    const payload = await response.json();
+    const summaries = (payload.sources || []).map(source => {
+      const earliest = source.earliest_occurred_at?.slice(0, 10) || "none";
+      const latest = source.latest_occurred_at?.slice(0, 10) || "none";
+      return `${source.source}: ${earliest} to ${latest}`;
+    });
+    element.textContent = summaries.length
+      ? `Stored coverage. ${summaries.join("; ")}. Completeness not asserted.`
+      : "No source records stored yet. Completeness not asserted.";
+  } catch {
+    // The map remains usable if coverage metadata is temporarily unavailable.
+  }
+}
+loadMapCatalogCoverage();
+document.getElementById("map-plates-toggle")?.addEventListener("change", _syncMapPlateAnnotations);
+document.getElementById("map-bubble-opacity")?.addEventListener("input", event => {
+  _mapEventState.opacity = Number(event.target.value);
+  const output = document.getElementById("map-bubble-opacity-value");
+  if (output) output.textContent = `${Math.round(_mapEventState.opacity * 100)}%`;
+  _mapEventsLayer?.eachLayer(layer => layer.setStyle?.({ fillOpacity: _mapEventState.opacity }));
+});
+document.getElementById("map-time-start")?.addEventListener("input", event => {
+  const end = document.getElementById("map-time-end");
+  _mapEventState.startIndex = Math.min(Number(event.target.value), Number(end?.value || 0));
+  event.target.value = String(_mapEventState.startIndex);
+  _syncMapTimeControl();
+  _renderMapEvents();
+});
+document.getElementById("map-time-end")?.addEventListener("input", event => {
+  const start = document.getElementById("map-time-start");
+  _mapEventState.endIndex = Math.max(Number(event.target.value), Number(start?.value || 0));
+  event.target.value = String(_mapEventState.endIndex);
+  _syncMapTimeControl();
+  _renderMapEvents();
+});
+document.getElementById("map-time-reset")?.addEventListener("click", () => {
+  const max = Math.max(0, _mapEventState.timeOrdered.length - 1);
+  _mapEventState.startIndex = 0;
+  _mapEventState.endIndex = max;
+  const start = document.getElementById("map-time-start");
+  const end = document.getElementById("map-time-end");
+  if (start) start.value = "0";
+  if (end) end.value = String(max);
+  _syncMapTimeControl();
+  _renderMapEvents();
 });
 
 // Catalog source tabs
@@ -3176,12 +3483,34 @@ document.addEventListener("DOMContentLoaded", () => {
   const chatTrigger = document.getElementById("ai-chat-trigger");
   const chatClose = document.getElementById("ai-chat-close");
   if (chat && chatTrigger && chatClose) {
+    const lottie = chatTrigger.querySelector("dotlottie-wc");
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const form = document.getElementById("ai-chat-form");
+    const input = document.getElementById("ai-chat-input");
+    const send = document.getElementById("ai-chat-send");
+    const health = document.getElementById("ai-chat-health");
+    const state = document.getElementById("ai-chat-state");
+    const historyEl = document.getElementById("ai-chat-history");
+    const errorEl = document.getElementById("ai-chat-error");
+    const maxHistoryMessages = 20;
+    let history = [];
+    let available = false;
+
+    const playTrigger = () => {
+      if (!reduceMotion.matches) lottie?.dotLottie?.play();
+    };
+    const resetTrigger = () => lottie?.dotLottie?.stop();
+    chatTrigger.addEventListener("pointerenter", playTrigger);
+    chatTrigger.addEventListener("pointerleave", resetTrigger);
+    chatTrigger.addEventListener("focus", playTrigger);
+    chatTrigger.addEventListener("blur", resetTrigger);
+
     const setChatOpen = open => {
       chat.hidden = !open;
+      chat.setAttribute("aria-hidden", String(!open));
       chatTrigger.setAttribute("aria-expanded", String(open));
-      chatTrigger.setAttribute("aria-label",
-        open ? "Close AI analyst preview" : "Open AI analyst preview");
-      if (open) chatClose.focus();
+      chatTrigger.setAttribute("aria-label", open ? "Close assistant" : "Open assistant");
+      if (open) (available ? input : chatClose).focus();
       else chatTrigger.focus();
     };
     chatTrigger.addEventListener("click", () => {
@@ -3190,6 +3519,100 @@ document.addEventListener("DOMContentLoaded", () => {
     chatClose.addEventListener("click", () => setChatOpen(false));
     document.addEventListener("keydown", event => {
       if (event.key === "Escape" && !chat.hidden) setChatOpen(false);
+    });
+
+    const setAiAvailable = available => {
+      input.disabled = !available;
+      send.disabled = !available;
+      health.textContent = available ? "Available" : "Unavailable";
+      state.dataset.state = available ? "ready" : "offline";
+      input.placeholder = available ? "Ask a question" : "Assistant unavailable";
+    };
+    fetch("/ai/health").then(response => {
+      if (!response.ok) throw new Error();
+      return response.json();
+    }).then(status => {
+      available = Boolean(status.enabled && status.inference_available);
+      setAiAvailable(available);
+      if (!available && status.error) errorEl.textContent = status.error;
+    }).catch(() => {
+      available = false;
+      setAiAvailable(false);
+    });
+
+    const addMessage = (role, content, tools = []) => {
+      const message = document.createElement("article");
+      message.className = "ai-chat-message";
+      message.dataset.role = role;
+
+      const label = document.createElement("span");
+      label.className = "ai-chat-message-label";
+      label.textContent = role === "user" ? "You" : "Assistant";
+      message.appendChild(label);
+
+      const text = document.createElement("p");
+      text.className = "ai-chat-message-text";
+      text.textContent = content;
+      message.appendChild(text);
+
+      if (tools.length) {
+        const toolLine = document.createElement("div");
+        toolLine.className = "ai-chat-tools";
+        toolLine.textContent = `Tools: ${tools.join(", ")}`;
+        message.appendChild(toolLine);
+      }
+      historyEl.appendChild(message);
+      while (historyEl.children.length > maxHistoryMessages) {
+        historyEl.firstElementChild.remove();
+      }
+      historyEl.scrollTop = historyEl.scrollHeight;
+      return message;
+    };
+
+    addMessage(
+      "assistant",
+      "Ask about catalog events, modeled impact, exposure, aftershock probability, or seismicity analytics."
+    );
+
+    form?.addEventListener("submit", async event => {
+      event.preventDefault();
+      const message = input.value.trim();
+      if (!message || send.disabled) return;
+      errorEl.textContent = "";
+      input.value = "";
+      send.disabled = true;
+      send.textContent = "Sending";
+      const userMessage = addMessage("user", message);
+      const pendingMessage = addMessage("assistant", "Working");
+      pendingMessage.classList.add("pending");
+      try {
+        const response = await fetch("/ai/chat", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message, history }),
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          const detail = payload.detail?.message || payload.detail;
+          throw new Error(typeof detail === "string" ? detail : `Request failed (${response.status})`);
+        }
+        if (typeof payload.message !== "string") throw new Error("Invalid assistant response");
+        const tools = Array.isArray(payload.tools_used)
+          ? payload.tools_used.filter(tool => typeof tool === "string") : [];
+        pendingMessage.remove();
+        addMessage("assistant", payload.message, tools);
+        history = [...history,
+          { role: "user", content: message },
+          { role: "assistant", content: payload.message },
+        ].slice(-maxHistoryMessages);
+      } catch (error) {
+        pendingMessage.remove();
+        userMessage.remove();
+        input.value = message;
+        errorEl.textContent = typeof error.message === "string" ? error.message : "Request failed";
+      } finally {
+        send.disabled = !available;
+        send.textContent = "Send";
+      }
     });
   }
 });
@@ -3205,7 +3628,15 @@ showSection = function(key) {
     map.removeLayer(_mapEventsLayer);
     _mapEventsLayer = null;
   }
-  if (key === "mapEvents" && (!_mapEventsLoaded || !_mapEventsLayer)) loadMapEvents();
+  const timeControl = document.getElementById("map-time-control");
+  if (timeControl) timeControl.hidden = key !== "mapEvents";
+  if (key !== "mapEvents" && _mapPlateAnnotationsLayer && map.hasLayer(_mapPlateAnnotationsLayer)) {
+    map.removeLayer(_mapPlateAnnotationsLayer);
+  }
+  if (key === "mapEvents") {
+    if (!_mapEventsLoaded || !_mapEventsLayer) loadMapEvents();
+    _syncMapPlateAnnotations();
+  }
   if (key === "aftershock") _asLoadEvents();
 };
 

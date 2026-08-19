@@ -202,6 +202,23 @@ def catalog_coverage(conn: psycopg.Connection) -> dict:
     }
 
 
+def source_coverage(conn: psycopg.Connection) -> list[dict]:
+    """Stored record extent per source, without asserting completeness."""
+    rows = conn.execute(
+        "SELECT source, COUNT(*), MIN(occurred_at), MAX(occurred_at) "
+        "FROM seismic_event GROUP BY source ORDER BY source"
+    ).fetchall()
+    return [
+        {
+            "source": source,
+            "records": count,
+            "earliest_occurred_at": earliest,
+            "latest_occurred_at": latest,
+        }
+        for source, count, earliest, latest in rows
+    ]
+
+
 def catalog_max_time(conn: psycopg.Connection):
     """Most recent event time in the catalog (analytics window anchor)."""
     r = conn.execute("SELECT MAX(occurred_at) FROM seismic_event").fetchone()

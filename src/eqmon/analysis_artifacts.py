@@ -134,6 +134,31 @@ def get_artifact(conn: psycopg.Connection,
     return AnalysisArtifact.model_validate(row) if row is not None else None
 
 
+def find_artifact(conn: psycopg.Connection, *, kind: AnalysisKind | str,
+                  calculation_version: str,
+                  computation_input: Mapping[str, Any],
+                  data_fingerprint: Mapping[str, Any]) -> AnalysisArtifact | None:
+    """Find an artifact by scientific identity without running its producer.
+
+    Async external producers use this before awaiting their service. A miss may
+    still race with another caller, so insertion continues through
+    `get_or_compute_artifact`, whose advisory lock resolves that race safely.
+    """
+    artifact_kind = AnalysisKind(kind)
+    normalized_input = _json_object(
+        computation_input, "computation_input", identity=True)
+    normalized_data = _json_object(
+        data_fingerprint, "data_fingerprint", identity=True)
+    input_hash = artifact_input_hash(
+        artifact_kind, normalized_input, normalized_data)
+    return _find(conn, (
+        artifact_kind.value,
+        ANALYSIS_ARTIFACT_SCHEMA_VERSION,
+        calculation_version,
+        input_hash,
+    ))
+
+
 def _find(conn: psycopg.Connection, key: tuple[str, str, str, str]
           ) -> AnalysisArtifact | None:
     with conn.cursor(row_factory=dict_row) as cur:

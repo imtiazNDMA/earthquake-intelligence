@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from eqmon.aftershock_service import AftershockForecastInput
 from eqmon.events.search import EVENT_SEARCH_SCHEMA_VERSION, EventSearchSpec
+from eqmon.ai.contracts import ExposureSummaryInput, PlaceResolutionInput
 
 SEARCH_EVENTS_TOOL_NAME = "search_events"
 SEARCH_EVENTS_TOOL_SCHEMA_VERSION = "1.2"
@@ -93,6 +94,23 @@ def get_event_analysis_tool() -> dict:
     }
 
 
+def get_exposure_summary_tool() -> dict:
+    """Schema for versioned element exposure under a known event footprint."""
+    return {
+        "type": "function",
+        "function": {
+            "name": "get_exposure_summary",
+            "description": (
+                "Get population and infrastructure exposure at MMI VI and above "
+                "for one known catalog event. Uses the event's versioned modeled "
+                "impact and a versioned ARC release. Do not use this to search "
+                "for events or infer casualties, damage, or risk."
+            ),
+            "parameters": ExposureSummaryInput.model_json_schema(),
+        },
+    }
+
+
 def get_catalog_analytics_tool() -> dict:
     """Schema for headline catalog statistics over a time window."""
     return {
@@ -171,22 +189,6 @@ def resolve_place_tool() -> dict:
                 "name matches several boundaries — duplicate names are common, "
                 "so ask the user which was meant rather than choosing one."
             ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "probe": {"type": "string",
-                              "description": "Place name as written."},
-                    "lat": {"type": "number",
-                            "description": "WGS84 latitude, north positive."},
-                    "lon": {"type": "number",
-                            "description": "WGS84 longitude, east positive."},
-                    "level": {
-                        "type": "string",
-                        "enum": ["national", "province", "district", "tehsil"],
-                        "description": "Restrict to one administrative level.",
-                    },
-                },
-                "additionalProperties": False,
-            },
+            "parameters": PlaceResolutionInput.model_json_schema(),
         },
     }

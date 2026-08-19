@@ -78,6 +78,21 @@ def test_event_search_returns_interpretation_and_catalog_coverage(client):
     assert body["events"][0]["is_mainshock"] is True
 
 
+def test_catalog_coverage_reports_stored_source_extents_without_completeness_claim(client):
+    client.post("/events", json={"magnitude": 5.1, "depth_km": 12,
+                                 "lat": 30.2, "lon": 66.9})
+
+    response = client.get("/events/catalog/coverage")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["historical_request_start"] == "1900-01-01"
+    assert body["completeness"] == "not_asserted"
+    assert body["coverage_bbox"] == [44.0, 8.0, 105.0, 56.0]
+    assert body["sources"][0]["source"] == "MANUAL"
+    assert body["sources"][0]["records"] == 1
+
+
 def test_event_search_rejects_partial_radius(client):
     response = client.post("/events/search", json={
         "center_lon": 66.9,

@@ -17,7 +17,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum, IntEnum
+import inspect
 from typing import Callable, Iterable, Literal, Sequence
+
+from pydantic import BaseModel, ValidationError
 
 from .contracts import ToolFailure
 
@@ -50,6 +53,9 @@ class ToolSpec:
     cost_class: CostClass
     side_effects: Literal["none", "write"] = "none"
     freshness_s: float | None = None
+    input_model: type[BaseModel] | None = None
+    output_model: type[BaseModel] | None = None
+    argument_mode: Literal["kwargs", "model"] = "kwargs"
 
 
 @dataclass
@@ -99,6 +105,34 @@ class ToolRegistry:
                 detail={"tool": name, "required_role": spec.authz.name})
         return spec
 
+    async def dispatch(self, conn, name: str, arguments: dict, *,
+                       allowlist: Iterable[str], role: Role) -> BaseModel:
+        """Authorize, validate, invoke, and validate one model-requested call."""
+        spec = self.resolve(name, allowlist=allowlist, role=role)
+        if spec.input_model is None or spec.output_model is None:
+            raise ToolFailure("invalid_request", f"tool {name!r} has no typed contract")
+        try:
+            request = spec.input_model.model_validate(arguments)
+        except ValidationError as exc:
+            raise ToolFailure(
+                "invalid_request", f"invalid arguments for {name!r}",
+                detail={"issues": exc.errors(include_input=False)},
+            ) from exc
+        if spec.argument_mode == "model":
+            result = spec.handler(conn, request)
+        else:
+            result = spec.handler(
+                conn, **request.model_dump(exclude_none=True))
+        if inspect.isawaitable(result):
+            result = await result
+        try:
+            return spec.output_model.model_validate(result)
+        except ValidationError as exc:
+            raise ToolFailure(
+                "partial", f"invalid result from {name!r}",
+                detail={"issues": exc.errors(include_input=False)},
+            ) from exc
+
 
 _default: ToolRegistry | None = None
 
@@ -117,6 +151,14 @@ def default_registry() -> ToolRegistry:
 
 
 def _build() -> ToolRegistry:
+    from eqmon.aftershock_service import AftershockForecastInput
+    from eqmon.events.search import EventSearchSpec
+
+    from .contracts import (AftershockSummaryResult, CatalogAnalyticsInput,
+                            CatalogAnalyticsResult, EventAnalysisResult,
+                            EventIdInput, EventSummary, ExposureSummaryInput,
+                            ExposureSummaryResult, PlaceResolutionInput,
+                            PlaceResolutionResult, SearchEventsResult)
     from .tools import events as event_tools
     from .tools.schemas import (SEARCH_EVENTS_TOOL_NAME,
                                 SEARCH_EVENTS_TOOL_SCHEMA_VERSION,
@@ -130,6 +172,9 @@ def _build() -> ToolRegistry:
         handler=event_tools.search_events,
         authz=Role.VIEWER,
         cost_class=CostClass.DB,
+        input_model=EventSearchSpec,
+        output_model=SearchEventsResult,
+        argument_mode="model",
     ))
     registry.register(ToolSpec(
         name="get_event_summary",
@@ -138,6 +183,8 @@ def _build() -> ToolRegistry:
         handler=event_tools.get_event_summary,
         authz=Role.VIEWER,
         cost_class=CostClass.DB,
+        input_model=EventIdInput,
+        output_model=EventSummary,
     ))
 
     from .tools import analysis as analysis_tools
@@ -154,6 +201,8 @@ def _build() -> ToolRegistry:
         handler=analysis_tools.get_catalog_analytics,
         authz=Role.VIEWER,
         cost_class=CostClass.DB,
+        input_model=CatalogAnalyticsInput,
+        output_model=CatalogAnalyticsResult,
     ))
     registry.register(ToolSpec(
         name="get_event_analysis",
@@ -162,6 +211,8 @@ def _build() -> ToolRegistry:
         handler=analysis_tools.get_event_analysis,
         authz=Role.VIEWER,
         cost_class=CostClass.COMPUTE,
+        input_model=EventIdInput,
+        output_model=EventAnalysisResult,
     ))
     registry.register(ToolSpec(
         name="get_aftershock_summary",
@@ -170,6 +221,8 @@ def _build() -> ToolRegistry:
         handler=analysis_tools.get_aftershock_summary,
         authz=Role.VIEWER,
         cost_class=CostClass.COMPUTE,
+        input_model=AftershockForecastInput,
+        output_model=AftershockSummaryResult,
     ))
     registry.register(ToolSpec(
         name="resolve_place",
@@ -178,5 +231,21 @@ def _build() -> ToolRegistry:
         handler=place_tools.resolve_place,
         authz=Role.VIEWER,
         cost_class=CostClass.DB,
+        input_model=PlaceResolutionInput,
+        output_model=PlaceResolutionResult,
+    ))
+    from .tools import exposure as exposure_tools
+    from .tools.schemas import get_exposure_summary_tool
+
+    registry.register(ToolSpec(
+        name="get_exposure_summary",
+        schema_version="1.0",
+        schema=get_exposure_summary_tool(),
+        handler=exposure_tools.get_exposure_summary,
+        authz=Role.VIEWER,
+        cost_class=CostClass.EXTERNAL,
+        freshness_s=None,
+        input_model=ExposureSummaryInput,
+        output_model=ExposureSummaryResult,
     ))
     return registry

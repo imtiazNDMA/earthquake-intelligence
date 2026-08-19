@@ -25,8 +25,10 @@ USGS_FEED_URL = (
 PMD_API_URL = "https://weather.gov.pk/api/seismic-events"
 
 FDSN_QUERY_URL = "https://earthquake.usgs.gov/fdsnws/event/1/query"
+FDSN_COUNT_URL = "https://earthquake.usgs.gov/fdsnws/event/1/count"
 DEFAULT_WINDOW_DAYS = 30
 _CHUNK_DAYS = 1  # split large time windows into 1-day chunks to stay under 20k limit
+_HISTORICAL_CHUNK_DAYS = 3653
 
 
 @dataclass(frozen=True)
@@ -35,7 +37,7 @@ class RawEvent:
     source_event_id: str
     occurred_at: datetime
     magnitude: float
-    depth_km: float
+    depth_km: float | None
     lon: float
     lat: float
     place: str | None = None
@@ -66,6 +68,11 @@ def _in_region(lon: float, lat: float) -> bool:
     return minx <= lon <= maxx and miny <= lat <= maxy
 
 
+def _utc_from_epoch_ms(value: int | float) -> datetime:
+    """Convert Unix milliseconds without Windows' pre-1970 timestamp limit."""
+    return datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(milliseconds=value)
+
+
 def parse_usgs(geojson: dict) -> list[RawEvent]:
     out: list[RawEvent] = []
     for f in geojson.get("features", []):
@@ -86,9 +93,9 @@ def parse_usgs(geojson: dict) -> list[RawEvent]:
         out.append(RawEvent(
             source="USGS",
             source_event_id=str(eid),
-            occurred_at=datetime.fromtimestamp(time_ms / 1000.0, tz=timezone.utc),
+            occurred_at=_utc_from_epoch_ms(time_ms),
             magnitude=float(mag),
-            depth_km=float(depth),
+            depth_km=float(depth) if depth is not None else None,
             lon=float(lon),
             lat=float(lat),
             place=props.get("place"),
@@ -106,7 +113,7 @@ def parse_usgs(geojson: dict) -> list[RawEvent]:
             url=props.get("url"),
             detail_url=props.get("detail"),
             updated_at=(
-                datetime.fromtimestamp(updated_ms / 1000.0, tz=timezone.utc)
+                _utc_from_epoch_ms(updated_ms)
                 if updated_ms is not None else None
             ),
         ))
@@ -208,6 +215,10 @@ def parse_pmd(payload: dict) -> list[RawEvent]:
         occurred_at = _pmd_datetime(r.get("event_date"), r.get("event_time"))
         if occurred_at is None:
             continue
+        if occurred_at < datetime(1900, 1, 1, tzinfo=timezone.utc):
+            continue
+        if occurred_at > datetime.now(timezone.utc) + timedelta(days=1):
+            continue
         depth = _parse_float(r.get("depth"))
         # Implausible depth (also from swapped/garbled fields) → unknown (0.0).
         if depth is None or not (0.0 <= depth <= _PMD_DEPTH_MAX):
@@ -270,11 +281,13 @@ class USGSSource:
     name = "USGS"
 
     def __init__(self, query_url: str = FDSN_QUERY_URL,
+                 count_url: str = FDSN_COUNT_URL,
                  feed_url: str = USGS_FEED_URL,
                  min_magnitude: float | None = None,
                  window_days: int = DEFAULT_WINDOW_DAYS,
                  timeout: float = 15.0):
         self.query_url = query_url
+        self.count_url = count_url
         self.feed_url = feed_url
         self.min_magnitude = min_magnitude
         self.window_days = window_days
@@ -324,6 +337,58 @@ class USGSSource:
                 events = [e for e in events if e.occurred_at >= since]
             return events
         return self._fetch_chunked(since)
+
+    def fetch_range(self, start: datetime, end: datetime) -> list[RawEvent]:
+        """Fetch an explicit historical interval without silently truncating it.
+
+        Ten-year windows keep the request count reasonable. Each window is sized
+        with the FDSN count endpoint and recursively divided when it exceeds the
+        20,000-event query limit. Event IDs are deduplicated at window edges.
+        Unlike the rolling sync path, source errors are allowed to propagate so
+        a backfill cannot report success after substituting the one-day feed.
+        """
+        if start.tzinfo is None or end.tzinfo is None:
+            raise ValueError("historical range requires timezone-aware datetimes")
+        if end <= start:
+            raise ValueError("historical range end must be after start")
+        chunk_size = timedelta(days=_HISTORICAL_CHUNK_DAYS)
+        events: list[RawEvent] = []
+        seen: set[str] = set()
+        cursor = start
+        while cursor < end:
+            chunk_end = min(cursor + chunk_size, end)
+            for event in self._fetch_sized_window(cursor, chunk_end):
+                if event.source_event_id not in seen:
+                    seen.add(event.source_event_id)
+                    events.append(event)
+            cursor = chunk_end
+        return events
+
+    def _fetch_sized_window(self, start: datetime, end: datetime) -> list[RawEvent]:
+        query_params = fdsn_query_params(
+            starttime=start, endtime=end, bbox=COVERAGE_BBOX,
+            minmagnitude=self.min_magnitude,
+        )
+        count_params = {
+            key: value for key, value in query_params.items()
+            if key not in {"format", "orderby", "limit"}
+        }
+        count_response = httpx.get(
+            self.count_url, params=count_params, timeout=self.timeout)
+        count_response.raise_for_status()
+        count = int(count_response.text.strip())
+        if count == 0:
+            return []
+        if count > 20_000:
+            if (end - start).total_seconds() <= 1:
+                raise RuntimeError("USGS historical query cannot be split below one second")
+            midpoint = start + (end - start) / 2
+            return (self._fetch_sized_window(start, midpoint)
+                    + self._fetch_sized_window(midpoint, end))
+        response = httpx.get(
+            self.query_url, params=query_params, timeout=self.timeout)
+        response.raise_for_status()
+        return parse_usgs(response.json())
 
     def _fetch_chunked(self, since: datetime | None = None) -> list[RawEvent]:
         now = datetime.now(timezone.utc)

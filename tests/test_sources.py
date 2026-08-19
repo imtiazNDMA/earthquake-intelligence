@@ -1,10 +1,12 @@
 import json
 import httpx
+import pytest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from eqmon.events.sources import (
-    parse_usgs, RawEvent, fdsn_query_params, USGSSource, FDSN_QUERY_URL, USGS_FEED_URL,
+    parse_usgs, RawEvent, fdsn_query_params, USGSSource, FDSN_COUNT_URL,
+    FDSN_QUERY_URL, USGS_FEED_URL,
     parse_pmd, PMDSource, PMD_API_URL, _parse_coord,
 )
 from eqmon.config import COVERAGE_BBOX
@@ -49,6 +51,41 @@ def test_parse_usgs_skips_features_missing_required_fields():
     data = {"features": [{"id": "x", "properties": {"mag": None, "time": 1767225600000},
                           "geometry": {"type": "Point", "coordinates": [72.5, 34.0, 5.0]}}]}
     assert parse_usgs(data) == []
+
+
+def test_parse_usgs_supports_pre_1970_historical_events_on_windows():
+    data = {"features": [{
+        "id": "historic-1902",
+        "properties": {"mag": 7.7, "time": -2125958400000},
+        "geometry": {"type": "Point", "coordinates": [76.0, 40.0, 20.0]},
+    }]}
+
+    event = parse_usgs(data)[0]
+
+    assert event.occurred_at.year == 1902
+    assert event.occurred_at.tzinfo is timezone.utc
+
+
+def test_parse_usgs_preserves_historical_event_with_unknown_depth():
+    data = {"features": [{
+        "id": "historic-no-depth",
+        "properties": {"mag": 6.2, "time": -2125958400000},
+        "geometry": {"type": "Point", "coordinates": [76.0, 40.0, None]},
+    }]}
+
+    event = parse_usgs(data)[0]
+
+    assert event.depth_km is None
+
+
+def test_parse_pmd_rejects_pre_1900_malformed_dates():
+    payload = {"data": [{
+        "id": 99, "event_date": "0004-04-06", "event_time": "10:38:00",
+        "latitude": "30.0 N", "longitude": "70.0 E",
+        "magnitude": "5.0", "depth": "10",
+    }]}
+
+    assert parse_pmd(payload) == []
 
 
 def test_fdsn_query_params_region_time_format():
@@ -246,6 +283,45 @@ def test_fetch_threads_min_magnitude_into_query(monkeypatch):
     USGSSource().fetch()
     for p in captured:
         assert "minmagnitude" not in p
+
+
+def test_historical_fetch_sizes_and_deduplicates_windows(monkeypatch):
+    payload = json.loads(FIXTURE.read_text())
+    counts = iter((20_001, 1, 1))
+    calls = []
+
+    class _CountResp:
+        def __init__(self, text):
+            self.text = str(text)
+
+        def raise_for_status(self):
+            return None
+
+    def fake_get(url, params=None, timeout=None):
+        calls.append((url, params))
+        if url == FDSN_COUNT_URL:
+            return _CountResp(next(counts))
+        return _FakeResp(payload)
+
+    monkeypatch.setattr("eqmon.events.sources.httpx.get", fake_get)
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    end = datetime(2026, 1, 3, tzinfo=timezone.utc)
+
+    events = USGSSource().fetch_range(start, end)
+
+    assert [event.source_event_id for event in events] == ["us1000abcd"]
+    assert sum(url == FDSN_COUNT_URL for url, _ in calls) == 3
+    assert sum(url == FDSN_QUERY_URL for url, _ in calls) == 2
+    for url, params in calls:
+        if url == FDSN_COUNT_URL:
+            assert "limit" not in params
+            assert "orderby" not in params
+
+
+def test_historical_fetch_rejects_invalid_range():
+    start = datetime(2026, 1, 2, tzinfo=timezone.utc)
+    with pytest.raises(ValueError, match="end must be after start"):
+        USGSSource().fetch_range(start, start)
 
 
 def test_fetch_event_returns_feature_dict(monkeypatch):

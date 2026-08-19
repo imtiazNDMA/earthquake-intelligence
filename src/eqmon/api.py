@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from . import buildings, config, db, exposure
 from .ai import client as ai_client
+from .ai import routes as ai_routes
 from .aftershock_service import EventNotFoundError, compute_forecast
 from .analytics_service import EmptyCatalogError, compute_analytics
 from .contours import mmi_to_geojson
@@ -23,7 +24,8 @@ from .export import featurecollection_to_shapefile_zip
 from .events.ingest import ingest
 from .events.repo import (catalog_coverage, count_events,
                            create_manual_event, delete_event, get_event,
-                           list_events, update_event, update_usgs_detail)
+                           list_events, source_coverage, update_event,
+                           update_usgs_detail)
 from .events.search import EVENT_SEARCH_SCHEMA_VERSION, EventSearchSpec
 from .events.sources import PMDSource, USGSSource
 from .impact import compute_event_impact
@@ -140,8 +142,11 @@ def stop_ingest_scheduler() -> None:
 async def _lifespan(_app):
     db.init_schema()
     start_ingest_scheduler()
+    if ai_routes.config.AI_ROUTES_ENABLED:
+        await ai_routes.broker.start()
     yield
     stop_ingest_scheduler()
+    await ai_routes.broker.aclose()
     await buildings.aclose()
     await exposure.aclose()
     ai_client.close()
@@ -153,6 +158,7 @@ app = FastAPI(title="Earthquake Intensity Platform", lifespan=_lifespan)
 # of this module, which would otherwise swallow /buildings/* and /exposure/*.
 app.include_router(buildings.router)
 app.include_router(exposure.router)
+app.include_router(ai_routes.router)
 
 
 class EventRequest(BaseModel):
@@ -334,6 +340,18 @@ def get_events(since: datetime | None = None,
                              occurred_after=occurred_after,
                              occurred_before=occurred_before)
         return {"total": total, "events": events}
+
+
+@app.get("/events/catalog/coverage")
+def get_catalog_source_coverage():
+    with db.get_conn() as conn:
+        sources = source_coverage(conn)
+    return {
+        "coverage_bbox": config.COVERAGE_BBOX,
+        "historical_request_start": "1900-01-01",
+        "completeness": "not_asserted",
+        "sources": sources,
+    }
 
 
 @app.post("/events/search")
