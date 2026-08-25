@@ -148,7 +148,10 @@
       changed = true;
     });
     if (changed) {
-      window.dispatchEvent(new CustomEvent("eqmon:map-state", { detail: getState() }));
+      const snapshot = getState();
+      // The 3D renderer only ever sees this snapshot, never a feature module.
+      if (window.eqmonMapLibre3d?.hasInstance()) window.eqmonMapLibre3d.applyState(snapshot);
+      window.dispatchEvent(new CustomEvent("eqmon:map-state", { detail: snapshot }));
     }
   }
 
@@ -260,6 +263,8 @@
       buttons["3d"].removeAttribute("aria-busy");
       setPressed("3d");
       window.eqmonMapLibre3d.onCameraChange(captureMapLibreCamera);
+      // A 2D session may have changed basemap or theme while 3D was idle.
+      window.eqmonMapLibre3d.applyState(getState());
       synchronizeCameraTo("3d");
       window.eqmonMapLibre3d.resize();
       if (persist) persistMode("3d");

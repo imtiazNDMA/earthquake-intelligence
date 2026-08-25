@@ -80,10 +80,14 @@ def test_maplibre_renderer_is_exactly_pinned_and_lazy():
     assert "if (initializationPromise) return initializationPromise" in renderer
     assert "if (mapInstance)" in renderer
     assert "new maplibregl.Map" in renderer
+    # Phase 3 moved the basemap definitions out of the renderer; it now builds
+    # its raster source from the same catalogue the 2D map reads.
     assert 'type: "raster"' in renderer
-    assert 'tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"]' in renderer
-    assert "maxzoom: 19" in renderer
-    assert "https://www.openstreetmap.org/copyright" in renderer
+    assert "config.maplibreSource(basemapName)" in renderer
+    config = Path("web/map-style-config.js").read_text(encoding="utf-8")
+    assert "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" in config
+    assert "maxZoom: 19" in config
+    assert "© OpenStreetMap contributors" in config
     assert "ensureMapLibre3d" in coordinator
     assert "maplibre-gl@" not in INDEX
 
@@ -144,3 +148,62 @@ def test_mode_switching_does_not_refetch_analysis_and_resize_is_centralized():
     assert "function resize" in coordinator
     assert "map.invalidateSize()" in coordinator
     assert "eqmonMapLibre3d.resize()" in coordinator
+
+
+def test_basemap_catalogue_is_shared_and_loads_before_the_2d_map():
+    config = Path("web/map-style-config.js").read_text(encoding="utf-8")
+    app = Path("web/app.js").read_text(encoding="utf-8")
+    # One catalogue, read by both renderers.
+    assert "window.eqmonMapStyleConfig" in config
+    assert "MAP_STYLE_CONFIG.BASEMAP_DEFS.map" in app
+    assert "MAP_STYLE_CONFIG.leafletOptions(def)" in app
+    assert "MAP_STYLE_CONFIG.themeBasemap(mode)" in app
+    # No catalogue URL may be written twice. (The Insights hotspot mini-map has
+    # its own basemap and is explicitly out of scope for the dual renderer.)
+    assert "server.arcgisonline.com" not in app
+    assert "tile.openstreetmap.org" not in app
+    assert "tile.opentopomap.org" not in app
+    # The catalogue has to exist before app.js builds Leaflet layers from it.
+    assert INDEX.index("map-style-config.js") < INDEX.index('src="app.js')
+
+
+def test_three_d_style_adds_terrain_hillshade_and_keeps_gestures_scrollable():
+    renderer = Path("web/maplibre-3d.js").read_text(encoding="utf-8")
+    config = Path("web/map-style-config.js").read_text(encoding="utf-8")
+    # DG-1 terrain at true scale, with a bounded wait and a flat fallback.
+    assert 'encoding: "terrarium"' in config
+    assert "exaggeration: 1.0" in config
+    assert "timeoutMs" in config
+    assert "registry.opendata.aws/terrain-tiles" in config
+    assert 'type: "raster-dem"' in renderer
+    assert "mapInstance.setTerrain({ source: DEM_SOURCE" in renderer
+    assert "function dropTerrain" in renderer
+    assert 'toast("Terrain unavailable' in renderer
+    assert "terrainAnnounced" in renderer
+    # Subtle relief, plus a horizon that does not touch the hazard palette.
+    assert '"hillshade-exaggeration": 0.25' in renderer
+    assert "function skyFor" in renderer
+    assert "sky: skyFor(" in renderer
+    assert "mapInstance.setSky(skyFor(state.theme))" in renderer
+    # Touch drag stays a pan; compass and pitch reset stay available.
+    assert "touchPitch: false" in renderer
+    assert "touchZoomRotate?.disableRotation()" in renderer
+    assert "NavigationControl({ visualizePitch: true, showCompass: true })" in renderer
+    # The DEM is declared once and feeds both terrain and hillshade, so its
+    # credit is printed once next to the basemap's.
+    assert renderer.count("type: \"raster-dem\"") == 1
+    assert renderer.count("attribution: terrain.attribution") == 1
+
+
+def test_three_d_reapplies_basemap_and_theme_on_mode_change():
+    renderer = Path("web/maplibre-3d.js").read_text(encoding="utf-8")
+    coordinator = Path("web/map-modes.js").read_text(encoding="utf-8")
+    styles = Path("web/styles.css").read_text(encoding="utf-8")
+    assert "function applyState" in renderer
+    assert "function initialBasemapName" in renderer
+    assert "styleConfig().themeBasemap(state.theme)" in renderer
+    assert "eqmonMapLibre3d.applyState(snapshot)" in coordinator
+    assert "eqmonMapLibre3d.applyState(getState())" in coordinator
+    # The 3D controls need the same chrome offsets Leaflet's already get.
+    assert "body.has-ladder .maplibregl-ctrl-top-right" in styles
+    assert "body.has-strip .maplibregl-ctrl-bottom-right" in styles

@@ -138,39 +138,12 @@ map.on("click", () => {
 });
 
 // --- Basemaps (all free + keyless; tile servers reachable without a token) ---
-const OSM_ATTR = "© OpenStreetMap contributors";
-const CARTO_ATTR = OSM_ATTR + " © CARTO";
-const ESRI_ATTR = "Tiles © Esri";
-const BASEMAPS = {
-  "OpenStreetMap": L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution: OSM_ATTR, maxZoom: 19,
-  }),
-  "Humanitarian (HOT)": L.tileLayer("https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png", {
-    attribution: OSM_ATTR + " © Humanitarian OpenStreetMap Team", maxZoom: 19,
-  }),
-  "Topographic": L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", {
-    attribution: OSM_ATTR + " © OpenTopoMap (CC-BY-SA)", maxZoom: 17,
-  }),
-  "Light (Positron)": L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
-    attribution: CARTO_ATTR, subdomains: "abcd", maxZoom: 20,
-  }),
-  "Voyager": L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
-    attribution: CARTO_ATTR, subdomains: "abcd", maxZoom: 20,
-  }),
-  "Dark (Dark Matter)": L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-    attribution: CARTO_ATTR, subdomains: "abcd", maxZoom: 20,
-  }),
-  "CyclOSM": L.tileLayer("https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png", {
-    attribution: OSM_ATTR + " © CyclOSM", subdomains: "abc", maxZoom: 20,
-  }),
-  "Transport (OPNVKarte)": L.tileLayer("https://tileserver.memomaps.de/tilegen/{z}/{x}/{y}.png", {
-    attribution: OSM_ATTR + " © ÖPNVKarte", maxZoom: 18,
-  }),
-  "Satellite (Esri)": L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
-    attribution: ESRI_ATTR + ", Maxar, Earthstar Geographics", maxZoom: 19,
-  }),
-};
-BASEMAPS["OpenStreetMap"].addTo(map); // default basemap
+// URLs, zoom ceilings, and credits live in web/map-style-config.js so the 3D
+// renderer builds its raster sources from the same rows.
+const MAP_STYLE_CONFIG = window.eqmonMapStyleConfig;
+const BASEMAPS = Object.fromEntries(MAP_STYLE_CONFIG.BASEMAP_DEFS.map(def =>
+  [def.name, L.tileLayer(def.template, MAP_STYLE_CONFIG.leafletOptions(def))]));
+BASEMAPS[MAP_STYLE_CONFIG.THEME_BASEMAPS.light].addTo(map); // default basemap
 
 // --- Vector-tile reference overlays (protomaps-leaflet over pmtiles) ---
 // `dataLayer` MUST equal the tippecanoe -l layer id used in scripts/build_tiles.py.
@@ -518,7 +491,7 @@ map.zoomControl.setPosition("topright");
 
 // --- Map config panel: overlay checklist + basemap radios ---
 const BASEMAP_NAMES = Object.keys(BASEMAPS);
-let currentBasemap = "OpenStreetMap";
+let currentBasemap = MAP_STYLE_CONFIG.THEME_BASEMAPS.light;
 publishMapState({ basemap: currentBasemap });
 let _userPickedBasemap = false;   // once true, theme no longer auto-switches the basemap
 const _basemapRadios = {};        // name -> radio input, for keeping the config panel in sync
@@ -3182,7 +3155,7 @@ function applyTheme(mode) {
 // until the user picks a basemap themselves, then we never override their choice.
 function syncBasemapToTheme(mode) {
   if (_userPickedBasemap) return;
-  const want = mode === "dark" ? "Dark (Dark Matter)" : "OpenStreetMap";
+  const want = MAP_STYLE_CONFIG.themeBasemap(mode);
   setBasemap(want);
   if (_basemapRadios[want]) _basemapRadios[want].checked = true;
 }

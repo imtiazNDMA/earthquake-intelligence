@@ -47,6 +47,8 @@ const maplibre = {
   setCamera(camera) { maplibre.camera = { ...camera }; if (listener) listener({ ...camera }); },
   getCamera: () => maplibre.camera,
   onCameraChange(fn) { listener = fn; },
+  applied: [],
+  applyState(state) { maplibre.applied.push(state); },
 };
 
 const store = {};
@@ -72,10 +74,14 @@ sandbox.window.eqmonMapLibre3d = maplibre;
 sandbox.window.eqmonMapState = { queue: [{ basemap: "OpenStreetMap" }], publish(p) { this.queue.push(p); } };
 // A WebGL2 context is reported as available.
 sandbox.document.createElement = () => ({ getContext: () => ({ getExtension: () => ({ loseContext() {} }) }) });
+sandbox.document.documentElement = { dataset: { theme: "dark" } };
+sandbox.devicePixelRatio = 1;
 
 vm.createContext(sandbox);
+vm.runInContext(fs.readFileSync("web/map-style-config.js", "utf8"), sandbox, { filename: "map-style-config.js" });
 vm.runInContext(fs.readFileSync("web/map-modes.js", "utf8"), sandbox, { filename: "map-modes.js" });
 const modes = sandbox.window.eqmonMapModes;
+const styles = sandbox.window.eqmonMapStyleConfig;
 
 (async () => {
   // Buffered publications survive the coordinator loading last.
@@ -120,6 +126,40 @@ const modes = sandbox.window.eqmonMapModes;
   modes.publish({ intensityLayer: "leaflet layer" });
   assert.ok(!("intensityLayer" in modes.getState()), "unknown keys must be rejected");
   JSON.stringify(modes.getState());
+
+  // --- shared basemap catalogue (Phase 3) ---------------------------------
+  // Every row must describe both renderers from one definition.
+  for (const def of styles.BASEMAP_DEFS) {
+    const source = styles.maplibreSource(def.name);
+    assert.strictEqual(source.maxzoom, def.maxZoom, `${def.name} zoom ceiling diverged`);
+    assert.strictEqual(source.attribution, styles.leafletOptions(def).attribution,
+      `${def.name} credit diverged`);
+    assert.ok(source.tiles.length >= 1, `${def.name} has no tile URL`);
+    for (const url of source.tiles) {
+      // MapLibre understands neither placeholder.
+      assert.ok(!url.includes("{s}"), `${def.name} left a host placeholder: ${url}`);
+      assert.ok(!url.includes("{r}"), `${def.name} left a retina placeholder: ${url}`);
+    }
+  }
+  // Host rotation becomes one URL per subdomain.
+  assert.strictEqual(styles.maplibreSource("OpenStreetMap").tiles.length, 3);
+  assert.strictEqual(styles.maplibreSource("Light (Positron)").tiles.length, 4);
+  assert.strictEqual(styles.maplibreSource("Satellite (Esri)").tiles.length, 1);
+  assert.strictEqual(styles.themeBasemap("dark"), "Dark (Dark Matter)");
+  assert.strictEqual(styles.themeBasemap("light"), "OpenStreetMap");
+  // An unknown name must still yield a usable basemap rather than throwing.
+  assert.ok(styles.maplibreSource("no such basemap").tiles.length >= 1);
+  // Terrain is described at true scale with a bounded wait.
+  assert.strictEqual(styles.TERRAIN.exaggeration, 1.0);
+  assert.strictEqual(styles.TERRAIN.encoding, "terrarium");
+  assert.ok(styles.TERRAIN.timeoutMs > 0);
+
+  // Basemap and theme reach the 3D renderer as state, not as a direct call.
+  maplibre.applied.length = 0;
+  modes.publish({ basemap: "Voyager", theme: "dark" });
+  const last = maplibre.applied.at(-1);
+  assert.strictEqual(last.basemap, "Voyager");
+  assert.strictEqual(last.theme, "dark");
 
   console.log("map-modes runtime checks passed");
 })().catch(err => { console.error(err.message); process.exit(1); });

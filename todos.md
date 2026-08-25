@@ -322,30 +322,78 @@ state from leaking into feature modules.
 - New: `web/map-style-config.js`
 - `web/app.js`
 - `web/styles.css`
+- `web/index.html`
+- `tests/test_web_assets.py`, `tests/js/map_modes_harness.js`
 
 **Tasks**
 
-- [ ] Extract basemap definitions into shared configuration containing Leaflet
+- [x] Extract basemap definitions into shared configuration containing Leaflet
   URL templates and equivalent MapLibre raster source definitions.
-- [ ] Start with the same keyless basemap selected in 2D.
-- [ ] Add raster DEM source, terrain exaggeration `1.0`, and subtle hillshade.
-- [ ] Keep terrain source attribution visible and deduplicated with basemap text.
-- [ ] Add sky/fog only if it improves depth without reducing hazard contrast.
-- [ ] Reapply the selected light/dark basemap and application theme on mode change.
-- [ ] Keep the MMI alert palette independent of basemap styling.
-- [ ] Handle DEM timeout by retaining pitched 3D without terrain and announcing
+- [x] Start with the same keyless basemap selected in 2D.
+- [x] Add raster DEM source, terrain exaggeration `1.0`, and subtle hillshade.
+- [x] Keep terrain source attribution visible and deduplicated with basemap text.
+- [x] Add sky/fog only if it improves depth without reducing hazard contrast.
+- [x] Reapply the selected light/dark basemap and application theme on mode change.
+- [x] Keep the MMI alert palette independent of basemap styling.
+- [x] Handle DEM timeout by retaining pitched 3D without terrain and announcing
   "Terrain unavailable" once.
-- [ ] Restrict pitch/rotation gestures where they conflict with page scrolling on
+- [x] Restrict pitch/rotation gestures where they conflict with page scrolling on
   touch devices; retain compass/reset-bearing controls.
 
 **Acceptance criteria**
 
-- [ ] Pakistan opens at the same center and scale as 2D.
+- [x] Pakistan opens at the same center and scale as 2D.
 - [ ] Terrain is visible at regional and district scales without excessive relief.
 - [ ] Light and dark themes preserve text and control contrast.
-- [ ] Missing DEM tiles do not blank or crash the map.
+- [x] Missing DEM tiles do not blank or crash the map.
 
----
+**Phase 3 findings — 2026-08-25**
+
+- `web/map-style-config.js` holds all nine basemaps as one row each: template,
+  subdomains, zoom ceiling, and credit. `web/app.js` builds its Leaflet layers
+  from those rows and the 3D renderer builds MapLibre raster sources from the
+  same rows, so a URL, zoom ceiling, or credit cannot drift between renderers.
+  No catalogue URL is written twice, and a test asserts it.
+- The two renderers disagree on tile-URL placeholders, and that is resolved in
+  the config and nowhere else: Leaflet keeps `{s}` and `{r}`, while
+  `tileUrls()` expands host rotation into one URL per subdomain and resolves the
+  retina suffix against the display. MapLibre understands neither placeholder.
+- The Insights hotspot mini-map keeps its own basemap. Replacing it is out of
+  scope for the dual renderer, so it is deliberately not read from the catalogue.
+- 3D opens on whatever basemap 2D is showing, read from published shared state,
+  falling back to the theme basemap. `applyState()` reapplies basemap and sky on
+  every publication and once more on mode activation, so a basemap or theme
+  change made while 3D was idle is picked up on return.
+- Basemap switching rebuilds the bottom raster source and layer rather than
+  retiling in place: each basemap carries its own zoom ceiling and credit, and a
+  raster source can change neither after creation. Terrain, hillshade, and any
+  analysis layer above it are untouched by the swap.
+- Terrain is the DG-1 AWS Terrarium DEM at exaggeration `1.0`. True scale is
+  deliberate — exaggerated relief would misrepresent the ground a hazard
+  footprint is drawn on. Hillshade runs at `0.25` so relief reads as a depth cue
+  rather than as another data layer.
+- The DEM is declared once and feeds both the terrain mesh and the hillshade, so
+  MapLibre prints its credit once alongside the basemap credit.
+- DEM failure is bounded at 8 s. On timeout or error the mesh is dropped
+  (`setTerrain(null)`), 3D stays pitched and flat, and "Terrain unavailable" is
+  announced exactly once per session.
+- Sky is a horizon gradient with light and dark palettes and near-zero ground
+  haze (`fog-ground-blend: 0.1`), so the MMI and hazard palettes keep the same
+  contrast they are read at in 2D. The alert palette is untouched by basemap or
+  sky styling.
+- Touch drag stays a map pan: `touchPitch` is off and touch rotation is
+  disabled, so two-finger gestures cannot fight page scrolling. Mouse and
+  keyboard keep rotate and pitch, and the NavigationControl compass
+  (`visualizePitch`) is the reset-north control.
+- `web/styles.css` gives MapLibre's controls and attribution the same offsets
+  the shell already applies to Leaflet's, clearing the MMI ladder and the
+  exposure strip.
+- Two acceptance criteria are left open on purpose: relief legibility across
+  scales and light/dark contrast are visual judgements that need a real browser.
+  Playwright is not installed yet, and Phase 9 owns adding it. Everything else is
+  covered by `tests/test_web_assets.py` and the Node harness, which now also
+  checks catalogue parity, placeholder expansion, terrain settings, and that
+  basemap and theme reach the 3D renderer as state rather than as a direct call.
 
 ### Phase 4 — Events and MMI Core Analysis
 

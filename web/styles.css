@@ -212,6 +212,12 @@ body:has(#map-time-control:not([hidden])) .map-mode-loading { top: 230px; }
 /* Keep Leaflet's own controls and attribution clear of the shell chrome. */
 body.has-ladder .leaflet-right { margin-right: 74px; }
 body.has-strip .leaflet-bottom { margin-bottom: 104px; }
+/* The 3D renderer draws its own controls and credit line, so it needs the same
+   chrome offsets the shell already applies to Leaflet's. */
+body.has-ladder .maplibregl-ctrl-top-right,
+body.has-ladder .maplibregl-ctrl-bottom-right { margin-right: 74px; }
+body.has-strip .maplibregl-ctrl-bottom-right,
+body.has-strip .maplibregl-ctrl-bottom-left { margin-bottom: 104px; }
 
 /* --- Status bar: the room's headline state, always on screen --- */
 #statusbar {
