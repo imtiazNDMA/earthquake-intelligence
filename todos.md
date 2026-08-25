@@ -164,7 +164,8 @@ changing production paths.
 
 ### Phase 1 — Dependencies, Containers, and Mode Control
 
-**Goal:** provide an accessible toggle and a lazily initialized empty 3D renderer.
+**Goal:** provide an accessible toggle and a lazily initialized basemap-only 3D
+renderer.
 
 **Files**
 
@@ -205,8 +206,8 @@ changing production paths.
 - MapLibre GL JS and CSS 5.7.1 load together only after a 3D request; both CDN
   assets carry retained SHA-384 integrity values. PMTiles 4.3.0 is registered
   once after MapLibre loads.
-- The Phase 1 style contains only a theme-matched background layer. It makes no
-  basemap, terrain, PMTiles archive, or building request.
+- The Phase 1 style contains only the token-free OpenStreetMap raster basemap.
+  It makes no terrain, PMTiles archive, or building request.
 - Headless Edge verified mouse, Enter, and Space activation; one MapLibre canvas
   and two dependency requests remained after repeated mode changes.
 - Dashboard suspension hid both the active 3D renderer and mode control, then

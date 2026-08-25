@@ -125,16 +125,16 @@
         attributionControl: true,
         style: {
           version: 8,
-          sources: {},
-          layers: [{
-            id: "background",
-            type: "background",
-            paint: {
-              "background-color": document.documentElement.dataset.theme === "dark"
-                ? "#101418"
-                : "#E7EAED",
+          sources: {
+            osm: {
+              type: "raster",
+              tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+              tileSize: 256,
+              maxzoom: 19,
+              attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>',
             },
-          }],
+          },
+          layers: [{ id: "osm", type: "raster", source: "osm" }],
         },
       });
       mapInstance.once("load", ready);

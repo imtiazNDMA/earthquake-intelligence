@@ -80,8 +80,10 @@ def test_maplibre_renderer_is_exactly_pinned_and_lazy():
     assert "if (initializationPromise) return initializationPromise" in renderer
     assert "if (mapInstance)" in renderer
     assert "new maplibregl.Map" in renderer
-    assert "sources: {}" in renderer
-    assert "tile.openstreetmap.org" not in renderer
+    assert 'type: "raster"' in renderer
+    assert 'tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"]' in renderer
+    assert "maxzoom: 19" in renderer
+    assert "https://www.openstreetmap.org/copyright" in renderer
     assert "ensureMapLibre3d" in coordinator
     assert "maplibre-gl@" not in INDEX
 
