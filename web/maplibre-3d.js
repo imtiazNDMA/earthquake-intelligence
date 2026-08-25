@@ -16,6 +16,14 @@
   const EVENTS_SOURCE = "map-events";
   const EVENTS_CIRCLE = "map-events-circle";
   const EMPTY_FC = { type: "FeatureCollection", features: [] };
+  const OVERLAY_PREFIX = "overlay-";
+  // A line of a given pixel width covers less ground the further it is from the
+  // camera, so at pitch the same nominal width reads thinner than it does flat.
+  // A modest constant restores the visual weight without turning boundaries into
+  // ribbons at the horizon.
+  const PITCH_LINE_MULTIPLIER = 1.25;
+  const registeredOverlays = new Map();
+  let overlayTooltip = null;
   // Mirrors the 2D defaults in web/app.js; a publication overrides them.
   const MMI_BASE_OPACITY = 0.45;
   const MMI_BASE_WEIGHT = 1;
@@ -177,10 +185,10 @@
       version: 8,
       sources: {
         [BASEMAP_SOURCE]: config.maplibreSource(basemapName),
-        // The DEM feeds both the terrain mesh and the hillshade, so its credit
-        // is attached once and MapLibre prints it once.
         [MMI_SOURCE]: { type: "geojson", data: EMPTY_FC },
         [EVENTS_SOURCE]: { type: "geojson", data: EMPTY_FC },
+        // The DEM feeds both the terrain mesh and the hillshade, so its credit
+        // is attached once and MapLibre prints it once.
         [DEM_SOURCE]: {
           type: "raster-dem",
           tiles: terrain.tiles,
@@ -306,6 +314,165 @@
     if (typeof toast === "function") toast("Terrain unavailable; 3D view is flat.", "warn", 6000);
   }
 
+  function overlaySourceId(id) { return `${OVERLAY_PREFIX}${id}`; }
+  function overlayFillId(id) { return `${OVERLAY_PREFIX}${id}-fill`; }
+  function overlayLineId(id) { return `${OVERLAY_PREFIX}${id}-line`; }
+
+  // Fill paint for one overlay, or null when it draws no fill at all. Three
+  // published schemes, in the same precedence the 2D symbolizer uses.
+  function overlayFillColor(overlay) {
+    if (overlay.categorical) {
+      const pairs = Object.entries(overlay.categorical.colors).flat();
+      // An unlisted class stays transparent rather than borrowing a colour it
+      // was never assigned: this palette is published, not decorative.
+      return ["match", ["get", overlay.categorical.prop], ...pairs, "rgba(0,0,0,0)"];
+    }
+    if (overlay.namedFill) return "rgba(0,0,0,0)";   // replaced once names are known
+    return overlay.fillColor;
+  }
+
+  function overlayHasFill(overlay) {
+    return Boolean(overlay.categorical || overlay.namedFill || overlay.fillColor);
+  }
+
+  // Registered once and then only toggled. Rebuilding a vector source on every
+  // checkbox would refetch the archive and strip any handler bound to its layer.
+  function registerOverlay(name, overlay) {
+    const sourceId = overlaySourceId(overlay.id);
+    if (registeredOverlays.has(name)) return;
+    if (!mapInstance.getSource(sourceId)) {
+      mapInstance.addSource(sourceId, {
+        type: "vector",
+        url: `pmtiles://${new URL(`/tiles/${overlay.id}.pmtiles`, location.href).href}`,
+      });
+    }
+    const visibility = overlay.visible ? "visible" : "none";
+    if (overlayHasFill(overlay)) {
+      mapInstance.addLayer({
+        id: overlayFillId(overlay.id),
+        type: "fill",
+        source: sourceId,
+        "source-layer": overlay.id,
+        layout: { visibility },
+        paint: {
+          "fill-color": overlayFillColor(overlay),
+          "fill-opacity": overlay.fillOpacity ?? overlay.opacity ?? 1,
+        },
+      }, EVENTS_CIRCLE);
+    }
+    mapInstance.addLayer({
+      id: overlayLineId(overlay.id),
+      type: "line",
+      source: sourceId,
+      "source-layer": overlay.id,
+      layout: { visibility, "line-cap": "round", "line-join": "round" },
+      paint: {
+        "line-color": overlay.color,
+        "line-width": overlay.width * PITCH_LINE_MULTIPLIER,
+        "line-opacity": overlay.opacity ?? 1,
+      },
+    }, EVENTS_CIRCLE);
+    registeredOverlays.set(name, { ...overlay });
+  }
+
+  function updateOverlay(name, overlay) {
+    const previous = registeredOverlays.get(name);
+    if (!previous) return;
+    const visibility = overlay.visible ? "visible" : "none";
+    const lineId = overlayLineId(overlay.id);
+    mapInstance.setLayoutProperty(lineId, "visibility", visibility);
+    mapInstance.setPaintProperty(lineId, "line-color", overlay.color);
+    mapInstance.setPaintProperty(lineId, "line-width", overlay.width * PITCH_LINE_MULTIPLIER);
+    mapInstance.setPaintProperty(lineId, "line-opacity", overlay.opacity ?? 1);
+    if (overlayHasFill(overlay)) {
+      const fillId = overlayFillId(overlay.id);
+      mapInstance.setLayoutProperty(fillId, "visibility", visibility);
+      if (!overlay.namedFill) mapInstance.setPaintProperty(fillId, "fill-color", overlayFillColor(overlay));
+      mapInstance.setPaintProperty(fillId, "fill-opacity", overlay.fillOpacity ?? overlay.opacity ?? 1);
+    }
+    registeredOverlays.set(name, { ...overlay });
+    if (overlay.namedFill && overlay.visible) applyNamedFill(overlay);
+  }
+
+  // A pastel per distinct name, matching 2D. The names only exist once tiles have
+  // arrived, so the expression is built from what the source has actually loaded
+  // and refreshed as more comes in.
+  function applyNamedFill(overlay) {
+    const format = window.eqmonOverlayFormat;
+    const fillId = overlayFillId(overlay.id);
+    if (!format || !mapInstance.getLayer(fillId)) return;
+    let features = [];
+    try {
+      features = mapInstance.querySourceFeatures(overlaySourceId(overlay.id), { sourceLayer: overlay.id });
+    } catch (error) {
+      return;   // source not ready yet; a later sourcedata event retries
+    }
+    const names = [...new Set(features.map(f => f.properties?.[overlay.namedFill]).filter(Boolean))];
+    if (!names.length) return;
+    const pairs = names.flatMap(value => [value, format.pastelFromName(value)]);
+    mapInstance.setPaintProperty(fillId, "fill-color",
+      ["match", ["get", overlay.namedFill], ...pairs, "rgba(0,0,0,0)"]);
+  }
+
+  function applyOverlays(overlays) {
+    if (!overlays) return;
+    Object.entries(overlays).forEach(([name, overlay]) => {
+      if (!overlay?.id) return;
+      if (registeredOverlays.has(name)) updateOverlay(name, overlay);
+      else registerOverlay(name, overlay);
+    });
+  }
+
+  // Hover reads whichever visible overlay is under the cursor and formats it
+  // with the shared rules, so the tooltip is the one the 2D map would show.
+  function overlayHoverHtml(point) {
+    const format = window.eqmonOverlayFormat;
+    if (!format) return null;
+    for (const [name, overlay] of registeredOverlays) {
+      if (!overlay.visible || !overlay.hover) continue;
+      const layers = [overlayLineId(overlay.id)];
+      if (overlayHasFill(overlay)) layers.unshift(overlayFillId(overlay.id));
+      const live = layers.filter(id => mapInstance.getLayer(id));
+      if (!live.length) continue;
+      const pad = overlay.hover.tolerancePx;
+      const box = pad
+        ? [[point.x - pad, point.y - pad], [point.x + pad, point.y + pad]]
+        : point;
+      const hits = mapInstance.queryRenderedFeatures(box, { layers: live });
+      if (hits.length) return format.tooltipHtml(name, overlayConfigFor(overlay), hits[0].properties);
+    }
+    return null;
+  }
+
+  // The shared formatter takes an overlay config; the published shape names the
+  // same things slightly differently.
+  function overlayConfigFor(overlay) {
+    return {
+      hoverFields: overlay.hover.fields,
+      hoverLabels: overlay.hover.labels || undefined,
+      hoverUnits: overlay.hover.units || undefined,
+      hoverTolerancePx: overlay.hover.tolerancePx,
+    };
+  }
+
+  function showOverlayTooltip(event) {
+    const html = overlayHoverHtml(event.point);
+    if (!html) {
+      overlayTooltip?.remove();
+      overlayTooltip = null;
+      return;
+    }
+    if (!overlayTooltip) {
+      overlayTooltip = new maplibregl.Popup({
+        className: "fault-tooltip",
+        closeButton: false,
+        closeOnClick: false,
+        offset: 8,
+      });
+    }
+    overlayTooltip.setLngLat(event.lngLat).setHTML(html).addTo(mapInstance);
+  }
+
   // Selected and hovered bands take the same emphasis the 2D ladder applies;
   // every other band keeps the published base value.
   function bandExpression(mmi, base, key, emphasis) {
@@ -404,6 +571,7 @@
     if (!mapInstance || !state) return;
     setBasemap(state.basemap || styleConfig().themeBasemap(state.theme));
     if (state.theme) mapInstance.setSky(skyFor(state.theme));
+    applyOverlays(state.overlays);
     applyMmi(state.currentMmi);
     applyMapEvents(state.mapEvents);
     applyEpicenter(state.activeEvent);
@@ -499,6 +667,29 @@
       window.eqmonMapModes?.emit("hoverMmiBand", null);
     });
 
+    // Overlay hover, throttled the same way the 2D handler is.
+    let lastHover = 0;
+    mapInstance.on("mousemove", event => {
+      const now = Date.now();
+      if (now - lastHover < 50) return;
+      lastHover = now;
+      showOverlayTooltip(event);
+    });
+    mapInstance.on("mouseout", () => {
+      overlayTooltip?.remove();
+      overlayTooltip = null;
+    });
+
+    // Tectonic Zones needs its pastels rebuilt as tiles arrive.
+    mapInstance.on("sourcedata", event => {
+      if (!event.sourceId?.startsWith(OVERLAY_PREFIX) || !event.isSourceLoaded) return;
+      for (const overlay of registeredOverlays.values()) {
+        if (overlay.namedFill && overlay.visible && overlaySourceId(overlay.id) === event.sourceId) {
+          applyNamedFill(overlay);
+        }
+      }
+    });
+
     // Clicking bare map clears the selected band, as it does in 2D.
     mapInstance.on("click", event => {
       const hits = mapInstance.queryRenderedFeatures(event.point, { layers: [MMI_FILL] });
@@ -534,6 +725,11 @@
     getCamera: readCamera,
     onCameraChange,
     applyState,
+    overlayLayerIds: () => [...registeredOverlays.values()].flatMap(overlay => {
+      const ids = [overlayLineId(overlay.id)];
+      if (overlayHasFill(overlay)) ids.unshift(overlayFillId(overlay.id));
+      return ids;
+    }),
     setBasemap,
     getBasemap: () => currentBasemap,
     hasTerrain: () => terrainEnabled,

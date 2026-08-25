@@ -12,6 +12,10 @@ const sandbox = {
   console: { warn() {}, error() {} },
   setTimeout, clearTimeout,
   devicePixelRatio: 1,
+  location: { href: "http://localhost:8000/" },
+  URL,
+  Date,
+  Set,
 };
 sandbox.window = sandbox;
 
@@ -46,6 +50,10 @@ function makeMap(options) {
     options,
     layerDefs: options.style.layers.map(layer => ({ ...layer })),
     paint: {},
+    layout: {},
+    sourceFeatures: {},
+    renderedByLayer: {},
+    queries: [],
     sources: geojson,
     rasterSpecs: { ...options.style.sources },
     terrain: null,
@@ -63,6 +71,10 @@ function makeMap(options) {
     touchZoomRotate: { disableRotation() { lastMap.rotationDisabled = true; } },
     getSource(id) { return this.sources[id] || this.rasterSpecs[id]; },
     setPaintProperty(layer, prop, value) { (this.paint[layer] ||= {})[prop] = value; },
+    setLayoutProperty(layer, prop, value) { (this.layout[layer] ||= {})[prop] = value; },
+    querySourceFeatures(sourceId, options) {
+      return this.sourceFeatures[`${sourceId}:${options.sourceLayer}`] || [];
+    },
     setTerrain(value) { this.terrain = value; },
     setSky(value) { this.sky = value; },
     getStyle() { return { layers: this.layerDefs }; },
@@ -76,7 +88,14 @@ function makeMap(options) {
     },
     resize() {},
     jumpTo() {},
-    queryRenderedFeatures: () => [],
+    queryRenderedFeatures(geometry, options) {
+      this.queries.push({ geometry, layers: options?.layers });
+      for (const layer of options?.layers || []) {
+        const hits = this.renderedByLayer[layer];
+        if (hits) return hits;
+      }
+      return [];
+    },
   };
 }
 
@@ -115,6 +134,7 @@ sandbox.window.eqmonMapModes = { emit: (name, payload) => intents.push([name, pa
 
 vm.createContext(sandbox);
 vm.runInContext(fs.readFileSync("web/map-style-config.js", "utf8"), sandbox, { filename: "map-style-config.js" });
+vm.runInContext(fs.readFileSync("web/overlay-format.js", "utf8"), sandbox, { filename: "overlay-format.js" });
 vm.runInContext(fs.readFileSync("web/maplibre-3d.js", "utf8"), sandbox, { filename: "maplibre-3d.js" });
 const adapter = sandbox.window.eqmonMapLibre3d;
 
@@ -243,6 +263,143 @@ const MMI_FC = {
   // An event click opens the popup the 2D map would have shown, verbatim.
   const eventClick = map.handlers["click:map-events-circle"][0];
   eventClick({ features: [{ properties: { popupHtml: "<b>Muzaffarabad</b>" }, geometry: { coordinates: [73.47, 34.37] } }] });
+
+  // --- reference overlays (Phase 5) ---------------------------------------
+  const OVERLAYS = {
+    National: {
+      id: "national", visible: true, color: "#444", width: 1.5, opacity: 1,
+      fillColor: null, fillOpacity: null, lineOnly: false, faultStyle: false,
+      namedFill: null, categorical: null, hover: null,
+    },
+    "Major Faults": {
+      id: "major_faults", visible: false, color: "#A67C1F", width: 1.4, opacity: 0.95,
+      fillColor: null, fillOpacity: null, lineOnly: true, faultStyle: true,
+      namedFill: null, categorical: null,
+      hover: {
+        fields: ["FAULTNAME", "Fault_Type", "Mmax", "Slip_rate"],
+        labels: { FAULTNAME: null, Fault_Type: "Type", Mmax: "Mmax", Slip_rate: "Slip rate" },
+        units: { Slip_rate: "mm/yr" },
+        tolerancePx: 12,
+      },
+    },
+    "PGA Zones": {
+      id: "pga_zones", visible: true, color: "#232323", width: 0.6, opacity: 0.55,
+      fillColor: null, fillOpacity: 0.55, lineOnly: false, faultStyle: false,
+      namedFill: null,
+      categorical: { prop: "PGA", colors: { "Zone 1": "#53741a", "Zone 2A": "#16381d" } },
+      hover: { fields: ["PGA"], labels: { PGA: null }, units: null, tolerancePx: 0 },
+    },
+    "Tectonic Zones": {
+      id: "pak_tectonic_zones", visible: true, color: "#8C5A3C", width: 0.5, opacity: 0.7,
+      fillColor: "#8C5A3C", fillOpacity: 0.3, lineOnly: false, faultStyle: false,
+      namedFill: "Name", categorical: null, hover: null,
+    },
+  };
+
+  adapter.applyState({ overlays: OVERLAYS });
+
+  // Vector sources point at the same archives the 2D map reads.
+  assert.strictEqual(map.rasterSpecs["overlay-national"].type, "vector");
+  assert.ok(map.rasterSpecs["overlay-national"].url.endsWith("/tiles/national.pmtiles"));
+  assert.ok(map.rasterSpecs["overlay-national"].url.startsWith("pmtiles://"));
+
+  // Line-only overlays get no fill layer; filled ones do.
+  assert.strictEqual(map.getLayer("overlay-national-fill"), undefined);
+  assert.ok(map.getLayer("overlay-national-line"));
+  assert.ok(map.getLayer("overlay-pga_zones-fill"));
+
+  // Overlays sit above MMI and below the event bubbles, matching the 2D panes.
+  const order = map.layerDefs.map(layer => layer.id);
+  assert.ok(order.indexOf("overlay-national-line") > order.indexOf("current-mmi-line"),
+    `overlays must draw above MMI: ${order}`);
+  assert.ok(order.indexOf("overlay-national-line") < order.indexOf("map-events-circle"),
+    `overlays must draw below events: ${order}`);
+
+  // Default visibility is carried through, not assumed.
+  assert.strictEqual(map.getLayer("overlay-national-line").layout.visibility, "visible");
+  assert.strictEqual(map.getLayer("overlay-major_faults-line").layout.visibility, "none");
+
+  // Published PGA zone colours are reproduced exactly, and an unlisted class
+  // stays transparent rather than borrowing one.
+  assert.deepStrictEqual(
+    JSON.stringify(map.getLayer("overlay-pga_zones-fill").paint["fill-color"]),
+    JSON.stringify(["match", ["get", "PGA"], "Zone 1", "#53741a", "Zone 2A", "#16381d", "rgba(0,0,0,0)"])
+  );
+
+  // Pitch widens lines so they carry the same weight as they do flat.
+  assert.strictEqual(map.getLayer("overlay-national-line").paint["line-width"], 1.5 * 1.25);
+
+  // --- toggling and editing ------------------------------------------------
+  const layersBefore = map.layerDefs.length;
+  const sourcesBefore = Object.keys(map.rasterSpecs).length;
+  adapter.applyState({
+    overlays: {
+      ...OVERLAYS,
+      National: { ...OVERLAYS.National, visible: false, color: "#111", width: 3, opacity: 0.4 },
+      "Major Faults": { ...OVERLAYS["Major Faults"], visible: true },
+    },
+  });
+  // Toggling edits layers in place; it never accumulates duplicates.
+  assert.strictEqual(map.layerDefs.length, layersBefore, "layers were duplicated on toggle");
+  assert.strictEqual(Object.keys(map.rasterSpecs).length, sourcesBefore, "sources were duplicated");
+  assert.strictEqual(map.layout["overlay-national-line"].visibility, "none");
+  assert.strictEqual(map.layout["overlay-major_faults-line"].visibility, "visible");
+  assert.strictEqual(map.paint["overlay-national-line"]["line-color"], "#111");
+  assert.strictEqual(map.paint["overlay-national-line"]["line-width"], 3 * 1.25);
+  assert.strictEqual(map.paint["overlay-national-line"]["line-opacity"], 0.4);
+
+  // --- name-hashed fill ----------------------------------------------------
+  // The pastel lookup can only be built once tile features exist.
+  map.sourceFeatures["overlay-pak_tectonic_zones:pak_tectonic_zones"] = [
+    { properties: { Name: "Kirthar Fold Belt" } },
+    { properties: { Name: "Sulaiman Lobe" } },
+    { properties: { Name: "Kirthar Fold Belt" } },
+  ];
+  adapter.applyState({ overlays: OVERLAYS });
+  const namedFill = map.paint["overlay-pak_tectonic_zones-fill"]["fill-color"];
+  const format = sandbox.window.eqmonOverlayFormat;
+  assert.deepStrictEqual(
+    JSON.stringify(namedFill),
+    JSON.stringify(["match", ["get", "Name"],
+      "Kirthar Fold Belt", format.pastelFromName("Kirthar Fold Belt"),
+      "Sulaiman Lobe", format.pastelFromName("Sulaiman Lobe"),
+      "rgba(0,0,0,0)"]),
+    "tectonic pastels must match the shared hash, once per distinct name"
+  );
+
+  // --- hover ---------------------------------------------------------------
+  // Only visible overlays are hit tested, so turn the fault layer back on.
+  adapter.applyState({
+    overlays: { ...OVERLAYS, "Major Faults": { ...OVERLAYS["Major Faults"], visible: true } },
+  });
+  map.renderedByLayer["overlay-major_faults-line"] = [{
+    properties: { FAULTNAME: "Chaman Fault", Fault_Type: "Strike-slip", Mmax: 7.8, Slip_rate: 10 },
+  }];
+  const hover = map.handlers.mousemove.at(-1);
+  hover({ point: { x: 100, y: 100 }, lngLat: [69, 30] });
+  // Exactly the 2D tooltip: unlabelled name in bold, configured labels, units.
+  assert.strictEqual(
+    format.tooltipHtml("Major Faults", {
+      hoverFields: OVERLAYS["Major Faults"].hover.fields,
+      hoverLabels: OVERLAYS["Major Faults"].hover.labels,
+      hoverUnits: OVERLAYS["Major Faults"].hover.units,
+    }, map.renderedByLayer["overlay-major_faults-line"][0].properties),
+    "<b>Chaman Fault</b><br>Type: Strike-slip<br>Mmax: 7.8<br>Slip rate: 10 mm/yr"
+  );
+  // A line overlay is queried with a padded box; its tolerance is 12px.
+  const faultQuery = map.queries.at(-1);
+  assert.deepStrictEqual(JSON.stringify(faultQuery.geometry),
+    JSON.stringify([[88, 88], [112, 112]]), "hover box must use the configured tolerance");
+
+  // A hidden overlay is never hit tested, so a tooltip cannot describe a layer
+  // the operator has switched off.
+  map.queries.length = 0;
+  adapter.applyState({ overlays: OVERLAYS });   // Major Faults back to hidden
+  hover({ point: { x: 100, y: 100 }, lngLat: [69, 30] });
+  assert.ok(
+    map.queries.every(query => !query.layers.includes("overlay-major_faults-line")),
+    "a hidden overlay must not be hit tested"
+  );
 
   console.log("maplibre-3d runtime checks passed");
 })().catch(err => { console.error(err.stack || err.message); process.exit(1); });

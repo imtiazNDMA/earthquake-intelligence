@@ -484,29 +484,74 @@ state from leaking into feature modules.
 **Files**
 
 - `web/maplibre-3d.js`
-- `web/map-style-config.js`
+- New: `web/overlay-format.js`
 - `web/app.js`
+- `web/index.html`
+- `tests/js/maplibre_3d_harness.js`, `tests/browser/test_map_modes.py`,
+  `tests/test_web_assets.py`
 
 **Tasks**
 
-- [ ] Register each boundary/fault PMTiles archive as a MapLibre vector source.
-- [ ] Map the existing `OVERLAY_CONFIG` values to line/fill/opacity expressions.
-- [ ] Preserve published categorical colors for PGA Zones.
-- [ ] Preserve default visibility for National, Provinces, and National Faults.
-- [ ] Port hover hit-testing and tooltip field/label/unit formatting.
-- [ ] Increase line widths under pitch where needed for equivalent visual weight.
-- [ ] Synchronize visibility, color, width, and opacity edits immediately.
-- [ ] Ensure sources are registered once and layers are toggled, not repeatedly
+- [x] Register each boundary/fault PMTiles archive as a MapLibre vector source.
+- [x] Map the existing `OVERLAY_CONFIG` values to line/fill/opacity expressions.
+- [x] Preserve published categorical colors for PGA Zones.
+- [x] Preserve default visibility for National, Provinces, and National Faults.
+- [x] Port hover hit-testing and tooltip field/label/unit formatting.
+- [x] Increase line widths under pitch where needed for equivalent visual weight.
+- [x] Synchronize visibility, color, width, and opacity edits immediately.
+- [x] Ensure sources are registered once and layers are toggled, not repeatedly
   destroyed and reconstructed.
 
 **Acceptance criteria**
 
-- [ ] Every reference overlay available in Layers renders in 3D.
-- [ ] Hover fields and values match 2D fixtures.
-- [ ] Published PGA Zone colors remain unchanged.
-- [ ] Layer toggles do not accumulate duplicate MapLibre layers or event handlers.
+- [x] Every reference overlay available in Layers renders in 3D.
+- [x] Hover fields and values match 2D fixtures.
+- [x] Published PGA Zone colors remain unchanged.
+- [x] Layer toggles do not accumulate duplicate MapLibre layers or event handlers.
 
----
+**Phase 5 findings — 2026-08-25**
+
+- `web/overlay-format.js` now owns the hover rules both renderers depend on:
+  default field order, hit tolerance, which overlays are worth hovering, the
+  name-to-pastel hash, and the tooltip markup. `web/app.js` deleted its copies
+  and calls the module, so the two maps cannot format the same feature two
+  different ways. Tests assert neither file restates the rules.
+- The tooltip rules are subtle enough to be worth stating: a configured label
+  wins, an explicit `null` label means the value is the heading rather than a
+  field row, a missing label falls back to the de-underscored column name, and a
+  single unlabelled field renders plainly instead of emphasised.
+- Each archive becomes one MapLibre vector source at `pmtiles:///tiles/{id}.pmtiles`
+  with `source-layer` equal to the tippecanoe layer id — the same `id` the 2D
+  `dataLayer` uses, so the two read the same tiles.
+- Sources and layers are created once and thereafter only edited:
+  `setLayoutProperty` for visibility and `setPaintProperty` for colour, width,
+  and opacity. Nothing is removed and rebuilt, so a toggle cannot refetch an
+  archive or strip a handler. A browser test flips Districts six times and
+  asserts the layer and source counts are unchanged.
+- Overlays are inserted before the event bubbles, which puts them above MMI and
+  below events — the same order the 2D panes give them (reference 410, overlay
+  400, event 450).
+- PGA Zones reproduce their published `match` palette exactly, and a class the
+  SLD does not name stays transparent rather than borrowing a colour it was
+  never assigned.
+- Tectonic Zones fills each polygon with a pastel hashed from its name rather
+  than one published colour. MapLibre cannot hash per feature, so the adapter
+  builds a `match` expression from the distinct names the source has actually
+  loaded and refreshes it on `sourcedata`. The pastels come from the shared hash,
+  so they equal the 2D ones.
+- Lines are widened by a constant `1.25` under pitch. A line of a given pixel
+  width covers less ground the further it is from the camera, so the same
+  nominal width reads thinner pitched than flat.
+- Hover skips overlays that are switched off, so a tooltip can never describe a
+  layer the operator cannot see. The 50 ms throttle matches the 2D handler.
+- Known 2D/3D difference, deliberately not hidden: the 2D symbolizer for plain
+  boundary overlays (National, Provinces, Districts, Tehsils) ignores their
+  configured `opacity` and always strokes at full alpha, so the Layers opacity
+  slider does nothing for them in 2D. 3D honours the value, because "synchronize
+  opacity edits immediately" is a Phase 5 task. Districts (0.8) and Tehsils
+  (0.7) therefore render slightly softer in 3D than in 2D. Fixing 2D would
+  change existing rendering and was not in scope for this phase — worth a
+  decision before release.
 
 ### Phase 6 — Building Extrusions
 

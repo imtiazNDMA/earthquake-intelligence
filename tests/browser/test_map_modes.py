@@ -242,3 +242,71 @@ def test_two_d_to_three_d_to_two_d_preserves_camera_and_analysis_state(page, app
     assert after["state"]["currentMmi"]["featureCollection"] == before["state"]["currentMmi"]["featureCollection"]
     assert after["state"]["activeEvent"] == before["state"]["activeEvent"]
     assert not console_errors, console_errors
+
+
+def test_reference_overlays_render_from_the_real_archives(page, app_server, console_errors):
+    """Phase 5: every overlay in Layers reaches the 3D map, from real PMTiles."""
+    _open(page, app_server, console_errors)
+    _activate_3d(page)
+    _set_view(page, REGIONAL_VIEW)
+
+    configured = page.evaluate("() => Object.keys(window.eqmonMapModes.getState().overlays)")
+    assert configured, "no overlays were published"
+
+    registered = page.evaluate("() => window.eqmonMapLibre3d.overlayLayerIds()")
+    for name in configured:
+        overlay_id = page.evaluate("name => window.eqmonMapModes.getState().overlays[name].id", name)
+        assert f"overlay-{overlay_id}-line" in registered, f"{name} has no 3D layer"
+
+    # The three defaults must be the ones actually switched on.
+    visible = page.evaluate(
+        """() => window.__map3d.getStyle().layers
+             .filter(l => l.id.startsWith("overlay-") && l.id.endsWith("-line"))
+             .filter(l => (l.layout?.visibility ?? "visible") === "visible")
+             .map(l => l.id)"""
+    )
+    assert set(visible) == {"overlay-national-line", "overlay-provinces-line", "overlay-pak_faults_major-line"}, visible
+
+    # National boundaries really draw: the archive loaded and produced features.
+    page.wait_for_function(
+        """() => window.__map3d
+             .queryRenderedFeatures({ layers: ["overlay-national-line"] }).length > 0""",
+        timeout=20000,
+    )
+    assert not console_errors, console_errors
+
+
+def test_toggling_an_overlay_edits_layers_without_accumulating_them(page, app_server, console_errors):
+    """Phase 5: toggles flip visibility; they never rebuild sources or layers."""
+    _open(page, app_server, console_errors)
+    _activate_3d(page)
+
+    def counts():
+        return page.evaluate(
+            """() => {
+                 const style = window.__map3d.getStyle();
+                 return {
+                   layers: style.layers.filter(l => l.id.startsWith("overlay-")).length,
+                   sources: Object.keys(style.sources).filter(id => id.startsWith("overlay-")).length,
+                 };
+               }"""
+        )
+
+    before = counts()
+    # The real checkbox, clicked in the page: this exercises the whole
+    # 2D -> published state -> 3D path. It is driven through the DOM rather than
+    # the pointer because the Layers panel is collapsed, and what is under test
+    # is the state path, not the sidebar.
+    for _ in range(6):
+        page.evaluate(
+            """() => document
+                 .querySelector('#overlay-list input[type="checkbox"][aria-label="Districts"]')
+                 .click()"""
+        )
+        page.wait_for_timeout(60)
+
+    assert counts() == before, "toggling changed the layer or source count"
+    assert page.evaluate(
+        """() => window.__map3d.getLayoutProperty("overlay-districts-line", "visibility")"""
+    ) == "none"
+    assert not console_errors, console_errors

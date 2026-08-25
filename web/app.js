@@ -195,13 +195,11 @@ const OVERLAY_CONFIG = {
                      fillColor: "#8C5A3C", fillOpacity: 0.3, opacity: 0.7 },
 };
 
-const DEFAULT_HOVER_FIELDS = ["Name", "name", "Fault_Name", "FAULT", "fault", "TYPE", "Type", "type", "Length_km", "Fault_Leng", "SlipRate"];
-
-function _pastelFromName(name) {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h);
-  return `hsl(${((h % 360) + 360) % 360}, 45%, 75%)`;
-}
+// Hover fields, hit tolerance, the name-to-pastel hash, and the tooltip markup
+// are shared with the 3D renderer through web/overlay-format.js.
+const OVERLAY_FORMAT = window.eqmonOverlayFormat;
+const DEFAULT_HOVER_FIELDS = OVERLAY_FORMAT.DEFAULT_HOVER_FIELDS;
+const _pastelFromName = OVERLAY_FORMAT.pastelFromName;
 
 class NamedPolySymbolizer {
   constructor(opts) {
@@ -351,8 +349,7 @@ function _setupFaultHover() {
   }
 
   function needsHover(name) {
-    const cfg = OVERLAY_CONFIG[name];
-    return !!cfg?.hoverFields || name.includes("Fault") || name.includes("fault") || name === "Tectonic Zones";
+    return OVERLAY_FORMAT.needsHover(name, OVERLAY_CONFIG[name]);
   }
 
   map.on("mousemove", function (e) {
@@ -365,33 +362,16 @@ function _setupFaultHover() {
     for (const [name, layer] of Object.entries(OVERLAYS)) {
       if (!map.hasLayer(layer) || !needsHover(name)) continue;
       const c = OVERLAY_CONFIG[name];
-      const hoverFields = c.hoverFields ?? DEFAULT_HOVER_FIELDS;
+      // Probing at zero spreads the query points onto the cursor alone; the
+      // tolerance below still widens the hit test itself.
       const hoverPoints = hoverQueryPoints(e, c.hoverTolerancePx ?? ((c.lineOnly || c.faultStyle) ? 8 : 0));
-      const hoverTolerancePx = c.hoverTolerancePx ?? ((c.lineOnly || c.faultStyle) ? 8 : 16);
+      const hoverTolerancePx = OVERLAY_FORMAT.hoverTolerance(c);
       for (const point of hoverPoints) {
         const results = layer.queryTileFeaturesDebug(point.lng, point.lat, hoverTolerancePx);
         for (const [, features] of results) {
           for (const picked of features) {
             if (picked.layerName !== c.id) continue;
-            const props = picked.feature.props;
-            const labels = c.hoverLabels || {};
-            const units = c.hoverUnits || {};
-            const lines = [];
-            for (const k of hoverFields) {
-              if (props[k] == null || props[k] === "") continue;
-              // A configured label wins; otherwise fall back to the raw column
-              // name, de-underscored. An explicit null means "no label" — the
-              // value stands on its own as the tooltip's heading.
-              const label = k in labels ? labels[k] : k.replace(/_/g, " ");
-              const unit = units[k] ? ` ${escapeHtml(units[k])}` : "";
-              const value = escapeHtml(String(props[k])) + unit;
-              lines.push(label ? `${escapeHtml(label)}: ${value}` : `<b>${value}</b>`);
-            }
-            if (lines.length === 0) lines.push(escapeHtml(name));
-            const html = hoverFields.length === 1 && lines.length === 1
-              ? escapeHtml(String(props[hoverFields[0]]))
-              : lines.join("<br>");
-            found = { latlng: e.latlng, html };
+            found = { latlng: e.latlng, html: OVERLAY_FORMAT.tooltipHtml(name, c, picked.feature.props) };
             break;
           }
           if (found) break;
@@ -460,10 +440,23 @@ function overlayStateSnapshot() {
       color: c.color,
       width: c.width,
       opacity: c.opacity ?? 1,
+      fillColor: c.fillColor ?? null,
       fillOpacity: c.fillOpacity ?? null,
       lineOnly: Boolean(c.lineOnly),
+      faultStyle: Boolean(c.faultStyle),
+      // Tectonic Zones fills each polygon with a pastel hashed from its name
+      // rather than one published colour, so the renderer has to be told.
+      namedFill: name === "Tectonic Zones" ? "Name" : null,
       categorical: c.categorical
         ? { prop: c.categorical.prop, colors: { ...c.categorical.colors } }
+        : null,
+      hover: OVERLAY_FORMAT.needsHover(name, c)
+        ? {
+            fields: OVERLAY_FORMAT.hoverFields(c),
+            labels: c.hoverLabels ? { ...c.hoverLabels } : null,
+            units: c.hoverUnits ? { ...c.hoverUnits } : null,
+            tolerancePx: OVERLAY_FORMAT.hoverTolerance(c),
+          }
         : null,
     };
   });

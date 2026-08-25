@@ -264,3 +264,52 @@ def test_three_d_epicenter_pulse_is_decoration_and_respects_reduced_motion():
     pulse_off = styles.index(".epicenter-3d-pulse { display: none; }")
     reduced = styles.rindex("@media (prefers-reduced-motion: reduce)", 0, pulse_off)
     assert reduced < pulse_off
+
+
+def test_overlay_tooltip_rules_live_in_one_shared_module():
+    fmt = Path("web/overlay-format.js").read_text(encoding="utf-8")
+    app = Path("web/app.js").read_text(encoding="utf-8")
+    renderer = Path("web/maplibre-3d.js").read_text(encoding="utf-8")
+    for helper in ("function tooltipHtml", "function pastelFromName",
+                   "function hoverTolerance", "function needsHover"):
+        assert helper in fmt
+    # Both renderers format through the module; neither restates the rules.
+    assert "OVERLAY_FORMAT.tooltipHtml(name, c," in app
+    assert "format.tooltipHtml(name, overlayConfigFor(overlay)" in renderer
+    for restated in ('k.replace(/_/g, " ")', "hoverLabels || {}", "hoverUnits || {}"):
+        assert restated not in app, f"app.js still restates {restated}"
+        assert restated not in renderer, f"maplibre-3d.js restates {restated}"
+    assert "charCodeAt" not in app
+    assert "charCodeAt" not in renderer
+    # It has to load before the code that uses it.
+    assert INDEX.index("overlay-format.js") < INDEX.index('src="app.js')
+
+
+def test_three_d_overlays_are_registered_once_and_only_toggled():
+    renderer = Path("web/maplibre-3d.js").read_text(encoding="utf-8")
+    assert "function registerOverlay" in renderer
+    assert "function updateOverlay" in renderer
+    assert "if (registeredOverlays.has(name)) return;" in renderer
+    # Editing goes through set*Property; nothing is torn down and rebuilt.
+    assert 'setLayoutProperty(lineId, "visibility", visibility)' in renderer
+    assert "removeLayer(overlayLineId" not in renderer
+    assert "removeSource(overlaySourceId" not in renderer
+    # Vector sources read the same archives the 2D overlays do.
+    assert "`pmtiles://${new URL(`/tiles/${overlay.id}.pmtiles`" in renderer
+    assert '"source-layer": overlay.id' in renderer
+    # Overlays draw above MMI and below the event bubbles, as the 2D panes do.
+    assert renderer.count("}, EVENTS_CIRCLE);") == 2
+
+
+def test_three_d_overlay_paint_preserves_published_palettes():
+    renderer = Path("web/maplibre-3d.js").read_text(encoding="utf-8")
+    app = Path("web/app.js").read_text(encoding="utf-8")
+    # Categorical classes are reproduced exactly; an unlisted one stays clear.
+    assert '["match", ["get", overlay.categorical.prop], ...pairs, "rgba(0,0,0,0)"]' in renderer
+    # Lines carry more weight under pitch than they need flat.
+    assert "PITCH_LINE_MULTIPLIER" in renderer
+    assert "overlay.width * PITCH_LINE_MULTIPLIER" in renderer
+    # The name-hashed fill is declared by app.js, not guessed by the renderer.
+    assert 'namedFill: name === "Tectonic Zones" ? "Name" : null' in app
+    assert "function applyNamedFill" in renderer
+    assert "querySourceFeatures" in renderer
