@@ -130,6 +130,31 @@
       }
     }
     updateHint(want.length);
+    publishBuildingState(want);
+  }
+
+  // District ids and settings only — the live protomaps layers are this
+  // renderer's business and never leave it.
+  function publishBuildingState(districts) {
+    publishMapState({
+      buildings: {
+        enabled: state.enabled,
+        selected: state.selected,
+        minZoom: state.minZoom,
+        districts: [...(districts || state.active.keys())],
+        opacity: 0.75,
+      },
+    });
+  }
+
+  // Framing goes through the coordinator so the other renderer inherits the
+  // move instead of being left behind at the previous district.
+  function frameDistrict(center, zoom) {
+    if (window.eqmonMapModes) {
+      window.eqmonMapModes.setCamera({ center: [center.lng, center.lat], zoom });
+    } else {
+      map.setView(center, zoom);
+    }
   }
 
   function setEnabled(enabled) {
@@ -204,9 +229,9 @@
         // trade the full extent for a centre view that actually renders.
         const box = L.latLngBounds([d.bounds[1], d.bounds[0]], [d.bounds[3], d.bounds[2]]);
         if (map.getBoundsZoom(box) < state.minZoom) {
-          map.setView(box.getCenter(), state.minZoom);
+          frameDistrict(box.getCenter(), state.minZoom);
         } else {
-          map.fitBounds(box);
+          frameDistrict(box.getCenter(), map.getBoundsZoom(box));
         }
       }
       reconcile();

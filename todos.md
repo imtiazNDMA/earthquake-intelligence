@@ -231,17 +231,19 @@ state from leaking into feature modules.
 - `web/app.js`
 - `web/buildings.js`
 - `web/landslides.js`
+- New: `tests/js/map_modes_harness.js`
+- New: `tests/test_map_modes.py`
 
 **Tasks**
 
-- [ ] Define one normalized camera shape:
+- [x] Define one normalized camera shape:
   `{ center: [lon, lat], zoom, bearing, pitch }`.
-- [ ] Convert Leaflet `[lat, lon]` values only inside the Leaflet adapter.
-- [ ] Capture Leaflet camera on `moveend` and MapLibre camera on `moveend`.
-- [ ] Add a re-entrancy guard so synchronization cannot produce move loops.
-- [ ] Preserve center and practical scale when translating zoom levels; calibrate
+- [x] Convert Leaflet `[lat, lon]` values only inside the Leaflet adapter.
+- [x] Capture Leaflet camera on `moveend` and MapLibre camera on `moveend`.
+- [x] Add a re-entrancy guard so synchronization cannot produce move loops.
+- [x] Preserve center and practical scale when translating zoom levels; calibrate
   any Leaflet/MapLibre zoom offset in one named conversion function.
-- [ ] Define normalized shared analysis state:
+- [x] Define normalized shared analysis state:
   - selected/current event
   - current MMI FeatureCollection
   - active map-event FeatureCollection and filters
@@ -251,21 +253,64 @@ state from leaking into feature modules.
   - PGA return period and opacity
   - building enabled/district state
   - theme and alert level
-- [ ] Publish state from existing successful render paths instead of refetching it.
-- [ ] Keep renderer-specific objects out of shared state: no Leaflet layers,
+- [x] Publish state from existing successful render paths instead of refetching it.
+- [x] Keep renderer-specific objects out of shared state: no Leaflet layers,
   MapLibre source handles, DOM nodes, or class instances.
-- [ ] Route map resizing through `mapModes.resize()` after sidebar collapse,
+- [x] Route map resizing through `mapModes.resize()` after sidebar collapse,
   dashboard close, expanded forecast close, and mobile viewport changes.
 
 **Acceptance criteria**
 
-- [ ] Twenty repeated mode switches do not drift the map center or zoom.
-- [ ] Changing camera in either mode is reflected when returning to the other.
-- [ ] Switching modes causes no `/intensity`, `/events`, `/impact`, or
+- [x] Twenty repeated mode switches do not drift the map center or zoom.
+- [x] Changing camera in either mode is reflected when returning to the other.
+- [x] Switching modes causes no `/intensity`, `/events`, `/impact`, or
   `/aftershock` refetch.
-- [ ] Shared state is JSON-serializable and testable without either renderer.
+- [x] Shared state is JSON-serializable and testable without either renderer.
 
----
+**Phase 2 findings — 2026-08-25**
+
+- The normalized camera is `{ center: [lon, lat], zoom, bearing, pitch }` in
+  Leaflet zoom levels. `readLeafletCamera()` and `applyLeafletCamera()` are the
+  only places `[lat, lon]` order exists, and `leafletZoomToMapLibre()` /
+  `mapLibreZoomToLeaflet()` are the only places the 256px-vs-512px tile
+  difference is applied — a fixed offset of `-1`, calibrated once.
+- Leaflet cannot express bearing or pitch, so a 2D visit carries them through
+  untouched rather than resetting them. Entering 3D from a flat camera applies
+  the DG-3 default pitch of `55`; an operator-set pitch is preserved instead.
+- `synchronizingCamera` wraps the whole synchronization. Both renderers emit
+  `moveend` synchronously for non-animated moves, so a coordinator-applied move
+  is never recaptured as an operator move and cannot loop.
+- Shared state is a fixed ten-key record (`activeEvent`, `currentMmi`,
+  `mapEvents`, `basemap`, `overlays`, `landslides`, `pga`, `buildings`, `theme`,
+  `alertLevel`). `publishState()` deep-clones in, `getState()` deep-clones out,
+  and unknown keys are rejected — a renderer handle cannot be published even by
+  mistake.
+- Feature modules load before the coordinator, so `web/app.js` installs a
+  buffering `window.eqmonMapState` shim at the top of the file and the
+  coordinator drains its queue on start. No publication made during initial page
+  load is lost.
+- Publication sites are existing successful render paths only: `setBasemap`,
+  `rebuildOverlay` plus the overlay checkbox, `renderCurrentMmiLayer`,
+  `_applyMmiStyles`, the MMI opacity slider, `updateCurrentEventCard`,
+  `_renderMapEvents`, `_pgaRender`, `applyTheme`, `setAlertLevel`, building
+  `reconcile()`, and the landslide region/opacity handlers. None of them fetches.
+- `_pgaRender()` was restructured so its disabled path publishes too; previously
+  it returned early after drawing the legend.
+- Every `map.invalidateSize()` call site in `web/app.js` now routes through
+  `resizeActiveMap()` -> `mapModes.resize()`, which sizes the 2D map and the 3D
+  map when one exists. Sidebar collapse gained a resize after its transition.
+  Mobile viewport changes are left to the renderers' own `resize` tracking,
+  which both enable by default; adding a third listener would only duplicate it.
+- Building district framing goes through `mapModes.setCamera()` so selecting a
+  district moves whichever renderer is active and leaves the other in step.
+- Verification is a Node VM harness (`tests/js/map_modes_harness.js`, run by
+  `tests/test_map_modes.py`) that loads the real coordinator against stub 2D and
+  3D renderers. It asserts: no center/zoom drift across twenty 2D->3D->2D
+  switches, one 3D instance built, a 3D move (including bearing 40 / pitch 60)
+  reflected on return to 2D, `getState()` returning an isolated JSON snapshot,
+  and `fetch` never called. Full suite: 426 passed.
+- Not verified in a browser at this phase: Playwright is not installed yet, and
+  Phase 9 owns adding it plus the real 2D/3D browser matrix.
 
 ### Phase 3 — 3D Basemap, Terrain, Theme, and Attribution
 

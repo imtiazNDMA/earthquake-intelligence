@@ -47,6 +47,26 @@
       state.opacity = Number(state.els.opacity.value);
       state.els.opacityValue.textContent = `${Math.round(state.opacity * 100)}%`;
       state.layers.forEach(layer => layer.setOpacity(state.opacity));
+      publishLandslideState();
+    });
+  }
+
+  // Region keys and opacity only: the raster layers themselves belong to
+  // whichever renderer is drawing them.
+  function publishLandslideState() {
+    publishMapState({
+      landslides: {
+        opacity: state.opacity,
+        active: [...state.active],
+        regions: (state.manifest?.regions || []).map(region => ({
+          key: region.key,
+          label: region.label,
+          archive: region.archive ?? null,
+          minZoom: region.min_zoom ?? null,
+          maxZoom: region.max_zoom ?? null,
+          enabled: state.active.has(region.key),
+        })),
+      },
     });
   }
 
@@ -144,6 +164,7 @@
       status.textContent = "Off";
       input.disabled = false;
       updatePanel(state.manifest.description);
+      publishLandslideState();
       return;
     }
 
@@ -154,6 +175,7 @@
       state.active.add(region.key);
       status.textContent = "On";
       updatePanel(state.manifest.description);
+      publishLandslideState();
     } catch (error) {
       console.warn(`Landslide susceptibility unavailable for ${region.key}`, error);
       input.checked = false;
@@ -177,6 +199,7 @@
       state.els.opacityValue.textContent = `${Math.round(state.opacity * 100)}%`;
       renderRegionControls();
       state.els.status.textContent = state.manifest.description;
+      publishLandslideState();
     } catch (error) {
       console.warn("Landslide susceptibility unavailable", error);
       state.els.list.innerHTML = '<div class="landslide-panel-loading">Regional layers unavailable.</div>';

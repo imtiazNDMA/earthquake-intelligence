@@ -1,3 +1,20 @@
+// --- Shared analysis state ------------------------------------------------
+// Renderer-agnostic state goes to the mode coordinator (web/map-modes.js) so a
+// 2D/3D switch can redraw from what is already loaded instead of refetching.
+// The coordinator loads after this file, so early publications are buffered.
+window.eqmonMapState = window.eqmonMapState || {
+  queue: [],
+  publish(patch) { this.queue.push(patch); },
+};
+function publishMapState(patch) { window.eqmonMapState.publish(patch); }
+
+// Both renderers are laid out by the coordinator; before it exists only the 2D
+// map can need resizing.
+function resizeActiveMap() {
+  if (window.eqmonMapModes) window.eqmonMapModes.resize();
+  else if (typeof map !== "undefined") map.invalidateSize();
+}
+
 // ============================================================
 //  Icon system — one coherent visual language.
 //  • Base: crisp inline SVGs (Lucide-style, inherit currentColor) — always work.
@@ -462,13 +479,38 @@ function rebuildOverlay(name) {
   if (on) map.removeLayer(old);
   OVERLAYS[name] = buildOverlay(name);
   if (on) OVERLAYS[name].addTo(map);
+  publishOverlayState();
 }
+
+// Every reference overlay as plain data: visibility plus the style fields a
+// renderer needs to reproduce it. Layer instances stay out of shared state.
+function overlayStateSnapshot() {
+  const snapshot = {};
+  Object.entries(OVERLAY_CONFIG).forEach(([name, c]) => {
+    snapshot[name] = {
+      id: c.id,
+      visible: Boolean(OVERLAYS[name] && map.hasLayer(OVERLAYS[name])),
+      color: c.color,
+      width: c.width,
+      opacity: c.opacity ?? 1,
+      fillOpacity: c.fillOpacity ?? null,
+      lineOnly: Boolean(c.lineOnly),
+      categorical: c.categorical
+        ? { prop: c.categorical.prop, colors: { ...c.categorical.colors } }
+        : null,
+    };
+  });
+  return snapshot;
+}
+
+function publishOverlayState() { publishMapState({ overlays: overlayStateSnapshot() }); }
 
 const OVERLAYS = {};
 Object.keys(OVERLAY_CONFIG).forEach(name => {
   OVERLAYS[name] = buildOverlay(name);
   if (OVERLAY_CONFIG[name].defaultOn) OVERLAYS[name].addTo(map);
 });
+publishOverlayState();
 _setupFaultHover();
 
 // Move the zoom control clear of the left-edge sidebar shell.
@@ -477,6 +519,7 @@ map.zoomControl.setPosition("topright");
 // --- Map config panel: overlay checklist + basemap radios ---
 const BASEMAP_NAMES = Object.keys(BASEMAPS);
 let currentBasemap = "OpenStreetMap";
+publishMapState({ basemap: currentBasemap });
 let _userPickedBasemap = false;   // once true, theme no longer auto-switches the basemap
 const _basemapRadios = {};        // name -> radio input, for keeping the config panel in sync
 function setBasemap(name) {
@@ -487,6 +530,20 @@ function setBasemap(name) {
   BASEMAPS[name].addTo(map);
   if (typeof BASEMAPS[name].bringToBack === "function") BASEMAPS[name].bringToBack();
   currentBasemap = name;
+  publishMapState({ basemap: name });
+}
+
+// The footprint, its visibility, and the styling that both renderers derive
+// from it. Republished rather than recomputed when the renderer changes.
+function publishCurrentMmiState() {
+  publishMapState({
+    currentMmi: {
+      featureCollection: _lastFc,
+      visible: _mmiVisible,
+      opacity: MMI_STYLE.opacity,
+      selectedLevel: _selectedMmiLevel,
+    },
+  });
 }
 
 function refreshMmiLayerStyles() {
@@ -534,6 +591,7 @@ function buildMmiOpacityControl() {
     MMI_STYLE.opacity = parseFloat(slider.value);
     syncValue();
     refreshMmiLayerStyles();
+    publishCurrentMmiState();
   });
   controls.append(slider, value);
   row.append(txt, controls);
@@ -591,6 +649,7 @@ function buildConfigPanel() {
       if (cb.checked) OVERLAYS[name].addTo(map);
       else map.removeLayer(OVERLAYS[name]);
       controls.style.display = cb.checked ? "flex" : "none";
+      publishOverlayState();
     });
     const sw = document.createElement("span");
     sw.className = "swatch";
@@ -706,13 +765,25 @@ function _pgaCurrent() {
 function _pgaRender() {
   if (_pga.layer) { map.removeLayer(_pga.layer); _pga.layer = null; }
   const entry = _pgaCurrent();
-  if (!_pga.enabled || !entry || !_pga.manifest) { _pgaRenderLegend(); return; }
-  const [w, s, e, n] = _pga.manifest.bounds;
-  _pga.layer = L.imageOverlay(entry.image, [[s, w], [n, e]], {
-    opacity: _pga.opacity, pane: PGA_PANE, interactive: false,
-    alt: `PGA, ${entry.label} return period`,
-  }).addTo(map);
+  const renderable = Boolean(_pga.enabled && entry && _pga.manifest);
+  if (renderable) {
+    const [w, s, e, n] = _pga.manifest.bounds;
+    _pga.layer = L.imageOverlay(entry.image, [[s, w], [n, e]], {
+      opacity: _pga.opacity, pane: PGA_PANE, interactive: false,
+      alt: `PGA, ${entry.label} return period`,
+    }).addTo(map);
+  }
   _pgaRenderLegend();
+  publishMapState({
+    pga: {
+      enabled: renderable,
+      returnPeriod: _pga.period,
+      opacity: _pga.opacity,
+      bounds: renderable ? _pga.manifest.bounds : null,
+      image: renderable ? entry.image : null,
+      label: renderable ? entry.label : null,
+    },
+  });
 }
 
 // The hazard key belongs next to the hazard, not in the sidebar the map is read
@@ -870,6 +941,7 @@ const _legendCheckboxes = {};
 let _selectedMmiLevel = null;
 
 function _applyMmiStyles() {
+  publishCurrentMmiState();
   Object.entries(_mmiLayers).forEach(([k, layers]) => {
     const level = parseInt(k);
     const isHover = _hoveredMmiLevel === level;
@@ -1207,19 +1279,21 @@ function renderCurrentMmiLayer(fc) {
   if (!_mmiVisible) {
     _hideLegend();
     syncMmiToggle();
+    publishCurrentMmiState();
     return null;
   }
   intensityLayer = L.geoJSON(fc, { style, onEachFeature: onMmiFeature }).addTo(map);
   if (fc.features.length > 0) { _showLegend(fc); _startMmiSweep(intensityLayer); }
   else _hideLegend();
   syncMmiToggle();
+  publishCurrentMmiState();
   return intensityLayer;
 }
 
 function setCurrentMmiVisible(visible) {
   _mmiVisible = visible;
   if (_lastFc) renderCurrentMmiLayer(_lastFc);
-  else syncMmiToggle();
+  else { syncMmiToggle(); publishCurrentMmiState(); }
   updateCurrentEventCard(_currentEvent);
 }
 
@@ -1241,6 +1315,7 @@ function updateCurrentEventCard(event) {
     pills.innerHTML = "<span>Epicenter pending</span><span>MMI pending</span>";
     updateStatusBar(null);
     hideExposureStrip();
+    publishMapState({ activeEvent: null });
     document.dispatchEvent(new CustomEvent("eqmon:current-event", { detail: null }));
     return;
   }
@@ -1263,6 +1338,7 @@ function updateCurrentEventCard(event) {
     ? " · Origin " + new Date(event.occurred_at).toLocaleTimeString() : "";
   meta.innerHTML = `${coords}${when}`;
   pills.innerHTML = `<span>Epicenter pinned</span><span>${_mmiVisible ? "MMI visible" : "MMI hidden"}</span>`;
+  publishMapState({ activeEvent: event });
   document.dispatchEvent(new CustomEvent("eqmon:current-event", { detail: event }));
 }
 
@@ -1797,6 +1873,7 @@ const _ALERT_TEXT = {
 function setAlertLevel(level, label) {
   const lv = _ALERT_TEXT[level] ? level : "none";
   document.documentElement.dataset.alert = lv;
+  publishMapState({ alertLevel: lv });
   const el = document.getElementById("alert-chip-text");
   if (el) el.textContent = lv === "none" ? (label || "No PAGER alert") : _ALERT_TEXT[lv];
   document.querySelectorAll("[data-alert-preview]").forEach((button) => {
@@ -1897,7 +1974,7 @@ function renderExposureStrip(rollups, level, peakBand) {
 
   strip.hidden = false;
   document.body.classList.add("has-strip");
-  if (map) setTimeout(() => map.invalidateSize(), 60);
+  setTimeout(resizeActiveMap, 60);
 
   const byBand = new Map();
   rows.forEach(d => byBand.set(d.mmi_max, (byBand.get(d.mmi_max) || 0) + 1));
@@ -2471,6 +2548,16 @@ function _syncMapTimeControl() {
 
 function _renderMapEvents({ fit = false } = {}) {
   const events = _filteredMapEvents();
+  publishMapState({
+    mapEvents: {
+      events,
+      opacity: _mapEventState.opacity,
+      startIndex: _mapEventState.startIndex,
+      endIndex: _mapEventState.endIndex,
+      total: _mapEventState.events.length,
+      totalMatches: _mapEventState.totalMatches,
+    },
+  });
   if (_mapEventsLayer) map.removeLayer(_mapEventsLayer);
   _mapEventsLayer = L.layerGroup(events.map(_quakeMarker)).addTo(map);
   const status = document.getElementById("map-events-status");
@@ -2717,6 +2804,7 @@ let sidebarCollapsed = false;
 function setCollapsed(value) {
   sidebarCollapsed = value;
   document.getElementById("sidebar").classList.toggle("collapsed", value);
+  setTimeout(resizeActiveMap, 250);   // after the collapse transition settles
   const c = document.getElementById("rail-collapse");
   c.innerHTML = svgIcon(value ? "chevron-right" : "chevron-left", 18);
   c.setAttribute("aria-label", value ? "Expand panel" : "Collapse panel");
@@ -2750,7 +2838,7 @@ function showSection(key) {
   document.getElementById("map").style.display = nowDashboard ? "none" : "";
   document.getElementById("dashboard-view").classList.toggle("open", nowDashboard);
   if (nowDashboard && !wasDashboard) renderDashboard();
-  if (wasDashboard && !nowDashboard) setTimeout(() => map.invalidateSize(), 100);
+  if (wasDashboard && !nowDashboard) setTimeout(resizeActiveMap, 100);
   for (const [k, id] of Object.entries(SECTIONS)) {
     document.getElementById(id).style.display = (k === key) ? "block" : "none";
   }
@@ -3075,6 +3163,7 @@ function syncChartTheme() {
 
 function applyTheme(mode) {
   document.documentElement.dataset.theme = mode;
+  publishMapState({ theme: mode });
   try { localStorage.setItem("eqmon-theme", mode); } catch (e) { /* private mode */ }
   const btn = document.getElementById("theme-toggle");
   if (btn) {
@@ -3486,7 +3575,7 @@ function _asCloseExpanded() {
   mapEl.style.display = "";
   if (_asGaugeAnimation) { _asGaugeAnimation.pause(); _asGaugeAnimation = null; }
   if (_asGaugeFrame) { cancelAnimationFrame(_asGaugeFrame); _asGaugeFrame = null; }
-  setTimeout(() => map.invalidateSize(), 100);
+  setTimeout(resizeActiveMap, 100);
 }
 
 function _asExportCsv(data) {
@@ -3672,6 +3761,7 @@ showSection = function(key) {
   if (key !== "mapEvents" && _mapEventsLayer) {
     map.removeLayer(_mapEventsLayer);
     _mapEventsLayer = null;
+    publishMapState({ mapEvents: null });
   }
   const timeControl = document.getElementById("map-time-control");
   if (timeControl) timeControl.hidden = key !== "mapEvents";
@@ -3721,7 +3811,7 @@ function _arcOpen() {
 function _arcClose() {
   document.getElementById("arc-view").classList.remove("open");
   document.getElementById("map").style.display = "";
-  setTimeout(() => map.invalidateSize(), 100);
+  setTimeout(resizeActiveMap, 100);
 }
 
 function _arcRender(data) {

@@ -90,9 +90,57 @@ def test_maplibre_renderer_is_exactly_pinned_and_lazy():
 
 def test_map_mode_coordinator_persists_success_and_falls_back_to_2d():
     coordinator = Path("web/map-modes.js").read_text(encoding="utf-8")
-    assert 'localStorage.getItem("eqmon-map-mode")' in coordinator
-    assert 'localStorage.setItem("eqmon-map-mode", mode)' in coordinator
+    assert 'STORAGE_KEY = "eqmon-map-mode"' in coordinator
+    assert "localStorage.getItem(STORAGE_KEY)" in coordinator
+    assert "localStorage.setItem(STORAGE_KEY, mode)" in coordinator
+    assert "localStorage.removeItem(STORAGE_KEY)" in coordinator
     assert 'getContext("webgl2")' in coordinator
     assert 'setMode("2d"' in coordinator
     assert 'toast("3D map unavailable' in coordinator
     assert "MutationObserver" in coordinator
+
+
+def test_map_mode_coordinator_owns_normalized_camera_and_shared_state():
+    coordinator = Path("web/map-modes.js").read_text(encoding="utf-8")
+    renderer = Path("web/maplibre-3d.js").read_text(encoding="utf-8")
+    assert "center: [69.3, 30.4]" in coordinator
+    assert "bearing: 0" in coordinator
+    assert "pitch: 0" in coordinator
+    assert "function readLeafletCamera" in coordinator
+    assert "function applyLeafletCamera" in coordinator
+    assert "function leafletZoomToMapLibre" in coordinator
+    assert "function mapLibreZoomToLeaflet" in coordinator
+    assert 'map.on("moveend", captureLeafletCamera)' in coordinator
+    assert 'onCameraChange' in renderer
+    assert "setCamera" in renderer
+    assert "synchronizingCamera" in coordinator
+    assert "JSON.parse(JSON.stringify" in coordinator
+
+
+def test_shared_analysis_state_covers_phase_two_contract_without_renderer_objects():
+    coordinator = Path("web/map-modes.js").read_text(encoding="utf-8")
+    for key in (
+        "activeEvent",
+        "currentMmi",
+        "mapEvents",
+        "basemap",
+        "overlays",
+        "landslides",
+        "pga",
+        "buildings",
+        "theme",
+        "alertLevel",
+    ):
+        assert f"{key}:" in coordinator
+    assert "publishState" in coordinator
+    assert "getState" in coordinator
+    assert "Leaflet" not in coordinator.split("const sharedState", 1)[1].split("};", 1)[0]
+
+
+def test_mode_switching_does_not_refetch_analysis_and_resize_is_centralized():
+    coordinator = Path("web/map-modes.js").read_text(encoding="utf-8")
+    for endpoint in ("/intensity", "/events", "/impact", "/aftershock"):
+        assert endpoint not in coordinator
+    assert "function resize" in coordinator
+    assert "map.invalidateSize()" in coordinator
+    assert "eqmonMapLibre3d.resize()" in coordinator

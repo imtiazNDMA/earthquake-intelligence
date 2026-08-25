@@ -5,10 +5,12 @@
   const MAPLIBRE_CSS = "https://unpkg.com/maplibre-gl@5.7.1/dist/maplibre-gl.css";
   const MAPLIBRE_JS_INTEGRITY = "sha384-gLKaKK6bcaV7wXNta/DHnECgiF2+mF15OXviE93B/+Q4CI68+ivYMRY4utfeUOTN";
   const MAPLIBRE_CSS_INTEGRITY = "sha384-gNYNsUmuZqDYiT3gbirWTV5K7rt71RoveS/yXAaU09d4ZUmeDVTD3XoqB6uJAIFR";
+  const DEFAULT_CAMERA = { center: [69.3, 30.4], zoom: 4, bearing: 0, pitch: 55 };
   let dependencyPromise = null;
   let mapInstance = null;
   let initializationPromise = null;
   let protocolRegistered = false;
+  let cameraListener = null;
 
   function loadStylesheet() {
     return new Promise((resolve, reject) => {
@@ -85,7 +87,40 @@
     protocolRegistered = true;
   }
 
-  function createMap() {
+  function readCamera() {
+    if (!mapInstance) return null;
+    const center = mapInstance.getCenter();
+    return {
+      center: [center.lng, center.lat],
+      zoom: mapInstance.getZoom(),
+      bearing: mapInstance.getBearing(),
+      pitch: mapInstance.getPitch(),
+    };
+  }
+
+  // The coordinator owns the camera; this adapter only reports settled moves and
+  // applies what it is given, in MapLibre's own zoom scale.
+  function setCamera(camera) {
+    if (!mapInstance || !camera) return;
+    mapInstance.jumpTo({
+      center: camera.center,
+      zoom: camera.zoom,
+      bearing: camera.bearing ?? 0,
+      pitch: camera.pitch ?? 0,
+    });
+  }
+
+  function onCameraChange(handler) {
+    cameraListener = typeof handler === "function" ? handler : null;
+  }
+
+  function emitCameraChange() {
+    const camera = readCamera();
+    if (cameraListener && camera) cameraListener(camera);
+  }
+
+  function createMap(camera) {
+    const initial = camera || DEFAULT_CAMERA;
     return new Promise((resolve, reject) => {
       let settled = false;
       const timeout = window.setTimeout(() => fail(new Error("3D map initialization timed out")), 15000);
@@ -117,10 +152,10 @@
 
       mapInstance = new maplibregl.Map({
         container: "map-3d",
-        center: [69.3, 30.4],
-        zoom: 5,
-        bearing: 0,
-        pitch: 55,
+        center: initial.center,
+        zoom: initial.zoom,
+        bearing: initial.bearing ?? 0,
+        pitch: initial.pitch ?? 55,
         maxPitch: 70,
         attributionControl: true,
         style: {
@@ -139,22 +174,23 @@
       });
       mapInstance.once("load", ready);
       mapInstance.on("error", fail);
+      mapInstance.on("moveend", emitCameraChange);
     });
   }
 
-  async function initializeMapLibre3d() {
+  async function initializeMapLibre3d(camera) {
     await loadDependencies();
     registerPmtilesProtocol();
-    return createMap();
+    return createMap(camera);
   }
 
-  function ensureMapLibre3d() {
+  function ensureMapLibre3d(camera) {
     if (initializationPromise) return initializationPromise;
     if (mapInstance) {
       mapInstance.resize();
       return Promise.resolve(mapInstance);
     }
-    initializationPromise = initializeMapLibre3d().finally(() => {
+    initializationPromise = initializeMapLibre3d(camera).finally(() => {
       initializationPromise = null;
     });
     return initializationPromise;
@@ -164,5 +200,8 @@
     ensureMapLibre3d,
     hasInstance: () => Boolean(mapInstance),
     resize: () => mapInstance?.resize(),
+    setCamera,
+    getCamera: readCamera,
+    onCameraChange,
   };
 })();
