@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet"
         href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=JetBrains+Mono:wght@400;500;700&display=swap" />
-  <link rel="stylesheet" href="styles.css?v=20260825-aftershock-forecast" />
+  <link rel="stylesheet" href="styles.css?v=20260825-sidebar-readability" />
 </head>
 <body>
   <div id="map"></div>
@@ -74,6 +74,7 @@
       <button class="rail-ic" data-section="catalog" title="Events" data-icon="list" data-label="Events"></button>
       <button class="rail-ic" data-section="mapEvents" title="Map" data-icon="pin" data-label="Map"></button>
       <button class="rail-ic" data-section="aftershock" title="Forecast" data-icon="target" data-label="Forecast"></button>
+      <button class="rail-ic" data-section="landslide" title="Landslide" data-icon="mountain" data-label="Landslide"></button>
       <button class="rail-ic" data-section="infra" title="Infrastructure" data-icon="building" data-label="Infra"></button>
       <button class="rail-ic" data-section="dashboard" title="Insights" data-icon="chart" data-label="Insights"></button>
       <button class="rail-ic" data-section="config" title="Layers" data-icon="settings" data-label="Layers"></button>
@@ -224,10 +225,21 @@
           <button id="as-calc" class="btn-primary" disabled>Run 30-day forecast</button>
         </div>
         <div id="as-results" style="display:none">
-          <div id="as-summary"></div>
-          <div id="as-chart-wrap"><canvas id="as-chart"></canvas></div>
-          <div id="as-table-wrap"></div>
-          <button id="as-export" class="btn-secondary">Download CSV</button>
+          <div id="as-result-card"></div>
+          <div class="as-result-actions">
+            <button id="as-open-forecast" class="btn-primary" type="button">Open full forecast</button>
+            <button id="as-export" class="btn-secondary" type="button">Download CSV</button>
+          </div>
+        </div>
+      </section>
+      <section id="sec-landslide">
+        <header class="landslide-panel-head">
+          <span>Terrain hazard</span>
+          <h4>Landslide susceptibility</h4>
+          <p>Display the supplied Very High susceptibility masks independently by region.</p>
+        </header>
+        <div id="landslide-layer-list" aria-live="polite">
+          <div class="landslide-panel-loading">Loading regional coverage...</div>
         </div>
       </section>
       <!-- Building footprints. Filled by buildings.js, which owns the whole
@@ -396,11 +408,11 @@
            crossorigin="anonymous" defer></script>
   <script type="module"
           src="https://unpkg.com/@lottiefiles/dotlottie-wc@0.8.1/dist/dotlottie-wc.js"></script>
-  <script src="app.js?v=20260825-aftershock-forecast"></script>
+  <script src="app.js?v=20260825-aftershock-meter-fix"></script>
   <!-- Loads after app.js so it can reuse the map and config panel. Data stays
        lazy: no landslide archive is requested until the operator enables it. -->
-  <script src="landslides.js"></script>
+  <script src="landslides.js?v=20260825-landslide-regions"></script>
   <!-- Must load after app.js: reuses its `map` global and appends into #sec-config. -->
-  <script src="buildings.js"></script>
+  <script src="buildings.js?v=20260825-building-legend"></script>
 </body>
 </html>

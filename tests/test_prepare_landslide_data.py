@@ -1,8 +1,10 @@
 from pathlib import Path
 
 import fiona
+import numpy as np
 import rasterio
 from fiona.crs import CRS
+from rasterio.transform import from_origin
 from shapely.geometry import Polygon, mapping
 
 
@@ -69,3 +71,33 @@ def test_build_region_rejects_unexpected_class(tmp_path):
         assert "expected 5" in str(error)
     else:
         raise AssertionError("unexpected class was accepted")
+
+
+def test_tile_manifest_can_recover_an_existing_region(tmp_path):
+    script = _load_script("build_landslide_tiles.py")
+    script.SOURCE_DIR = tmp_path / "source"
+    script.OUTPUT_DIR = tmp_path / "output"
+    script.SOURCE_DIR.mkdir()
+    script.OUTPUT_DIR.mkdir()
+    script.REGIONS = {"Test": ("Test region", "test", 9)}
+
+    with rasterio.open(
+        script.SOURCE_DIR / "test.tif",
+        "w",
+        driver="GTiff",
+        width=2,
+        height=2,
+        count=1,
+        dtype="uint8",
+        crs="EPSG:4326",
+        transform=from_origin(70, 35, 0.1, 0.1),
+    ) as dataset:
+        dataset.write(np.full((1, 2, 2), 5, dtype="uint8"))
+    (script.OUTPUT_DIR / "test.pmtiles").write_bytes(b"built")
+
+    entry = script.existing_region_entry("Test")
+
+    assert entry is not None
+    assert entry["key"] == "Test"
+    assert entry["url"] == "landslides/test.pmtiles"
+    assert entry["max_zoom"] == 9

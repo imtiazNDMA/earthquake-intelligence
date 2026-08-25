@@ -104,6 +104,18 @@ def _entry(key: str, label: str, stem: str, max_zoom: int, bounds, output: Path)
     }
 
 
+def existing_region_entry(key: str) -> dict | None:
+    """Describe an already-built archive so partial builds do not hide it."""
+    label, stem, max_zoom = REGIONS[key]
+    source = SOURCE_DIR / f"{stem}.tif"
+    output = OUTPUT_DIR / f"{stem}.pmtiles"
+    if not source.exists() or not output.exists():
+        return None
+    with rasterio.open(source) as src:
+        bounds = transform_bounds(src.crs, "EPSG:4326", *src.bounds, densify_pts=21)
+    return _entry(key, label, stem, max_zoom, bounds, output)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--regions", nargs="+", choices=REGIONS, default=list(REGIONS))
@@ -114,8 +126,10 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    entries = [build_region(key, force=args.force, workers=args.workers)
-               for key in args.regions]
+    built = {key: build_region(key, force=args.force, workers=args.workers)
+             for key in args.regions}
+    entries = [built.get(key) or existing_region_entry(key) for key in REGIONS]
+    entries = [entry for entry in entries if entry is not None]
     manifest = {
         "dataset_id": "landslide_susceptibility",
         "generated_at": datetime.now(UTC).isoformat(),

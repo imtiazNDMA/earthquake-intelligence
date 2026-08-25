@@ -10,6 +10,7 @@ const LORD_ICONS = {
   event:     { page: "https://lordicon.com/icons/system/regular/12-plus",        src: "" },
   catalog:   { page: "https://lordicon.com/icons/system/regular/2-line-list",     src: "" },
   aftershock:{ page: "https://lordicon.com/icons/system/regular/61-target",      src: "" },
+  landslide: { page: "",                                                        src: "" },
   dashboard: { page: "https://lordicon.com/icons/system/regular/10-analytics",    src: "" },
   config:    { page: "https://lordicon.com/icons/system/regular/53-settings",     src: "" },
   refresh:   { page: "https://lordicon.com/icons/system/regular/103-refresh",     src: "" },
@@ -39,6 +40,7 @@ const SVG_PATHS = {
   building: '<path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/>',
   waves:    '<path d="M2 6c.6.5 1.2 1 2.5 1C7 7 7 5 9.5 5c2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/><path d="M2 12c.6.5 1.2 1 2.5 1C7 13 7 11 9.5 11c2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/><path d="M2 18c.6.5 1.2 1 2.5 1C7 19 7 17 9.5 17c2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/>',
   target:   '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+  mountain: '<path d="m3 20 6-11 4 7 2-3 6 7"/><path d="m7.4 12 1.6 2 1.4-1.5"/>',
   maximize: '<path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>',
   moon:     '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
   sun:      '<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>',
@@ -2706,7 +2708,7 @@ document.getElementById("filter-source").addEventListener("change", () => {
 });
 
 // --- Sidebar rail: section switching + collapse ---
-const SECTIONS = { event: "sec-event", catalog: "sec-catalog", mapEvents: "sec-map-events", aftershock: "sec-aftershock", infra: "sec-infra", dashboard: "sec-dashboard", config: "sec-config" };
+const SECTIONS = { event: "sec-event", catalog: "sec-catalog", mapEvents: "sec-map-events", aftershock: "sec-aftershock", landslide: "sec-landslide", infra: "sec-infra", dashboard: "sec-dashboard", config: "sec-config" };
 // Start as null (not "event") so the initial showSection("event") renders the
 // section instead of matching the active-icon-toggle guard and collapsing.
 let activeSection = null;
@@ -2721,7 +2723,7 @@ function setCollapsed(value) {
 }
 
 // (Re)render the rail icons, reflecting which section is active (for Lordicon coloring).
-const RAIL_GLYPH = { event: "plus", catalog: "list", mapEvents: "pin", aftershock: "target", infra: "building", dashboard: "chart", config: "settings" };
+const RAIL_GLYPH = { event: "plus", catalog: "list", mapEvents: "pin", aftershock: "target", landslide: "mountain", infra: "building", dashboard: "chart", config: "settings" };
 function renderRailIcons() {
   document.querySelectorAll(".rail-ic").forEach((b) => {
     const section = b.dataset.section;
@@ -3107,20 +3109,14 @@ function syncBasemapToTheme(mode) {
 })();
 
 // --- Aftershock probability section ---
-let _asChart = null;
 let _asData = null;
 let _asSelectionMode = "current";
 let _asCatalogEvents = new Map();
 let _asEventsLoaded = false;
 const _asGaugeSelection = { mag: null, day: null };
+let _asGaugeAnimation = null;
+let _asGaugeFrame = null;
 const _AS_DAYS = [1, 3, 5, 7, 14, 30];
-const _AS_TARGETS = [3, 4, 5, 6, 7];
-// Target magnitudes are ordered, so the series read as a warm ramp.
-const _AS_COLORS = ["#9AA4AF", "#D8B22C", "#E08A34", "#DD5730", "#A32226"];
-
-function _asDestroyChart() {
-  if (_asChart) { _asChart.destroy(); _asChart = null; }
-}
 
 async function _asLoadEvents() {
   const sel = document.getElementById("as-event-id");
@@ -3289,120 +3285,36 @@ async function _asCalculate() {
 
 function _asRenderResults(data) {
   _asData = data;
-  const resultsEl = document.getElementById("as-results");
+  const card = document.getElementById("as-result-card");
+  const actions = document.querySelector(".as-result-actions");
   if (!data.probabilities || data.probabilities.length === 0) {
-    document.getElementById("as-summary").innerHTML =
-      `<div class="as-summary-inner" style="color:var(--text-muted)">No supported target magnitudes: forecasts are only shown for M≥3 and below the current M${data.main_mag} event.</div>`;
-    document.getElementById("as-chart-wrap").style.display = "none";
-    document.getElementById("as-table-wrap").innerHTML = "";
-    document.getElementById("as-export").style.display = "none";
+    card.innerHTML = `<div class="as-result-empty"><b>No supported forecast magnitudes</b>` +
+      `<span>Forecasts are shown for M3+ targets below the M${data.main_mag} mainshock.</span></div>`;
+    actions.hidden = true;
     return;
   }
-  document.getElementById("as-chart-wrap").style.display = "";
-  document.getElementById("as-export").style.display = "";
-  const _asMags = data.target_mags;
-  const allTargets = _AS_TARGETS;
-  const excluded = allTargets.filter(m => !_asMags.includes(m));
-  const magsStr = _asMags.map(m => "M≥" + m).join(", ");
-  const excludedStr = excluded.length
-    ? `<span style="color:var(--text-muted);font-size:14.5px"> (${excluded.map(m => "M " + m).join(", ")} excluded: above mainshock)</span>`
-    : "";
-  const extrapolated = _asMags.filter(m => m < data.params.Mmin);
-  const caveat = extrapolated.length
-    ? `<div style="font-size:14.5px;color:var(--copper);margin-top:1px">M≥${extrapolated.join(", M≥")} is extrapolated below catalog completeness Mmin=${data.params.Mmin}.</div>`
-    : "";
-  const summaryEl = document.getElementById("as-summary");
-  const ev = data.event;
-  let eventStr = "";
-  if (ev) {
-    eventStr = `M${ev.magnitude} · ${ev.place || "—"} · ${ev.occurred_at ? new Date(ev.occurred_at).toLocaleDateString() : ""}`;
-  } else {
-    eventStr = `M${data.main_mag} (manual entry)`;
-  }
-  const zoneStr = data.zone_name ? ` · Zone: ${escapeHtml(data.zone_name)}` : "";
-
-  summaryEl.innerHTML = `
-    <div class="as-summary-inner">
-      <strong>${eventStr}</strong>
-      <span class="as-badge-inner as-${data.region}">${escapeHtml(data.region_name)}</span>${zoneStr}
-      <div style="font-size:15px;color:var(--slate);margin-top:2px">
-        ${magsStr}${excludedStr}
+  actions.hidden = false;
+  const mags = data.target_mags;
+  const focusMag = mags.includes(data.params.Mmin) ? data.params.Mmin : mags[0];
+  const rows = data.probabilities.filter(item => item.Mtarget === focusMag);
+  const primary = rows.find(item => item.DaysSince === 1) || rows[0];
+  const checkpoints = [7, 14, 30].map(day => rows.find(item => item.DaysSince === day)).filter(Boolean);
+  const formatProb = value => value > 99.9 ? ">99.9%" : `${value}%`;
+  const extrapolated = mags.filter(mag => mag < data.params.Mmin);
+  card.innerHTML = `
+    <article class="as-result-brief">
+      <header><span>Forecast ready</span><b>M${focusMag}+ model</b></header>
+      <div class="as-result-primary">
+        <span>Day ${primary.DaysSince} probability</span>
+        <strong>${formatProb(primary.AftershockProb)}</strong>
+        <p>Chance of at least one M${focusMag}+ aftershock on this day.</p>
       </div>
-      ${caveat}
-      <div style="font-size:15px;color:var(--text-muted);margin-top:1px">
-        k=${Number(data.params.k).toPrecision(3)} · c=${escapeHtml(data.params.c)} · p=${escapeHtml(data.params.p)} · b=${escapeHtml(data.params.b)} · Mmin=${escapeHtml(data.params.Mmin)}
+      <div class="as-result-checkpoints">
+        ${checkpoints.map(item => `<div><span>Day ${item.DaysSince}</span><b>${formatProb(item.AftershockProb)}</b></div>`).join("")}
       </div>
-    </div>
-  `;
-
-  _asDestroyChart();
-  const probsByMag = {};
-  data.probabilities.forEach(r => {
-    if (!probsByMag[r.Mtarget]) probsByMag[r.Mtarget] = [];
-    probsByMag[r.Mtarget].push(r);
-  });
-
-  const chartWrap = document.getElementById("as-chart-wrap");
-  const expandBtn = document.createElement("button");
-  expandBtn.className = "as-expand-btn";
-  expandBtn.innerHTML = svgIcon("maximize", 14) + " Expand";
-  expandBtn.setAttribute("aria-label", "Expand chart to full screen");
-  expandBtn.addEventListener("click", () => _asShowExpanded());
-  chartWrap.prepend(expandBtn);
-
-  const canvas = document.getElementById("as-chart");
-  syncChartTheme();
-  _asChart = new Chart(canvas, {
-    type: "line",
-    data: {
-      labels: _AS_DAYS,
-      datasets: _asMags.map((mt, i) => ({
-        label: `M ${mt}`,
-        data: probsByMag[mt] ? probsByMag[mt].map(r => r.AftershockProb) : [],
-        borderColor: _AS_COLORS[i],
-        backgroundColor: _AS_COLORS[i] + "18",
-        fill: true,
-        tension: 0.3,
-        borderWidth: 3,
-        borderDash: [[], [8, 4], [4, 4], [2, 3], [6, 2]][i] || [],
-        pointRadius: 4,
-        pointHoverRadius: 7,
-      })),
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: "top", labels: { font: { size: 10 }, boxWidth: 14 } },
-        title: { display: true, text: "Aftershock probability vs. days since mainshock", font: { size: 12, weight: "600" } },
-      },
-      scales: {
-        y: {
-          title: { display: true, text: "Probability (%)", font: { size: 10 } },
-          min: 0, max: 100,
-          ticks: { font: { size: 9 }, callback: v => v + "%" },
-        },
-        x: {
-          title: { display: true, text: "Days since mainshock", font: { size: 10 } },
-          ticks: { font: { size: 9 } },
-        },
-      },
-    },
-  });
-
-  const tableWrap = document.getElementById("as-table-wrap");
-  tableWrap.innerHTML = `
-    <table class="as-table">
-      <thead><tr><th>Days since</th>${_asMags.map(mt => `<th>M≥${mt}</th>`).join("")}</tr></thead>
-      <tbody>${_AS_DAYS.map(d => {
-        const row = data.probabilities.filter(r => r.DaysSince === d);
-        return `<tr><td>${d}</td>${
-          row.map(r => `<td>${r.AftershockProb > 99.9 ? ">99.9" : r.AftershockProb}%</td>`).join("")
-        }</tr>`;
-      }).join("")}</tbody>
-    </table>
-  `;
-
+      ${extrapolated.length ? `<p class="as-result-note">M${extrapolated.join("+, M")}+ estimates are available in the full forecast and are extrapolated below catalog completeness M${data.params.Mmin}.</p>` : ""}
+    </article>`;
+  document.getElementById("as-open-forecast").onclick = _asShowExpanded;
   document.getElementById("as-export").onclick = () => _asExportCsv(data);
 }
 
@@ -3441,7 +3353,6 @@ function _asShowExpanded() {
       </div>
       <div class="as-forecast-region"><span>Regional model</span><b>${escapeHtml(_asData.region_name)}</b></div>
     </section>
-    <aside class="as-readiness"><i aria-hidden="true"></i><div><b>Be ready for more earthquakes</b><span>Automated model output supports readiness; it is not a deterministic prediction.</span></div></aside>
     <nav class="as-forecast-tabs" aria-label="Aftershock forecast views" role="tablist">
       <button class="as-forecast-tab active" type="button" role="tab" aria-selected="true" data-as-tab="summary">Summary</button>
       <button class="as-forecast-tab" type="button" role="tab" aria-selected="false" data-as-tab="commentary">Commentary</button>
@@ -3512,8 +3423,55 @@ function _asRenderExpandedGauge() {
   if (!row) return;
   const probability = Number(row.AftershockProb);
   const display = probability > 99.9 ? ">99.9%" : `${probability}%`;
-  document.getElementById("as-gauge-value").style.strokeDasharray = `${Math.min(probability, 100)} 100`;
-  document.getElementById("as-gauge-output").textContent = display;
+  const target = Math.min(probability, 100);
+  const path = document.getElementById("as-gauge-value");
+  const output = document.getElementById("as-gauge-output");
+  const start = Number(output.dataset.value || 0);
+  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  if (_asGaugeAnimation) { _asGaugeAnimation.pause(); _asGaugeAnimation = null; }
+  if (_asGaugeFrame) cancelAnimationFrame(_asGaugeFrame);
+
+  const paint = value => {
+    path.style.strokeDasharray = `${value} 100`;
+    const decimals = probability % 1 ? 2 : 0;
+    output.textContent = `${value.toFixed(decimals)}%`;
+    output.dataset.value = String(value);
+  };
+  paint(start);
+
+  if (reduceMotion) {
+    paint(target);
+    output.textContent = display;
+  } else if (window.anime?.animate) {
+    const state = { value: start };
+    _asGaugeAnimation = anime.animate(state, {
+      value: [{ to: target }],
+      duration: 650,
+      ease: "outCubic",
+      onUpdate: () => paint(state.value),
+      onComplete: () => {
+        paint(target);
+        output.textContent = display;
+        _asGaugeAnimation = null;
+      },
+    });
+  } else {
+    const startedAt = performance.now();
+    const duration = 650;
+    const tick = now => {
+      const progress = Math.min(1, (now - startedAt) / duration);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      paint(start + (target - start) * eased);
+      if (progress < 1) {
+        _asGaugeFrame = requestAnimationFrame(tick);
+      } else {
+        _asGaugeFrame = null;
+        paint(target);
+        output.textContent = display;
+      }
+    };
+    _asGaugeFrame = requestAnimationFrame(tick);
+  }
   document.getElementById("as-gauge-caption").textContent = `M${_asGaugeSelection.mag}+ / day ${_asGaugeSelection.day}`;
   document.getElementById("as-gauge-sentence").innerHTML =
     `On day <b>${_asGaugeSelection.day}</b> after the mainshock, there is a <b>${display}</b> chance of at least one M${_asGaugeSelection.mag}+ aftershock.`;
@@ -3526,6 +3484,8 @@ function _asCloseExpanded() {
   const mapEl = document.getElementById("map");
   expandedView.classList.remove("open");
   mapEl.style.display = "";
+  if (_asGaugeAnimation) { _asGaugeAnimation.pause(); _asGaugeAnimation = null; }
+  if (_asGaugeFrame) { cancelAnimationFrame(_asGaugeFrame); _asGaugeFrame = null; }
   setTimeout(() => map.invalidateSize(), 100);
 }
 

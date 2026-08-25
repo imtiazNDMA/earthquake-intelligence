@@ -1,14 +1,14 @@
-/* Lazy regional raster PMTiles layer for filtered Very High susceptibility. */
+/* Lazy regional raster PMTiles layers for filtered Very High susceptibility. */
 (function () {
   "use strict";
 
   const PANE = "landslidePane";
   const state = {
-    enabled: false,
     opacity: 0.62,
     manifest: null,
-    group: null,
-    archives: [],
+    layers: new Map(),
+    archives: new Map(),
+    active: new Set(),
     els: {},
   };
 
@@ -19,45 +19,63 @@
   }
 
   function buildPanel() {
-    const section = document.getElementById("cfg-hazard-layers") || document.getElementById("sec-config");
-    if (!section) return;
-    const group = document.createElement("div");
-    group.className = "cfg-group landslide-controls";
-    group.innerHTML = `
-      <div class="field-label">Landslide susceptibility</div>
-      <label class="cfg-row">
-        <input id="landslide-toggle" type="checkbox" />
-        <span class="landslide-swatch" aria-hidden="true"></span>
-        <span class="ov-name">Very High areas</span>
-      </label>
-      <div id="landslide-options" hidden>
-        <label class="cfg-row"><span class="ov-name">Opacity</span>
-          <span class="ov-controls">
-            <input id="landslide-opacity" class="ov-opacity" type="range"
-                   min="0" max="1" step="0.05" value="0.62" />
-            <span id="landslide-opacity-value" class="cfg-value">62%</span>
-          </span>
+    const mount = document.getElementById("landslide-layer-list");
+    if (!mount) return;
+    mount.innerHTML = `
+      <div class="landslide-controls-head"><span>Regional coverage</span><output id="landslide-active">0 active</output></div>
+      <div id="landslide-region-list" class="landslide-region-list"></div>
+      <div id="landslide-options" class="landslide-display-options" hidden>
+        <label class="landslide-opacity-row" for="landslide-opacity">
+          <span>Layer opacity</span>
+          <input id="landslide-opacity" class="ov-opacity" type="range"
+                 min="0" max="1" step="0.05" value="0.62" />
+          <output id="landslide-opacity-value" for="landslide-opacity">62%</output>
         </label>
       </div>
-      <div id="landslide-status" class="cfg-note" aria-live="polite">
-        Filtered Very High class only. Transparent areas may be unassessed.
+      <div id="landslide-status" class="landslide-panel-status" aria-live="polite">
+        Loading regional coverage...
       </div>`;
-    section.appendChild(group);
     state.els = {
-      toggle: group.querySelector("#landslide-toggle"),
-      options: group.querySelector("#landslide-options"),
-      opacity: group.querySelector("#landslide-opacity"),
-      opacityValue: group.querySelector("#landslide-opacity-value"),
-      status: group.querySelector("#landslide-status"),
+      list: mount.querySelector("#landslide-region-list"),
+      active: mount.querySelector("#landslide-active"),
+      options: mount.querySelector("#landslide-options"),
+      opacity: mount.querySelector("#landslide-opacity"),
+      opacityValue: mount.querySelector("#landslide-opacity-value"),
+      status: mount.querySelector("#landslide-status"),
     };
-    state.els.toggle.addEventListener("change", toggle);
-    state.els.toggle.addEventListener("change", () => window.updateConfigSummary?.());
     state.els.opacity.addEventListener("input", () => {
       state.opacity = Number(state.els.opacity.value);
       state.els.opacityValue.textContent = `${Math.round(state.opacity * 100)}%`;
-      if (state.group) state.group.eachLayer(layer => layer.setOpacity(state.opacity));
+      state.layers.forEach(layer => layer.setOpacity(state.opacity));
     });
-    window.updateConfigSummary?.();
+  }
+
+  function renderRegionControls() {
+    state.els.list.replaceChildren();
+    state.manifest.regions.forEach(region => {
+      const row = document.createElement("label");
+      row.className = "landslide-region-row";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.dataset.region = region.key;
+      input.setAttribute("aria-label", `Show ${region.label} landslide susceptibility`);
+      const swatch = document.createElement("span");
+      swatch.className = "landslide-swatch";
+      swatch.setAttribute("aria-hidden", "true");
+      const copy = document.createElement("span");
+      copy.className = "landslide-region-copy";
+      const name = document.createElement("strong");
+      name.textContent = region.label;
+      const detail = document.createElement("small");
+      detail.textContent = `${state.manifest.class.label} susceptibility`;
+      copy.append(name, detail);
+      const status = document.createElement("b");
+      status.className = "landslide-region-state";
+      status.textContent = "Off";
+      input.addEventListener("change", () => setRegion(region, input, status));
+      row.append(input, swatch, copy, status);
+      state.els.list.appendChild(row);
+    });
   }
 
   function ensureLegend() {
@@ -76,70 +94,97 @@
 
   function renderLegend() {
     const legend = ensureLegend();
-    if (!state.enabled || !state.manifest) {
+    if (!state.active.size || !state.manifest) {
       legend.hidden = true;
       return;
     }
+    const labels = state.manifest.regions
+      .filter(region => state.active.has(region.key))
+      .map(region => region.label);
     legend.hidden = false;
     legend.innerHTML = `
       <div class="lsl-kicker">Landslide susceptibility</div>
       <div class="lsl-class"><i style="background:${state.manifest.class.color}"></i>
         <strong>${state.manifest.class.label}</strong></div>
-      <div class="lsl-note">Filtered class only</div>`;
+      <div class="lsl-note">${labels.join(" / ")}</div>`;
   }
 
-  async function loadLayer() {
-    if (state.group) return;
+  function updatePanel(message) {
+    state.els.active.textContent = `${state.active.size} active`;
+    state.els.options.hidden = state.active.size === 0;
+    if (message) state.els.status.textContent = message;
+    renderLegend();
+  }
+
+  function ensureRegionLayer(region) {
+    if (state.layers.has(region.key)) return state.layers.get(region.key);
     if (!window.pmtiles?.PMTiles || !window.pmtiles?.leafletRasterLayer) {
       throw new Error("PMTiles raster client did not load");
     }
-    const response = await fetch("landslides/manifest.json");
-    if (!response.ok) throw new Error(`manifest HTTP ${response.status}`);
-    state.manifest = await response.json();
-    state.opacity = state.manifest.default_opacity ?? state.opacity;
-    state.els.opacity.value = String(state.opacity);
-    state.els.opacityValue.textContent = `${Math.round(state.opacity * 100)}%`;
-    const layers = state.manifest.regions.map(region => {
-      const archive = new window.pmtiles.PMTiles(region.url);
-      state.archives.push(archive);
-      return window.pmtiles.leafletRasterLayer(archive, {
-        pane: PANE,
-        opacity: state.opacity,
-        minZoom: region.min_zoom,
-        maxNativeZoom: region.max_zoom,
-        maxZoom: 18,
-        attribution: "Landslide susceptibility source: supplied regional masks",
-      });
+    const archive = new window.pmtiles.PMTiles(region.url);
+    const layer = window.pmtiles.leafletRasterLayer(archive, {
+      pane: PANE,
+      opacity: state.opacity,
+      minZoom: region.min_zoom,
+      maxNativeZoom: region.max_zoom,
+      maxZoom: 18,
+      attribution: "Landslide susceptibility source: supplied regional masks",
     });
-    state.group = L.layerGroup(layers);
+    state.archives.set(region.key, archive);
+    state.layers.set(region.key, layer);
+    return layer;
   }
 
-  async function toggle() {
-    state.enabled = state.els.toggle.checked;
-    state.els.options.hidden = !state.enabled;
-    if (!state.enabled) {
-      if (state.group) map.removeLayer(state.group);
-      renderLegend();
+  async function setRegion(region, input, status) {
+    input.disabled = true;
+    if (!input.checked) {
+      const layer = state.layers.get(region.key);
+      if (layer) map.removeLayer(layer);
+      state.active.delete(region.key);
+      status.textContent = "Off";
+      input.disabled = false;
+      updatePanel(state.manifest.description);
       return;
     }
-    state.els.toggle.disabled = true;
-    state.els.status.textContent = "Loading regional hazard tiles...";
+
+    status.textContent = "Loading";
+    updatePanel(`Loading ${region.label} hazard tiles...`);
     try {
-      await loadLayer();
-      if (state.enabled) state.group.addTo(map);
+      ensureRegionLayer(region).addTo(map);
+      state.active.add(region.key);
+      status.textContent = "On";
+      updatePanel(state.manifest.description);
+    } catch (error) {
+      console.warn(`Landslide susceptibility unavailable for ${region.key}`, error);
+      input.checked = false;
+      status.textContent = "Error";
+      updatePanel(`${region.label} is unavailable. Rebuild it with scripts/build_landslide_tiles.py.`);
+    } finally {
+      input.disabled = false;
+    }
+  }
+
+  async function loadManifest() {
+    try {
+      const response = await fetch("landslides/manifest.json");
+      if (!response.ok) throw new Error(`manifest HTTP ${response.status}`);
+      state.manifest = await response.json();
+      if (!Array.isArray(state.manifest.regions) || !state.manifest.regions.length) {
+        throw new Error("manifest has no regional layers");
+      }
+      state.opacity = state.manifest.default_opacity ?? state.opacity;
+      state.els.opacity.value = String(state.opacity);
+      state.els.opacityValue.textContent = `${Math.round(state.opacity * 100)}%`;
+      renderRegionControls();
       state.els.status.textContent = state.manifest.description;
-      renderLegend();
     } catch (error) {
       console.warn("Landslide susceptibility unavailable", error);
-      state.enabled = false;
-      state.els.toggle.checked = false;
-      state.els.options.hidden = true;
-      state.els.status.textContent = "Layer unavailable. Generate it with scripts/build_landslide_tiles.py.";
-    } finally {
-      state.els.toggle.disabled = false;
+      state.els.list.innerHTML = '<div class="landslide-panel-loading">Regional layers unavailable.</div>';
+      state.els.status.textContent = "Generate the display archives with scripts/build_landslide_tiles.py.";
     }
   }
 
   ensurePane();
   buildPanel();
+  loadManifest();
 })();

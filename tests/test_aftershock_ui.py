@@ -57,3 +57,25 @@ def test_expanded_forecast_is_decision_first_and_theme_aware():
 def test_expanded_forecast_keeps_the_model_per_day_semantics():
     assert "on that specific day after the mainshock" in APP
     assert "over the next month" not in APP.lower()
+
+
+def test_sidebar_forecast_is_a_compact_readout_not_a_squeezed_chart():
+    for control in ("as-result-card", "as-open-forecast", "as-export"):
+        assert f'id="{control}"' in INDEX
+    for removed in ("as-chart", "as-chart-wrap", "as-table-wrap", "as-summary"):
+        assert f'id="{removed}"' not in INDEX
+    assert "as-result-primary" in APP
+    assert "as-result-checkpoints" in APP
+    assert "document.getElementById(\"as-open-forecast\").onclick = _asShowExpanded" in APP
+
+
+def test_expanded_gauge_animates_without_the_redundant_readiness_banner():
+    assert "Be ready for more earthquakes" not in APP
+    assert 'id="as-gauge-marker"' not in APP
+    assert "anime.animate(state" in APP
+    assert ".as-gauge-track, .as-gauge-value { fill: none; stroke-width: 24; stroke-linecap: butt; }" in STYLES
+    assert "const settle" not in APP
+    assert "requestAnimationFrame(tick)" in APP
+    assert "output.dataset.value" in APP
+    assert 'prefers-reduced-motion: reduce' in APP
+    assert "if (reduceMotion)" in APP

@@ -147,10 +147,8 @@
 
   function updateHint(activeCount) {
     if (!els.hint) return;
-    if (!state.enabled) { els.hint.textContent = "Layer off."; return; }
-    if (map.getZoom() < state.minZoom) {
-      els.hint.textContent =
-        `Zoom to ${state.minZoom}+ to render buildings (currently ${map.getZoom()}).`;
+    if (!state.enabled || map.getZoom() < state.minZoom) {
+      els.hint.textContent = "";
       return;
     }
     els.hint.textContent = activeCount
@@ -167,7 +165,8 @@
     group.innerHTML = `
       <label class="cfg-row">
         <input id="bld-toggle" type="checkbox" checked />
-        <span class="ov-name">Infra Vulnerability</span>
+        <span class="ov-name">Building height bands</span>
+        <span id="bld-minzoom" class="bld-zoom-badge">Z${state.minZoom}+</span>
       </label>
       <div id="bld-controls">
         <span class="field-label">District</span>
@@ -184,15 +183,14 @@
     els.controls = group.querySelector("#bld-controls");
     els.legend = group.querySelector("#bld-legend");
     els.hint = group.querySelector("#bld-hint");
+    els.minZoom = group.querySelector("#bld-minzoom");
 
     const swatch = (c, label) =>
       `<div class="bld-legend-row"><span class="bld-swatch" style="background:${c}"></span>` +
       `<span>${label}</span></div>`;
     els.legend.innerHTML =
       BANDS.map(b => swatch(b.color, b.label)).join("") +
-      swatch(UNKNOWN.color, UNKNOWN.label) +
-      `<div class="bld-legend-note">Banded by building height (Google/OSM
-        footprints) as a proxy — not a calculated risk score.</div>`;
+      swatch(UNKNOWN.color, UNKNOWN.label);
 
     els.toggle.addEventListener("change", () => setEnabled(els.toggle.checked));
 
@@ -243,6 +241,7 @@
       const data = await resp.json();
       state.catalog = data.districts || [];
       state.minZoom = data.min_zoom ?? 12;
+      els.minZoom.textContent = `Z${state.minZoom}+`;
     } catch (err) {
       // Fail loudly in the panel: an empty map with a live-looking toggle is
       // worse than an honest "unavailable".
