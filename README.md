@@ -178,7 +178,7 @@ shaking. They are computed independently, and ARC being down never affects
 impact.
 
 ```
-ARC_URL=http://172.18.0.12:5002    # .env; the service moves with its container
+ARC_URL=http://172.18.0.29:5001    # .env; the service moves with its container
 ARC_TIMEOUT_S=180                  # a full scan is ~12 s, roads is ~375k features
 ```
 

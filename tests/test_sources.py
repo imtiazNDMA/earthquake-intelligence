@@ -5,9 +5,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from eqmon.events.sources import (
-    parse_usgs, RawEvent, fdsn_query_params, USGSSource, FDSN_COUNT_URL,
+    parse_usgs, parse_usgs_result, RawEvent, RejectReason, fdsn_query_params,
+    USGSSource, FDSN_COUNT_URL,
     FDSN_QUERY_URL, USGS_FEED_URL,
-    parse_pmd, PMDSource, PMD_API_URL, _parse_coord,
+    parse_pmd, parse_pmd_result, PMDSource, PMD_API_URL, _parse_coord,
 )
 from eqmon.config import COVERAGE_BBOX
 
@@ -51,6 +52,50 @@ def test_parse_usgs_skips_features_missing_required_fields():
     data = {"features": [{"id": "x", "properties": {"mag": None, "time": 1767225600000},
                           "geometry": {"type": "Point", "coordinates": [72.5, 34.0, 5.0]}}]}
     assert parse_usgs(data) == []
+
+
+def test_parse_usgs_result_captures_typed_rejects_without_losing_valid_rows():
+    data = json.loads(FIXTURE.read_text())
+    data["features"].append({
+        "id": "bad-mag",
+        "properties": {"mag": "unknown", "time": 1767225600000},
+        "geometry": {"coordinates": [72.5, 34.0, 5.0]},
+    })
+
+    result = parse_usgs_result(data)
+
+    assert [event.source_event_id for event in result.events] == ["us1000abcd"]
+    assert [(reject.source_event_id, reject.reason_code) for reject in result.rejects] == [
+        ("us1000ffff", RejectReason.OUTSIDE_COVERAGE),
+        ("bad-mag", RejectReason.INVALID_MAGNITUDE),
+    ]
+    assert all(len(reject.payload_sha256) == 64 for reject in result.rejects)
+    assert all(reject.parser_version == "usgs-1" for reject in result.rejects)
+
+
+@pytest.mark.parametrize("payload", [{}, {"features": None}])
+def test_parse_usgs_result_types_malformed_collection_envelope(payload):
+    result = parse_usgs_result(payload)
+
+    assert result.events == []
+    assert [reject.reason_code for reject in result.rejects] == [
+        RejectReason.INVALID_PAYLOAD_SHAPE,
+    ]
+
+
+def test_parser_reject_bounds_oversized_source_evidence():
+    feature = {
+        "id": "outside-large",
+        "properties": {"mag": 5.0, "time": 1767225600000, "blob": "x" * 20_000},
+        "geometry": {"coordinates": [-150.0, 60.0, 10.0]},
+    }
+
+    reject = parse_usgs_result({"features": [feature]}).rejects[0]
+
+    assert reject.reason_code is RejectReason.OUTSIDE_COVERAGE
+    assert reject.source_record["truncated"] is True
+    assert reject.source_record["original_bytes"] > 16_000
+    assert len(reject.payload_sha256) == 64
 
 
 def test_parse_usgs_supports_pre_1970_historical_events_on_windows():
@@ -187,6 +232,26 @@ def test_fetch_uses_updatedafter_when_provided(monkeypatch):
     assert "starttime" not in params
     assert len(events) == 1
     assert events[0].source_event_id == "us1000abcd"
+
+
+def test_usgs_fetch_batch_preserves_parser_rejects_and_request_metadata(monkeypatch):
+    payload = json.loads(FIXTURE.read_text())
+
+    def fake_get(url, params=None, timeout=None):
+        return _FakeResp(payload)
+
+    monkeypatch.setattr("eqmon.events.sources.httpx.get", fake_get)
+    updated_after = datetime(2026, 6, 1, tzinfo=timezone.utc)
+
+    batch = USGSSource().fetch_batch(updatedafter=updated_after)
+
+    assert [event.source_event_id for event in batch.events] == ["us1000abcd"]
+    assert [(reject.source_event_id, reject.reason_code) for reject in batch.rejects] == [
+        ("us1000ffff", RejectReason.OUTSIDE_COVERAGE),
+    ]
+    assert batch.rejects[0].retrieval_metadata["url"] == FDSN_QUERY_URL
+    assert batch.rejects[0].retrieval_metadata["updatedafter"] == \
+        "2026-06-01T00:00:00"
 
 
 def test_fetch_updatedafter_falls_back_on_http_error(monkeypatch):
@@ -414,6 +479,44 @@ def test_parse_pmd_skips_unparseable_and_out_of_range_rows():
     assert "1008" not in ids  # magnitude 317 (swapped mag/depth) out of range
 
 
+def test_parse_pmd_result_reports_each_dropped_fixture_row():
+    result = parse_pmd_result(json.loads(PMD_FIXTURE.read_text()))
+
+    assert len(result.events) == 6
+    assert {(reject.source_event_id, reject.reason_code) for reject in result.rejects} == {
+        ("19154", RejectReason.OUTSIDE_COVERAGE),
+        ("1005", RejectReason.OUTSIDE_COVERAGE),
+        ("1006", RejectReason.COORDINATE_OUT_OF_RANGE),
+        ("1007", RejectReason.INVALID_MAGNITUDE),
+        ("1008", RejectReason.MAGNITUDE_OUT_OF_RANGE),
+    }
+
+
+def test_parse_pmd_result_rejects_bad_row_without_aborting_valid_sibling():
+    payload = {"data": ["not-an-object", {
+        "id": 1, "event_date": "2026-01-01", "event_time": "00:00:00",
+        "latitude": "30 N", "longitude": "70 E", "magnitude": "4.0",
+        "depth": "10",
+    }]}
+
+    result = parse_pmd_result(payload)
+
+    assert [event.source_event_id for event in result.events] == ["1"]
+    assert [reject.reason_code for reject in result.rejects] == [
+        RejectReason.INVALID_RECORD_SHAPE,
+    ]
+
+
+@pytest.mark.parametrize("payload", [{}, {"data": None}])
+def test_parse_pmd_result_types_malformed_collection_envelope(payload):
+    result = parse_pmd_result(payload)
+
+    assert result.events == []
+    assert [reject.reason_code for reject in result.rejects] == [
+        RejectReason.INVALID_PAYLOAD_SHAPE,
+    ]
+
+
 def test_parse_pmd_clamps_implausible_depth_to_zero():
     data = json.loads(PMD_FIXTURE.read_text())
     events = {e.source_event_id for e in parse_pmd(data)}
@@ -441,6 +544,24 @@ def test_pmd_source_fetch_sends_bearer_and_parses(monkeypatch):
     assert headers["Authorization"] == "Bearer tok123"
     assert headers["Accept"] == "application/json"
     assert len(events) == 6
+
+
+def test_pmd_fetch_batch_preserves_parser_rejects_and_request_metadata(monkeypatch):
+    payload = json.loads(PMD_FIXTURE.read_text())
+
+    def fake_get(url, headers=None, timeout=None):
+        return _FakeResp(payload)
+
+    monkeypatch.setattr("eqmon.events.sources.httpx.get", fake_get)
+
+    batch = PMDSource(url=PMD_API_URL, token="tok123").fetch_batch()
+
+    assert len(batch.events) == 6
+    assert len(batch.rejects) == 5
+    assert all(reject.retrieval_metadata["url"] == PMD_API_URL
+               for reject in batch.rejects)
+    assert all("retrieved_at" in reject.retrieval_metadata
+               for reject in batch.rejects)
 
 
 def test_pmd_source_does_not_send_bearer_over_plaintext_http(monkeypatch):

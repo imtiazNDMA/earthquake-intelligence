@@ -1239,6 +1239,7 @@ function updateCurrentEventCard(event) {
     pills.innerHTML = "<span>Epicenter pending</span><span>MMI pending</span>";
     updateStatusBar(null);
     hideExposureStrip();
+    document.dispatchEvent(new CustomEvent("eqmon:current-event", { detail: null }));
     return;
   }
   const mag = Number(event.magnitude);
@@ -1260,6 +1261,7 @@ function updateCurrentEventCard(event) {
     ? " · Origin " + new Date(event.occurred_at).toLocaleTimeString() : "";
   meta.innerHTML = `${coords}${when}`;
   pills.innerHTML = `<span>Epicenter pinned</span><span>${_mmiVisible ? "MMI visible" : "MMI hidden"}</span>`;
+  document.dispatchEvent(new CustomEvent("eqmon:current-event", { detail: event }));
 }
 
 // --- Epicenter loader: the wait, staged where the answer will appear --------
@@ -1370,6 +1372,8 @@ async function calculate() {
     }
     const fc = await resp.json();
     renderCurrentMmiLayer(fc);
+    if (fc.event_id) payload.id = fc.event_id;
+    payload._fromStart = true;
 
     if (epicenterMarker) map.removeLayer(epicenterMarker);
     epicenterMarker = makeEpicenterMarker(payload.lat, payload.lon, "#000000", "Epicenter").addTo(map);
@@ -3104,8 +3108,11 @@ function syncBasemapToTheme(mode) {
 
 // --- Aftershock probability section ---
 let _asChart = null;
-let _asExpandedChart = null;
 let _asData = null;
+let _asSelectionMode = "current";
+let _asCatalogEvents = new Map();
+let _asEventsLoaded = false;
+const _asGaugeSelection = { mag: null, day: null };
 const _AS_DAYS = [1, 3, 5, 7, 14, 30];
 const _AS_TARGETS = [3, 4, 5, 6, 7];
 // Target magnitudes are ordered, so the series read as a warm ramp.
@@ -3115,77 +3122,149 @@ function _asDestroyChart() {
   if (_asChart) { _asChart.destroy(); _asChart = null; }
 }
 
-function _asDestroyExpandedChart() {
-  if (_asExpandedChart) { _asExpandedChart.destroy(); _asExpandedChart = null; }
-}
-
 async function _asLoadEvents() {
   const sel = document.getElementById("as-event-id");
   if (!sel) return;
+  if (_asEventsLoaded) return;
   sel.innerHTML = '<option value="">Loading…</option>';
   try {
     const resp = await fetch("/events?min_magnitude=4&limit=50&orderby=time");
     const data = await resp.json();
     const events = data.events || [];
-    sel.innerHTML = events.map(e =>
-      `<option value="${e.id}" data-lat="${e.lat}" data-lon="${e.lon}" data-mag="${e.magnitude}">`
-      + `M${e.magnitude.toFixed(1)} · ${e.place || "—"} · ${new Date(e.occurred_at).toLocaleDateString()}`
-      + `</option>`
+    _asCatalogEvents = new Map(events.map(event => [String(event.id), event]));
+    sel.innerHTML = `<option value="">Select a catalog event</option>` + events.map(event =>
+      `<option value="${event.id}">M${event.magnitude.toFixed(1)} · ` +
+      `${escapeHtml(event.place || "Location not named")} · ` +
+      `${new Date(event.occurred_at).toLocaleDateString()}</option>`
     ).join("");
-    if (events.length) _asOnEventSelect();
+    _asEventsLoaded = true;
   } catch (e) {
     sel.innerHTML = '<option value="">Could not load catalog</option>';
   }
 }
 
-function _asOnEventSelect() {
-  const sel = document.getElementById("as-event-id");
-  const opt = sel.options[sel.selectedIndex];
-  if (opt && opt.value) {
-    document.getElementById("as-mag").value = opt.dataset.mag;
-    document.getElementById("as-lat").value = opt.dataset.lat;
-    document.getElementById("as-lon").value = opt.dataset.lon;
-  }
-  _asDetectRegion();
+function _asStartEvent() {
+  return {
+    magnitude: document.getElementById("magnitude")?.valueAsNumber,
+    depth_km: document.getElementById("depth_km")?.valueAsNumber,
+    lat: document.getElementById("lat")?.valueAsNumber,
+    lon: document.getElementById("lon")?.valueAsNumber,
+    _fromStart: true,
+  };
 }
 
-function _asDetectRegion() {
-  const lat = parseFloat(document.getElementById("as-lat").value);
-  const lon = parseFloat(document.getElementById("as-lon").value);
+function _asSelectedEvent() {
+  if (_asSelectionMode === "current") {
+    return _currentEvent && !_currentEvent._fromStart ? _currentEvent : _asStartEvent();
+  }
+  const sel = document.getElementById("as-event-id");
+  return sel ? _asCatalogEvents.get(sel.value) || null : null;
+}
+
+function _asRegionFor(event) {
+  const lat = Number(event?.lat);
+  if (!Number.isFinite(lat)) return null;
+  return lat >= 33.5 ? "northern" : lat >= 28 ? "central" : "southern";
+}
+
+function _asDetectRegion(event = _asSelectedEvent()) {
+  const lat = Number(event?.lat);
+  const lon = Number(event?.lon);
   const badge = document.getElementById("as-region-badge");
-  if (isNaN(lat) || isNaN(lon)) { badge.textContent = ""; return; }
-  let region;
-  if (lat >= 33.5) region = "northern";
-  else if (lat >= 28) region = "central";
-  else region = "southern";
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    badge.textContent = "Waiting for an active event";
+    return;
+  }
+  const region = _asRegionFor(event);
   const names = {
     northern: "Northern Pakistan (Kashmir / Himalayan Thrust)",
     central: "Central Pakistan (Indus Basin / Punjab)",
     southern: "Southern Pakistan (Chaman Fault / Quetta)",
   };
-  badge.innerHTML = `<span class="as-badge-inner as-${region}">${names[region]}</span>`
-    + `<span style="font-size:14.5px;color:var(--text-muted);margin-left:6px">(${lat.toFixed(1)}°N, ${lon.toFixed(1)}°E)</span>`;
+  const ns = lat >= 0 ? "N" : "S", ew = lon >= 0 ? "E" : "W";
+  badge.innerHTML = `<span class="as-badge-inner as-${region}">${names[region]}</span>` +
+    `<span class="as-region-coords">${Math.abs(lat).toFixed(1)}° ${ns} / ${Math.abs(lon).toFixed(1)}° ${ew}</span>`;
+}
+
+function _asRenderSelection() {
+  const event = _asSelectedEvent();
+  const card = document.getElementById("as-event-card");
+  if (!card) return;
+  const calcBtn = document.getElementById("as-calc");
+  const useCurrent = document.getElementById("as-use-current");
+  const isOverride = _asSelectionMode === "catalog";
+  useCurrent.hidden = !isOverride || !_currentEvent;
+
+  if (!event) {
+    card.classList.add("is-empty");
+    document.getElementById("as-event-origin").textContent = "Forecast input";
+    document.getElementById("as-event-source").textContent = "NONE";
+    document.getElementById("as-event-mag").textContent = "—";
+    document.getElementById("as-event-place").textContent = "No active event";
+    document.getElementById("as-event-meta").textContent = "Draw a shaking footprint in START first.";
+    calcBtn.disabled = true;
+    _asDetectRegion(null);
+    return;
+  }
+
+  const mag = Number(event.magnitude), depth = Number(event.depth_km);
+  const lat = Number(event.lat), lon = Number(event.lon);
+  const source = isOverride ? "CATALOG" : (event.source || "START").toUpperCase();
+  const origin = isOverride ? "Catalog override" : event.source ? "Current active event" : "Current START event";
+  const ns = lat >= 0 ? "N" : "S", ew = lon >= 0 ? "E" : "W";
+  const details = [];
+  if (Number.isFinite(depth)) details.push(`${depth.toFixed(0)} km deep`);
+  if (Number.isFinite(lat) && Number.isFinite(lon)) {
+    details.push(`${Math.abs(lat).toFixed(2)}° ${ns} / ${Math.abs(lon).toFixed(2)}° ${ew}`);
+  }
+  card.classList.remove("is-empty");
+  document.getElementById("as-event-origin").textContent = origin;
+  document.getElementById("as-event-source").textContent = source;
+  document.getElementById("as-event-mag").textContent = Number.isFinite(mag) ? `M${mag.toFixed(1)}` : "M?";
+  document.getElementById("as-event-place").textContent = event.place || "Manual earthquake";
+  document.getElementById("as-event-meta").textContent = details.join(" · ") || "Location details unavailable";
+  calcBtn.disabled = !Number.isFinite(mag) || !Number.isFinite(lat) || !Number.isFinite(lon);
+  _asDetectRegion(event);
+}
+
+function _asUseCurrentEvent(closePicker = true) {
+  _asSelectionMode = "current";
+  const sel = document.getElementById("as-event-id");
+  if (sel) sel.value = "";
+  if (closePicker) document.getElementById("as-catalog-picker")?.removeAttribute("open");
+  _asRenderSelection();
+}
+
+function _asOnEventSelect() {
+  const sel = document.getElementById("as-event-id");
+  _asSelectionMode = sel?.value ? "catalog" : "current";
+  _asRenderSelection();
+}
+
+function _asSetCalcIdle() {
+  const calcBtn = document.getElementById("as-calc");
+  calcBtn.textContent = "Run 30-day forecast";
+  const event = _asSelectedEvent();
+  calcBtn.disabled = !event || ![event.magnitude, event.lat, event.lon].every(value =>
+    Number.isFinite(Number(value)));
 }
 
 async function _asCalculate() {
   const calcBtn = document.getElementById("as-calc");
   const resultsEl = document.getElementById("as-results");
+  const event = _asSelectedEvent();
+  if (!event) { toast("Draw a footprint in START or choose a catalog event", "warn"); return; }
+  const mag = Number(event.magnitude), lat = Number(event.lat), lon = Number(event.lon);
+  if (![mag, lat, lon].every(Number.isFinite)) {
+    toast("The selected event needs magnitude and coordinates", "warn");
+    return;
+  }
   calcBtn.disabled = true;
   calcBtn.innerHTML = spinnerHTML() + " Computing…";
-
-  const source = document.getElementById("as-source").value;
-  let body;
-  if (source === "catalog") {
-    const eventId = parseInt(document.getElementById("as-event-id").value);
-    if (!eventId) { toast("Select an event from the catalog", "warn"); calcBtn.disabled = false; calcBtn.textContent = "Calculate aftershock probability"; return; }
-    body = { event_id: eventId };
-  } else {
-    const mag = parseFloat(document.getElementById("as-mag").value);
-    const lat = parseFloat(document.getElementById("as-lat").value);
-    const lon = parseFloat(document.getElementById("as-lon").value);
-    if (isNaN(mag) || isNaN(lat) || isNaN(lon)) { toast("Fill in magnitude, latitude, and longitude", "warn"); calcBtn.disabled = false; calcBtn.textContent = "Calculate aftershock probability"; return; }
-    body = { magnitude: mag, lat, lon };
-  }
+  const eventId = Number(event.id);
+  const body = Number.isInteger(eventId) && eventId > 0
+    ? { event_id: eventId }
+    : { magnitude: mag, lat, lon };
 
   try {
     const resp = await fetch("/aftershock", {
@@ -3196,7 +3275,6 @@ async function _asCalculate() {
     if (!resp.ok) {
       const err = await resp.text().catch(() => "Unknown error");
       toast("Aftershock calculation failed: " + err.slice(0, 120), "error");
-      calcBtn.disabled = false; calcBtn.textContent = "Calculate aftershock probability";
       return;
     }
     const data = await resp.json();
@@ -3204,9 +3282,9 @@ async function _asCalculate() {
     resultsEl.style.display = "block";
   } catch (e) {
     toast("Network error: " + e.message, "error");
+  } finally {
+    _asSetCalcIdle();
   }
-  calcBtn.disabled = false;
-  calcBtn.textContent = "Calculate aftershock probability";
 }
 
 function _asRenderResults(data) {
@@ -3334,98 +3412,113 @@ function _asShowExpanded() {
   const mapEl = document.getElementById("map");
   mapEl.style.display = "none";
   expandedView.classList.add("open");
+  const mags = _asData.target_mags;
+  const days = _asData.days || _AS_DAYS;
+  const selected = { ...(_asSelectedEvent() || {}), ...(_asData.event || {}) };
+  const magnitude = Number(_asData.main_mag);
+  const place = selected.place || "Manual earthquake";
+  const lat = Number(selected.lat), lon = Number(selected.lon), depth = Number(selected.depth_km);
+  const meta = [];
+  if (selected.occurred_at) meta.push(new Date(selected.occurred_at).toLocaleString());
+  if (Number.isFinite(lat) && Number.isFinite(lon)) meta.push(`${lat.toFixed(3)}° / ${lon.toFixed(3)}°`);
+  if (Number.isFinite(depth)) meta.push(`${depth.toFixed(1)} km deep`);
+  const defaultMag = mags.includes(_asData.params.Mmin) ? _asData.params.Mmin : mags[0];
+  _asGaugeSelection.mag = defaultMag;
+  _asGaugeSelection.day = days.includes(30) ? 30 : days[days.length - 1];
+  const extrapolated = mags.filter(mag => mag < _asData.params.Mmin);
+  const tableRows = days.map(day => {
+    const row = _asData.probabilities.filter(item => item.DaysSince === day);
+    return `<tr><td>${day}</td>${row.map(item =>
+      `<td>${item.AftershockProb > 99.9 ? "&gt;99.9" : item.AftershockProb}%</td>`).join("")}</tr>`;
+  }).join("");
+  const params = _asData.params;
 
-  const _asMags = _asData.target_mags;
-  const ev = _asData.event;
-  const summary = document.getElementById("as-expanded-summary");
-  const eventStr = ev
-    ? `M${ev.magnitude} · ${ev.place || "—"} · ${ev.occurred_at ? new Date(ev.occurred_at).toLocaleDateString() : ""}`
-    : `M${_asData.main_mag} (manual entry)`;
-
-  const allTargets = _AS_TARGETS;
-  const excluded = allTargets.filter(m => !_asMags.includes(m));
-  const magsStr = _asMags.map(m => "M≥" + m).join(", ");
-  const excludedStr = excluded.length
-    ? `<span style="color:var(--text-muted);font-size:14.5px"> (${excluded.map(m => "M " + m).join(", ")} excluded: above mainshock)</span>`
-    : "";
-  const extrapolated = _asMags.filter(m => m < _asData.params.Mmin);
-  const caveat = extrapolated.length
-    ? `<div style="font-size:14.5px;color:var(--copper);margin-top:1px">M≥${extrapolated.join(", M≥")} is extrapolated below catalog completeness Mmin=${_asData.params.Mmin}.</div>`
-    : "";
-
-  summary.innerHTML = `
-    <div class="as-summary-inner" style="background:var(--surface);border:1px solid var(--border)">
-      <strong>${escapeHtml(eventStr)}</strong>
-      <span class="as-badge-inner as-${_asData.region}">${escapeHtml(_asData.region_name)}</span>
-      <div style="font-size:15px;color:var(--slate);margin-top:2px">
-        ${magsStr}${excludedStr}
+  document.getElementById("as-expanded-content").innerHTML = `
+    <section class="as-forecast-event" aria-labelledby="as-forecast-event-title">
+      <div><span class="as-kicker">Mainshock / ${_asData.event ? escapeHtml(_asData.event.source) : "manual entry"}</span>
+        <h2 id="as-forecast-event-title">M${magnitude.toFixed(1)} — ${escapeHtml(place)}</h2>
+        <div class="as-forecast-event-meta">${meta.map(value => `<span>${escapeHtml(value)}</span>`).join("") || "<span>Event metadata unavailable</span>"}</div>
       </div>
-      ${caveat}
-      <div style="font-size:15px;color:var(--text-muted);margin-top:1px">
-        k=${Number(_asData.params.k).toPrecision(3)} · c=${_asData.params.c} · p=${_asData.params.p} · b=${_asData.params.b} · Mmin=${_asData.params.Mmin}
+      <div class="as-forecast-region"><span>Regional model</span><b>${escapeHtml(_asData.region_name)}</b></div>
+    </section>
+    <aside class="as-readiness"><i aria-hidden="true"></i><div><b>Be ready for more earthquakes</b><span>Automated model output supports readiness; it is not a deterministic prediction.</span></div></aside>
+    <nav class="as-forecast-tabs" aria-label="Aftershock forecast views" role="tablist">
+      <button class="as-forecast-tab active" type="button" role="tab" aria-selected="true" data-as-tab="summary">Summary</button>
+      <button class="as-forecast-tab" type="button" role="tab" aria-selected="false" data-as-tab="commentary">Commentary</button>
+      <button class="as-forecast-tab" type="button" role="tab" aria-selected="false" data-as-tab="table">Forecast table</button>
+      <button class="as-forecast-tab" type="button" role="tab" aria-selected="false" data-as-tab="params">Model parameters</button>
+    </nav>
+    <section class="as-forecast-panel" role="tabpanel" data-as-panel="summary">
+      <p id="as-gauge-sentence" class="as-gauge-sentence"></p>
+      <div id="as-gauge" class="as-gauge" role="img">
+        <svg viewBox="0 0 260 145" aria-hidden="true">
+          <path class="as-gauge-track" pathLength="100" d="M25 125 A105 105 0 0 1 235 125" />
+          <path id="as-gauge-value" class="as-gauge-value" pathLength="100" d="M25 125 A105 105 0 0 1 235 125" />
+        </svg>
+        <div class="as-gauge-readout"><output id="as-gauge-output">—</output><span id="as-gauge-caption"></span></div>
+        <div class="as-gauge-scale"><span>0%</span><span>100%</span></div>
       </div>
-    </div>
-  `;
+      <div class="as-forecast-controls">
+        <fieldset class="as-choice-group"><legend>Aftershock magnitude</legend><div class="as-choice-list">
+          ${mags.map(mag => `<label class="as-choice"><input type="radio" name="as-gauge-mag" value="${mag}" ${mag === defaultMag ? "checked" : ""}><span>M${mag}+</span></label>`).join("")}
+        </div></fieldset>
+        <fieldset class="as-choice-group"><legend>Day since mainshock</legend><div class="as-choice-list">
+          ${days.map(day => `<label class="as-choice"><input type="radio" name="as-gauge-day" value="${day}" ${day === _asGaugeSelection.day ? "checked" : ""}><span>${day === 1 ? "1 day" : day + " days"}</span></label>`).join("")}
+        </div></fieldset>
+      </div>
+    </section>
+    <section class="as-forecast-panel" role="tabpanel" data-as-panel="commentary" hidden>
+      <div class="as-commentary">
+        <article><h3>How to read this</h3><p>Each percentage is the modeled chance of at least one aftershock at or above the selected magnitude on that specific day after the mainshock.</p></article>
+        <article><h3>Model scope</h3><p>The forecast uses a regional Omori-Utsu decay model with Gutenberg-Richter magnitude scaling. Actual sequences can differ from the regional reference.</p></article>
+        <article><h3>Catalog completeness</h3><p>${extrapolated.length ? `M${extrapolated.join("+, M")}+ is extrapolated below the calibrated completeness threshold M${params.Mmin}.` : `All displayed magnitudes are at or above the calibrated completeness threshold M${params.Mmin}.`}</p></article>
+        <article><h3>Operational use</h3><p>Use this estimate for situational awareness and planning. It does not replace reviewed guidance from the responsible seismic authority.</p></article>
+      </div>
+    </section>
+    <section class="as-forecast-panel" role="tabpanel" data-as-panel="table" hidden>
+      <div class="as-forecast-table-wrap"><table class="as-forecast-table">
+        <thead><tr><th>Day since</th>${mags.map(mag => `<th>M${mag}+</th>`).join("")}</tr></thead><tbody>${tableRows}</tbody>
+      </table></div><button id="as-expanded-export" class="btn-secondary as-expanded-export" type="button">Download CSV</button>
+    </section>
+    <section class="as-forecast-panel" role="tabpanel" data-as-panel="params" hidden>
+      <dl class="as-params">
+        ${[["Productivity k", Number(params.k).toPrecision(3)], ["Offset c", params.c], ["Decay p", params.p], ["Magnitude b", params.b], ["Completeness Mmin", params.Mmin], ["Reference M", params.Mref], ["Scaling alpha", params.alpha], ["Productivity scale", Number(params.productivity_scale).toPrecision(3)]].map(([label, value]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join("")}
+      </dl><p class="as-params-note">Parameters are selected by the event's regional model and productivity is scaled to the mainshock magnitude.</p>
+    </section>`;
 
-  _asDestroyExpandedChart();
-  const probsByMag = {};
-  _asData.probabilities.forEach(r => {
-    if (!probsByMag[r.Mtarget]) probsByMag[r.Mtarget] = [];
-    probsByMag[r.Mtarget].push(r);
-  });
+  document.querySelectorAll("[data-as-tab]").forEach(button => button.addEventListener("click", () => {
+    document.querySelectorAll("[data-as-tab]").forEach(tab => {
+      const active = tab === button;
+      tab.classList.toggle("active", active);
+      tab.setAttribute("aria-selected", String(active));
+    });
+    document.querySelectorAll("[data-as-panel]").forEach(panel => {
+      panel.hidden = panel.dataset.asPanel !== button.dataset.asTab;
+    });
+  }));
+  document.querySelectorAll('input[name="as-gauge-mag"]').forEach(input => input.addEventListener("change", () => {
+    _asGaugeSelection.mag = Number(input.value); _asRenderExpandedGauge();
+  }));
+  document.querySelectorAll('input[name="as-gauge-day"]').forEach(input => input.addEventListener("change", () => {
+    _asGaugeSelection.day = Number(input.value); _asRenderExpandedGauge();
+  }));
+  document.getElementById("as-expanded-export").addEventListener("click", () => _asExportCsv(_asData));
+  _asRenderExpandedGauge();
+}
 
-  syncChartTheme();
-  const expandedCanvas = document.getElementById("as-expanded-chart");
-  _asExpandedChart = new Chart(expandedCanvas, {
-    type: "line",
-    data: {
-      labels: _AS_DAYS,
-      datasets: _asMags.map((mt, i) => ({
-        label: `M ${mt}`,
-        data: probsByMag[mt] ? probsByMag[mt].map(r => r.AftershockProb) : [],
-        borderColor: _AS_COLORS[i],
-        backgroundColor: _AS_COLORS[i] + "15",
-        fill: true,
-        tension: 0.3,
-        borderWidth: 3,
-        borderDash: [[], [8, 4], [4, 4], [2, 3], [6, 2]][i] || [],
-        pointRadius: 5,
-        pointHoverRadius: 8,
-      })),
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: "top", labels: { font: { size: 13 }, boxWidth: 18 } },
-        title: { display: true, text: "Aftershock probability vs. days since mainshock", font: { size: 16, weight: "600" } },
-      },
-      scales: {
-        y: {
-          title: { display: true, text: "Probability (%)", font: { size: 13 } },
-          min: 0, max: 100,
-          ticks: { font: { size: 12 }, callback: v => v + "%" },
-        },
-        x: {
-          title: { display: true, text: "Days since mainshock", font: { size: 13 } },
-          ticks: { font: { size: 12 } },
-        },
-      },
-    },
-  });
-
-  const table = document.getElementById("as-expanded-table");
-  table.innerHTML = `
-    <table class="as-table">
-      <thead><tr><th>Days since</th>${_asMags.map(mt => `<th>M≥${mt}</th>`).join("")}</tr></thead>
-      <tbody>${_AS_DAYS.map(d => {
-        const row = _asData.probabilities.filter(r => r.DaysSince === d);
-        return `<tr><td>${d}</td>${
-          row.map(r => `<td>${r.AftershockProb > 99.9 ? ">99.9" : r.AftershockProb}%</td>`).join("")
-        }</tr>`;
-      }).join("")}</tbody>
-    </table>
-  `;
+function _asRenderExpandedGauge() {
+  const row = _asData?.probabilities.find(item =>
+    item.Mtarget === _asGaugeSelection.mag && item.DaysSince === _asGaugeSelection.day);
+  if (!row) return;
+  const probability = Number(row.AftershockProb);
+  const display = probability > 99.9 ? ">99.9%" : `${probability}%`;
+  document.getElementById("as-gauge-value").style.strokeDasharray = `${Math.min(probability, 100)} 100`;
+  document.getElementById("as-gauge-output").textContent = display;
+  document.getElementById("as-gauge-caption").textContent = `M${_asGaugeSelection.mag}+ / day ${_asGaugeSelection.day}`;
+  document.getElementById("as-gauge-sentence").innerHTML =
+    `On day <b>${_asGaugeSelection.day}</b> after the mainshock, there is a <b>${display}</b> chance of at least one M${_asGaugeSelection.mag}+ aftershock.`;
+  document.getElementById("as-gauge").setAttribute("aria-label",
+    `${display} chance of at least one magnitude ${_asGaugeSelection.mag} or larger aftershock on day ${_asGaugeSelection.day}`);
 }
 
 function _asCloseExpanded() {
@@ -3433,7 +3526,6 @@ function _asCloseExpanded() {
   const mapEl = document.getElementById("map");
   expandedView.classList.remove("open");
   mapEl.style.display = "";
-  _asDestroyExpandedChart();
   setTimeout(() => map.invalidateSize(), 100);
 }
 
@@ -3454,23 +3546,16 @@ function _asExportCsv(data) {
 
 // Wire up aftershock UI events
 document.addEventListener("DOMContentLoaded", () => {
-  const srcSel = document.getElementById("as-source");
-  const catRow = document.getElementById("as-catalog-row");
-  const manRow = document.getElementById("as-manual-row");
-  if (srcSel) {
-    srcSel.addEventListener("change", () => {
-      const isCat = srcSel.value === "catalog";
-      catRow.style.display = isCat ? "" : "none";
-      manRow.style.display = isCat ? "none" : "";
-      if (isCat) _asOnEventSelect();
-    });
-  }
   const eventSel = document.getElementById("as-event-id");
   if (eventSel) eventSel.addEventListener("change", _asOnEventSelect);
-
-  ["as-mag", "as-lat", "as-lon"].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.addEventListener("input", _asDetectRegion);
+  ["magnitude", "depth_km", "lat", "lon"].forEach(id =>
+    document.getElementById(id)?.addEventListener("input", () => {
+      if (_asSelectionMode === "current") _asRenderSelection();
+    }));
+  document.getElementById("as-use-current")?.addEventListener("click", () =>
+    _asUseCurrentEvent());
+  document.addEventListener("eqmon:current-event", () => {
+    if (_asSelectionMode === "current") _asRenderSelection();
   });
 
   const calcBtn = document.getElementById("as-calc");
@@ -3637,7 +3722,10 @@ showSection = function(key) {
     if (!_mapEventsLoaded || !_mapEventsLayer) loadMapEvents();
     _syncMapPlateAnnotations();
   }
-  if (key === "aftershock") _asLoadEvents();
+  if (key === "aftershock") {
+    _asUseCurrentEvent();
+    _asLoadEvents();
+  }
 };
 
 // --- Elements at risk (ARC) ---------------------------------------------
@@ -3658,14 +3746,6 @@ const ARC_LAYERS = [
 
 let _arcData = null;
 
-// Compact for the tiles; the exact figure sits underneath. Six-figure counts
-// read as noise at a glance, which is what the tiles are for.
-function _arcCompact(n) {
-  if (!isFinite(n)) return "—";
-  if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 1 : 2) + "M";
-  if (n >= 1e4) return Math.round(n / 1e3) + "k";
-  return Math.round(n).toLocaleString();
-}
 const _arcExact = n => Math.round(n || 0).toLocaleString();
 
 function _arcValue(elements, layer, field) {
@@ -3685,56 +3765,29 @@ function _arcClose() {
 }
 
 function _arcRender(data) {
-  const min = data.min_mmi;
-  const head = data.at_min_mmi || { elements: {}, area_km2: 0 };
-  const roman = (MMI_CLASSES[min] || [String(min)])[0];
-  const empty = !Object.keys(head.elements || {}).length;
-
-  document.getElementById("arc-summary").innerHTML =
-    `<div class="arc-lead">At MMI ${roman} and above` +
-    (head.area_km2 ? ` · ${_arcExact(head.area_km2)} km²` : "") + `</div>` +
-    (empty
-      ? `<div class="arc-tile"><span class="arc-k">No exposure</span>` +
-        `<b>—</b><span class="arc-exact">Shaking does not reach MMI ${roman}.</span></div>`
-      : `<div class="arc-tiles">` + ARC_LAYERS.map(([layer, label, field]) => {
-          const v = _arcValue(head.elements, layer, field);
-          const compact = _arcCompact(v), exact = _arcExact(v);
-          return `<div class="arc-tile"><span class="arc-k">${escapeHtml(label)}</span>` +
-            `<b>${compact}</b>` +
-            // Only when abbreviating actually lost something — "216 / 216"
-            // is noise.
-            (compact === exact ? "" : `<span class="arc-exact">${exact}</span>`) +
-            `</div>`;
-        }).join("") + `</div>`);
-
   const colorOf = Object.fromEntries(MMI_PALETTE);
-  const rows = (data.bands || []).map(b => {
+  const bands = data.bands || [];
+  const maxPeople = Math.max(1, ...bands.map(b =>
+    _arcValue(b.elements, "population", "total")));
+  const rows = bands.map(b => {
     const lo = b.mmi_low;
     const [rm, name] = MMI_CLASSES[lo] || [String(lo), ""];
-    return `<tr class="${lo >= min ? "" : "arc-below"}">` +
-      `<td><span class="arc-band-key"><i style="background:${colorOf[lo] || "#888"}"></i>` +
-      `MMI ${rm}${name ? " · " + name : ""}</span></td>` +
-      `<td>${_arcExact(b.area_km2)}</td>` +
-      ARC_LAYERS.map(([layer, , field]) =>
-        `<td>${_arcExact(_arcValue(b.elements, layer, field))}</td>`).join("") +
-      `</tr>`;
+    const people = _arcValue(b.elements, "population", "total");
+    const share = people ? Math.max(1, people / maxPeople * 100) : 0;
+    const stats = ARC_LAYERS.slice(1).map(([layer, label, field]) =>
+      `<div class="arc-ledger-stat"><span class="arc-ledger-label">${escapeHtml(label)}</span>` +
+      `<b>${_arcExact(_arcValue(b.elements, layer, field))}</b></div>`).join("");
+    return `<article class="arc-ledger-row" style="--arc-band:${colorOf[lo] || "#888"};` +
+      `--arc-share:${share}%">` +
+      `<div class="arc-ledger-band"><h2>MMI ${rm}</h2><span>${escapeHtml(name)}` +
+      `<br>${_arcExact(b.area_km2)} km²</span></div>` +
+      `<div class="arc-ledger-pop"><span class="arc-ledger-label">People</span>` +
+      `<b>${_arcExact(people)}</b><div class="arc-ledger-track" aria-hidden="true"><i></i></div></div>` +
+      `<div class="arc-ledger-grid">${stats}</div></article>`;
   }).join("");
 
   document.getElementById("arc-table").innerHTML =
-    `<div class="arc-table-wrap"><table class="arc-table">` +
-    `<thead><tr><th>Band</th><th>Area km²</th>` +
-    ARC_LAYERS.map(([, label]) => `<th>${escapeHtml(label)}</th>`).join("") +
-    `</tr></thead><tbody>${rows}</tbody></table></div>`;
-
-  // The footprint runs down to MMI 2, which for a large event is most of the
-  // country. Show that total, but say plainly why it is not the headline.
-  const wholePop = _arcValue(data.totals, "population", "total");
-  document.getElementById("arc-foot").innerHTML =
-    `<p>Each element is counted once, in the strongest band it falls in, so bands ` +
-    `never double-count and they sum to the whole-footprint total.</p>` +
-    `<p>Across the whole footprint (down to MMI II): ` +
-    `<b>${_arcExact(wholePop)}</b> people. That reaches far beyond damaging ` +
-    `shaking, which is why the figures above are cut at MMI ${roman}.</p>`;
+    `<div class="arc-ledger" aria-label="Exposure by intensity band">${rows}</div>`;
 }
 
 async function _arcRun() {

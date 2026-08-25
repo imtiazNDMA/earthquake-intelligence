@@ -15,12 +15,12 @@ def test_apply_schema_creates_tables(db_conn):
         "SELECT table_name FROM information_schema.tables "
         "WHERE table_schema='public' AND table_name IN "
         "('seismic_event','admin_boundary','analysis_artifact','analysis_claim',"
-        " '_schema_migrations')"
+        " 'ingest_reject','_schema_migrations')"
     ).fetchall()
     names = {r[0] for r in rows}
     assert names == {
         "seismic_event", "admin_boundary", "analysis_artifact", "analysis_claim",
-        "_schema_migrations",
+        "ingest_reject", "_schema_migrations",
     }
 
 

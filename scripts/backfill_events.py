@@ -34,6 +34,9 @@ class _HistoricalUSGS:
     def fetch(self, since=None, updatedafter=None):
         return self.source.fetch_range(self.start, self.end)
 
+    def fetch_batch(self, since=None, updatedafter=None):
+        return self.source.fetch_range_batch(self.start, self.end)
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -87,7 +90,10 @@ def main() -> None:
         ).fetchall()
 
     for result in results:
-        print(f"{result.source}: fetched {result.fetched}, inserted {result.inserted}")
+        print(
+            f"{result.source}: fetched {result.fetched}, inserted {result.inserted}, "
+            f"rejected {result.rejected}"
+        )
     print("Stored source coverage (not a completeness guarantee):")
     for source, count, earliest, latest in rows:
         print(f"  {source}: {count} records, {earliest} to {latest}")

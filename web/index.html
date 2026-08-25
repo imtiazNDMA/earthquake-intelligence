@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet"
         href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=JetBrains+Mono:wght@400;500;700&display=swap" />
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=20260825-aftershock-forecast" />
 </head>
 <body>
   <div id="map"></div>
@@ -65,11 +65,7 @@
         <span id="as-expanded-title">Aftershock Probability</span>
         <button id="as-expanded-close" class="as-exp-close-btn" aria-label="Close expanded view">&#10005;</button>
       </div>
-      <div id="as-expanded-body">
-        <div id="as-expanded-summary"></div>
-        <div id="as-expanded-chart-wrap"><canvas id="as-expanded-chart"></canvas></div>
-        <div id="as-expanded-table"></div>
-      </div>
+      <div id="as-expanded-body"><div id="as-expanded-content"></div></div>
     </div>
   </div>
   <div id="sidebar">
@@ -203,29 +199,29 @@
       <section id="sec-aftershock">
         <h4>Aftershock Probability</h4>
         <div class="as-form">
-          <div><span class="field-label">Event source</span>
-            <select id="as-source" class="as-select">
-              <option value="catalog">From catalog</option>
-              <option value="manual">Manual entry</option>
-            </select></div>
-          <div id="as-catalog-row"><span class="field-label">Select event</span>
-            <select id="as-event-id" class="as-select"></select></div>
-          <div id="as-manual-row" style="display:none">
-            <div class="grid2">
-              <div><span class="field-label">Magnitude</span>
-                <input id="as-mag" type="number" value="6.5" step="0.1" /></div>
-              <div><span class="field-label">Depth (km)</span>
-                <input id="as-depth" type="number" value="10" step="1" /></div>
+          <article id="as-event-card" class="as-event-card" aria-live="polite">
+            <div class="as-event-head">
+              <span id="as-event-origin">Current START event</span>
+              <span id="as-event-source" class="as-event-source">START</span>
             </div>
-            <div class="grid2">
-              <div><span class="field-label">Latitude</span>
-                <input id="as-lat" type="number" value="30.4" step="0.01" /></div>
-              <div><span class="field-label">Longitude</span>
-                <input id="as-lon" type="number" value="69.3" step="0.01" /></div>
+            <div class="as-event-main">
+              <strong id="as-event-mag">—</strong>
+              <div><b id="as-event-place">No active event</b><span id="as-event-meta">Draw a shaking footprint in START first.</span></div>
             </div>
+          </article>
+          <details id="as-catalog-picker" class="as-catalog-picker">
+            <summary>Use another catalog event</summary>
+            <div class="as-catalog-body">
+              <label for="as-event-id">Catalog event</label>
+              <select id="as-event-id" class="as-select"><option value="">Loading catalog…</option></select>
+              <button id="as-use-current" class="as-use-current" type="button" hidden>Return to current START event</button>
+            </div>
+          </details>
+          <div class="as-model">
+            <span class="as-model-label">Forecast model</span>
+            <div id="as-region-badge" class="as-badge">Waiting for an active event</div>
           </div>
-          <div id="as-region-badge" class="as-badge"></div>
-          <button id="as-calc" class="btn-primary">Calculate aftershock probability</button>
+          <button id="as-calc" class="btn-primary" disabled>Run 30-day forecast</button>
         </div>
         <div id="as-results" style="display:none">
           <div id="as-summary"></div>
@@ -325,9 +321,7 @@
         <button id="arc-close" class="as-exp-close-btn" aria-label="Close elements at risk">&#10005;</button>
       </div>
       <div id="arc-body">
-        <div id="arc-summary"></div>
         <div id="arc-table"></div>
-        <div id="arc-foot" class="arc-foot"></div>
       </div>
     </div>
   </div>
@@ -402,7 +396,7 @@
            crossorigin="anonymous" defer></script>
   <script type="module"
           src="https://unpkg.com/@lottiefiles/dotlottie-wc@0.8.1/dist/dotlottie-wc.js"></script>
-  <script src="app.js"></script>
+  <script src="app.js?v=20260825-aftershock-forecast"></script>
   <!-- Loads after app.js so it can reuse the map and config panel. Data stays
        lazy: no landslide archive is requested until the operator enables it. -->
   <script src="landslides.js"></script>

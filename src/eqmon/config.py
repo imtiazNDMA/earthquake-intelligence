@@ -17,9 +17,9 @@ BUILDINGS_MIN_ZOOM = 12
 
 # ARC — the external elements-at-risk service (population, settlements,
 # hospitals, schools, roads, bridges, airports under each MMI band). Same
-# reasoning as BUILDINGS_TILE_URL: it lives on a container IP that moves, and
-# its own docs disagree with its runtime port. See src/eqmon/exposure.py.
-ARC_URL = os.getenv("ARC_URL", "http://172.18.0.12:5002").rstrip("/")
+# reasoning as BUILDINGS_TILE_URL: it lives on a container IP that can move.
+# See src/eqmon/exposure.py.
+ARC_URL = os.getenv("ARC_URL", "http://172.18.0.29:5001").rstrip("/")
 
 # A full analysis scans every element layer — roads alone is ~375k features —
 # and measured ~11 s for a M7 footprint. This is a job timeout, not a hop.

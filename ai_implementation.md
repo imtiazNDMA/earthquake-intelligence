@@ -1,7 +1,7 @@
 # Agentic AI Integration Plan - eqMonitoring2
 
 **Status:** Reviewed architecture and delivery plan
-**Updated:** 2026-08-17
+**Updated:** 2026-08-19
 **Inference target:** Local models through LM Studio's OpenAI-compatible API
 **Reference hardware:** NVIDIA RTX 6000 Ada, 48 GB VRAM
 
@@ -56,12 +56,19 @@ Status labels used throughout this plan:
   coordinate bounds before database or forecast work.
 - `src/eqmon/ai/contracts.py`, `src/eqmon/ai/registry.py`, and
   `src/eqmon/ai/tools/`: versioned output projections, authorization checks, and
-  six registered read-only adapters. The aftershock tool schema is generated
+  seven registered read-only adapters. The aftershock tool schema is generated
   from the same validated service input contract used at runtime. Every current
   adapter enforces the projection byte ceiling, and aftershock event evidence
   preserves its canonical PMD/USGS/MANUAL source. `get_event_analysis` reuses the
   immutable impact artifact and exposes a bounded projection with no geometry or
-  full administrative rollups.
+  full administrative rollups. `get_exposure_summary` uses a deadline-bound ARC
+  request, explicit freshness metadata, partial-failure state, and a reusable
+  exposure artifact.
+- `src/eqmon/ai/routes.py`, `src/eqmon/ai/jobs.py`, and
+  `src/eqmon/ai/workflows/`: feature-flagged health, catalog-query, and bounded
+  chat routes; minimal persisted job state; exactly-one-call catalog translation;
+  and a step/tool-limited read-only chat workflow. These are prototype product
+  integrations, not authorization or production-readiness evidence.
 - `src/eqmon/analysis_artifacts.py` and
   `migrations/008_analysis_artifacts.sql`: model-independent immutable artifact
   records, canonical input/data hashes, calculation versions, and PostgreSQL
@@ -79,17 +86,33 @@ Status labels used throughout this plan:
   `tests/test_analysis_artifacts.py`; the event-analysis projection and schema
   are covered by `tests/test_ai_tools_event_analysis.py`; claim validation,
   persistence, artifact-trigger checks, and real impact binding are covered by
-  `tests/test_claims.py`. The full suite currently passes 354 tests without a GPU.
+  `tests/test_claims.py`. Route, workflow, exposure, and connected-map contracts
+  are covered by `tests/test_ai_routes.py`, `tests/test_ai_agent_chat.py`,
+  `tests/test_ai_catalog_query_workflow.py`, `tests/test_ai_tools_exposure.py`,
+  and `tests/test_map_event_ui.py`. The full suite currently passes 407 tests
+  without requiring a live model.
+- `src/eqmon/events/sources.py`, `src/eqmon/events/ingest.py`, and
+  `migrations/015_ingest_rejects.sql` through
+  `migrations/016_ingest_reject_payload_shape.sql`: accepted records and typed
+  parser rejects now travel together through source ingestion. Reject evidence
+  includes a size-bounded source-row projection, stable full-row payload hash,
+  parser version, bounded retrieval metadata, reason code, and recurrence count.
+  Reject presence does not block accepted records or watermark advancement. A
+  failure to persist reject evidence is an ingest error and prevents commit, so
+  rejected source data cannot silently disappear again.
 
 Four silent local-model failures are now pinned in CI rather than three. The
 fourth is truncation: `finish_reason: "length"` returns HTTP 200 with a partial
 body, so a truncated tool call carries malformed arguments and a truncated
 sentence reads as a finished one. It is a typed failure.
 
-These remain scaffolding, not product integration. There are still no AI routes,
-orchestrator, claim rendering/prose guard, job store, audit migration, connected
-analyst UI, or ingest review queue. The model-independent claim ledger exists;
-the frontend analyst console remains offline and its composer remains disabled.
+The repository now has prototype product integration: feature-flagged AI routes,
+bounded workflows, a minimal job store, and a connected analyst UI that enables
+its composer only when inference is ready. It still has no authentication,
+route-level subject authorization, claim rendering/prose guard, audit policy or
+migration, operator correction capture, or ingest reject review queue. The
+generic chat is therefore not production-ready and remains gated by
+`EQMON_AI_ENABLED`.
 
 ### 2.2 Preliminary live probe
 
@@ -321,8 +344,9 @@ complete the unique key. A transaction-scoped advisory lock plus a second lookup
 guarantees same-key concurrent callers compute once. Failed callbacks insert
 nothing, and database triggers reject updates and deletes. Event impact is the
 first integrated producer, with Vs30 COG and administrative-boundary SHA-256
-fingerprints. Exposure remains excluded until ARC revision/freshness semantics
-are defined.
+fingerprints. Exposure artifacts use the configured ARC data version as their
+source revision and expose retrieval freshness. Operational ownership of that
+revision and its update policy remains a governance gate.
 
 ### 5.6 Audit policy
 
@@ -354,7 +378,7 @@ Initial deterministic capabilities:
 | `search_events` | Add explicit dates, point/radius, mainshock state, canonical/source semantics, result caps, and catalog completeness |
 | `get_event_summary` | Implemented: allowlisted event fields, raw `usgs_detail` omitted, projection byte ceiling enforced |
 | `get_event_analysis` | Implemented: reuses versioned impact artifact; bounded modeled-impact projection excludes geometry and full rollups |
-| `get_exposure_summary` | Deadline-bound ARC summary with freshness and partial-failure state |
+| `get_exposure_summary` | Implemented: deadline-bound ARC summary with freshness, partial-failure state, bounded projection, and versioned artifact reuse |
 | `get_aftershock_summary` | Implemented: deterministic zone lookup/fallback service, shared exclusive-mode finite/range validation, and canonical source provenance |
 | `get_catalog_analytics` | Extract API orchestration into a deterministic service with a compact result |
 | `resolve_place` | Implemented: spatial resolution first when coordinates exist; orthographic matching only as fallback/corroboration. Full-gazetteer evaluation remains pending |
@@ -430,7 +454,11 @@ feature.
   all 757 loaded boundaries plus a labeled spelling/ambiguity/negative corpus.
 - [ ] Expand place evaluation with held-out feed/operator cases and systematic
   boundary-edge/gap cases before ingest or AI-tool integration.
-- [ ] Capture parser rejects with typed reason codes before records are dropped.
+- [x] Capture parser rejects with typed reason codes before records are dropped;
+  persist bounded source evidence, retrieval metadata, parser version, payload
+  hash, and recurrence count. Reject presence does not block accepted records;
+  capture-system failure fails the ingest transaction before its watermark can
+  advance.
 
 **Exit:** every intended tool can be called and tested without a model.
 
@@ -447,11 +475,11 @@ feature.
 - [ ] Add a safe retry policy. Deliberately deferred: retries are only free
   locally when the failure is transient, and retrying a truncation or an
   invalid-argument failure without changing the request repeats it.
-- [x] Build tool adapters over Phase 0B contracts. Six of seven registered:
+- [x] Build tool adapters over Phase 0B contracts. All seven registered:
   `search_events`, `get_event_summary`, `get_catalog_analytics`,
-  `get_aftershock_summary`, `get_event_analysis`, `resolve_place`.
-  `get_exposure_summary` awaits async
-  external-service handling with freshness and partial-failure state.
+  `get_aftershock_summary`, `get_event_analysis`, `resolve_place`, and
+  `get_exposure_summary`, which adds deadline-bound external-service handling,
+  freshness, partial-failure state, and artifact reuse.
 - [x] Build and archive deterministic place-resolution development calibration.
 - [x] Build a live `search_events` tool benchmark and archive sanitized
   development trial records, prompt/schema/case snapshots, and observable model
@@ -468,8 +496,8 @@ feature.
 This is the first user-visible AI feature because its output is an editable
 deterministic filter contract, not a scientific narrative.
 
-- [ ] Translate text into exactly one `EventSearchSpec` tool call.
-- [ ] Validate all fields independently of the model.
+- [x] Translate text into exactly one `EventSearchSpec` tool call.
+- [x] Validate all fields independently of the model.
 - [ ] Resolve ambiguous locations explicitly; never silently choose.
 - [ ] Display editable filter chips, distance semantics, date anchoring,
   mainshock semantics, and catalog-coverage limitations.
@@ -557,15 +585,17 @@ explicit stakeholder sign-off.
 
 ## 10. Immediate Work Order
 
-1. Expand the place corpus with held-out feed/operator examples and spatial
-   boundary-edge cases as they become available.
-2. Expand the live benchmark with locked release, adversarial, and multi-tool
-   cases; compare the primary and cross-check models.
+1. Expand the live benchmark with independent locked-release, adversarial, and
+   multi-tool cases; compare the primary and cross-check models.
+2. Connect the catalog-query shadow workflow to editable filter controls and
+   require explicit deterministic execution instead of relying on generic chat.
 3. Specify identity, authorization, governance, and audit policies with the
    relevant stakeholders.
-4. Capture parser rejects with typed reason codes before records are dropped.
+4. Expand the place corpus with held-out feed/operator examples and systematic
+   spatial boundary-edge and gap cases as they become available.
 
 The deterministic place calibration and initial live search-tool development
-runs are archived under `docs/ai/evals/`. The next engineering milestone is an
-independent locked release set and broader multi-tool benchmark; the model still
-does not define query or place semantics.
+runs are archived under `docs/ai/evals/`. Typed parser rejects are now retained
+as evidence for future ingest-review and production-regression sets. The next
+release-gating milestone is an independent locked release set and broader
+multi-tool benchmark; the model still does not define query or place semantics.

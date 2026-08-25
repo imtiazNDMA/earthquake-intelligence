@@ -120,6 +120,19 @@ def test_commit_successful_ingest_uses_upstream_watermark():
     assert params == ("usgs_last_sync", watermark.isoformat(), watermark.isoformat())
 
 
+def test_commit_successful_ingest_allows_captured_parser_rejects():
+    conn = _FakeConn()
+
+    api._commit_successful_ingest(
+        conn,
+        "usgs_last_sync",
+        IngestResult("USGS", fetched=1, inserted=1, errors=[], rejected=2),
+    )
+
+    assert conn.commits == 1
+    assert conn.rollbacks == 0
+
+
 def test_commit_successful_ingest_rolls_back_and_does_not_sync_on_errors():
     conn = _FakeConn()
 

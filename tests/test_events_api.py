@@ -21,11 +21,15 @@ def client(monkeypatch):
     db.init_schema()
     # clean slate so committed rows from these tests don't leak to other tests
     with db.get_conn() as conn:
-        conn.execute("TRUNCATE seismic_event, admin_boundary RESTART IDENTITY")
+        conn.execute(
+            "TRUNCATE seismic_event, admin_boundary, ingest_reject RESTART IDENTITY"
+        )
         conn.commit()
     yield TestClient(api.app)
     with db.get_conn() as conn:
-        conn.execute("TRUNCATE seismic_event, admin_boundary RESTART IDENTITY")
+        conn.execute(
+            "TRUNCATE seismic_event, admin_boundary, ingest_reject RESTART IDENTITY"
+        )
         conn.commit()
     db._pool = None
 
@@ -126,6 +130,12 @@ def test_ingest_pmd_endpoint_ingests_and_records_sync(client, monkeypatch):
     # 6 in-region, parseable, plausible rows from the fixture
     assert body["fetched"] == 6
     assert body["inserted"] == 6
+    assert body["rejected"] == 5
+
+    from eqmon import db
+    with db.get_conn() as conn:
+        reject_count = conn.execute("SELECT COUNT(*) FROM ingest_reject").fetchone()[0]
+    assert reject_count == 5
 
     # the ingested PMD events are now listable by source
     g = client.get("/events?source=PMD&limit=50")
