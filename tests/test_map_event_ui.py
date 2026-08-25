@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 
 INDEX = Path("web/index.html").read_text(encoding="utf-8")
@@ -46,6 +47,7 @@ def test_calendar_range_is_sent_to_catalog_api():
 
 
 def test_assistant_trigger_mounts_the_lottie_asset():
-    assert '<dotlottie-wc src="/chatbot.lottie" loop>' in INDEX
-    assert "autoplay" not in INDEX.split('<dotlottie-wc src="/chatbot.lottie"', 1)[1].split(">", 1)[0]
+    lottie = re.search(r'<dotlottie-wc src="/chatbot\.lottie\?v=[^"]+"[^>]*>', INDEX)
+    assert lottie
+    assert "autoplay" not in lottie.group(0)
     assert "@lottiefiles/dotlottie-wc@0.8.1" in INDEX

@@ -158,7 +158,57 @@ body::after {
 :root[data-theme="dark"] .evt-alert.red    { background: rgba(198,40,40,.26);   color: #F08A8A; }
 
 html, body { margin: 0; height: 100%; font-family: var(--font-sans); color: var(--text); background: var(--bg); }
-#map { position: absolute; inset: 52px 0 0 0; }
+#map, #map-3d { position: absolute; inset: 52px 0 0 0; }
+#map { z-index: 0; transition: opacity var(--dur) var(--ease); }
+#map-3d { z-index: 1; visibility: hidden; opacity: 0; transition: opacity var(--dur) var(--ease); }
+#map-3d[hidden] { display: none; }
+body.map-mode-3d #map { visibility: hidden; opacity: 0; pointer-events: none; }
+body.map-mode-3d #map-3d { visibility: visible; opacity: 1; }
+
+/* Renderer choice stays above map content and clear of the permanent sidebar.
+   It moves below the time filter only while that filter is open. */
+#map-mode-control {
+  position: absolute; z-index: 920; top: 68px;
+  left: calc(var(--rail-w) + var(--panel-w) + 16px);
+  display: flex; min-height: 44px; padding: 3px;
+  border: 1px solid var(--glass-border); border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--glass-bg) 94%, transparent);
+  box-shadow: var(--shadow-md); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  transition: left var(--dur-slow) var(--ease), top var(--dur) var(--ease);
+}
+#map-mode-control[hidden] { display: none; }
+#map-mode-control button {
+  min-width: 52px; min-height: 44px; padding: 0 13px;
+  border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text-muted);
+  font: 700 13px var(--font-mono); letter-spacing: .08em; cursor: pointer;
+}
+#map-mode-control button:hover { color: var(--text); background: var(--surface-2); }
+#map-mode-control button[aria-pressed="true"] { background: var(--alert); color: var(--alert-ink); }
+#map-mode-control button:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; }
+#map-mode-control button:disabled { cursor: wait; opacity: .55; }
+body:has(#sidebar.collapsed) #map-mode-control { left: calc(var(--rail-w) + 16px); }
+body:has(#map-time-control:not([hidden])) #map-mode-control { top: 174px; }
+.map-mode-loading {
+  position: absolute; z-index: 919; top: 124px;
+  left: calc(var(--rail-w) + var(--panel-w) + 16px);
+  padding: 8px 11px; border: 1px solid var(--glass-border); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm);
+  font: 12px var(--font-mono); letter-spacing: .04em;
+}
+.map-mode-loading[hidden] { display: none; }
+body:has(#sidebar.collapsed) .map-mode-loading { left: calc(var(--rail-w) + 16px); }
+body:has(#map-time-control:not([hidden])) .map-mode-loading { top: 230px; }
+@media (max-width: 900px) {
+  #map-mode-control { left: auto; right: 12px; top: 64px; }
+  .map-mode-loading { left: auto; right: 12px; top: 120px; }
+  body:has(#sidebar.collapsed) #map-mode-control,
+  body:has(#sidebar.collapsed) .map-mode-loading { left: auto; }
+  body:has(#map-time-control:not([hidden])) #map-mode-control { top: 174px; }
+  body:has(#map-time-control:not([hidden])) .map-mode-loading { top: 230px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #map, #map-3d, #map-mode-control, .map-mode-loading { transition: none; }
+}
 /* Keep Leaflet's own controls and attribution clear of the shell chrome. */
 body.has-ladder .leaflet-right { margin-right: 74px; }
 body.has-strip .leaflet-bottom { margin-bottom: 104px; }

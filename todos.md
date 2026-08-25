@@ -176,29 +176,45 @@ changing production paths.
 
 **Tasks**
 
-- [ ] Pin MapLibre GL JS and CSS to an exact version with integrity hashes, or
+- [x] Pin MapLibre GL JS and CSS to an exact version with integrity hashes, or
   self-host the pinned assets if SRI is unavailable.
-- [ ] Register the existing PMTiles v4 protocol with MapLibre once.
-- [ ] Add `<div id="map-3d">` beside the existing `<div id="map">`.
-- [ ] Add a compact `2D / 3D` segmented control over the map, clear of the
+- [x] Register the existing PMTiles v4 protocol with MapLibre once.
+- [x] Add `<div id="map-3d">` beside the existing `<div id="map">`.
+- [x] Add a compact `2D / 3D` segmented control over the map, clear of the
   sidebar, time control, MMI ladder, legends, and exposure strip.
-- [ ] Use native buttons with `aria-pressed`, a group label, visible focus, and
+- [x] Use native buttons with `aria-pressed`, a group label, visible focus, and
   minimum 44px targets.
-- [ ] Keep 2D selected by default; persist a successful user selection in
+- [x] Keep 2D selected by default; persist a successful user selection in
   `localStorage` but ignore stored 3D mode when WebGL is unavailable.
-- [ ] Initialize MapLibre only on the first 3D request.
-- [ ] Show a short loading state while the renderer and style initialize.
-- [ ] On failure, restore Leaflet, reset the toggle, and show a non-blocking toast.
-- [ ] Respect `prefers-reduced-motion` when changing renderer visibility.
-- [ ] Revision all mutable frontend assets in `web/index.html`.
+- [x] Initialize MapLibre only on the first 3D request.
+- [x] Show a short loading state while the renderer and style initialize.
+- [x] On failure, restore Leaflet, reset the toggle, and show a non-blocking toast.
+- [x] Respect `prefers-reduced-motion` when changing renderer visibility.
+- [x] Revision all mutable frontend assets in `web/index.html`.
 
 **Acceptance criteria**
 
-- [ ] Initial page load creates no MapLibre map and performs no terrain request.
-- [ ] Toggle works with mouse, Enter, and Space.
-- [ ] Repeated mode changes create at most one Leaflet and one MapLibre instance.
-- [ ] Dashboard and expanded forecast continue to hide/restore the active map.
-- [ ] A WebGL initialization failure leaves the existing 2D map usable.
+- [x] Initial page load creates no MapLibre map and performs no terrain request.
+- [x] Toggle works with mouse, Enter, and Space.
+- [x] Repeated mode changes create at most one Leaflet and one MapLibre instance.
+- [x] Dashboard and expanded forecast continue to hide/restore the active map.
+- [x] A WebGL initialization failure leaves the existing 2D map usable.
+
+**Phase 1 findings — 2026-08-25**
+
+- MapLibre GL JS and CSS 5.7.1 load together only after a 3D request; both CDN
+  assets carry retained SHA-384 integrity values. PMTiles 4.3.0 is registered
+  once after MapLibre loads.
+- The Phase 1 style contains only a theme-matched background layer. It makes no
+  basemap, terrain, PMTiles archive, or building request.
+- Headless Edge verified mouse, Enter, and Space activation; one MapLibre canvas
+  and two dependency requests remained after repeated mode changes.
+- Dashboard suspension hid both the active 3D renderer and mode control, then
+  restored the same instance. The shared mutation seam also covers the expanded
+  Forecast and Elements at Risk views, which use the same Leaflet visibility flag.
+- An aborted MapLibre dependency request restored usable 2D with a warning toast.
+  Edge with WebGL disabled ignored and removed a stored 3D preference without
+  creating a MapLibre instance.
 
 ---
 
