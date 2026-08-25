@@ -1184,6 +1184,35 @@ input:focus-visible { border-color: var(--brand); }
   filter: drop-shadow(0 1px 2px rgba(15, 23, 42, 0.35));
 }
 
+/* 3D epicenter: the same star, plus a ring that breathes so the active event
+   still reads as the focus once the camera is pitched and the ground is busy.
+   The ring encodes nothing -- it is emphasis only, so reduced motion drops it
+   entirely rather than slowing it down. */
+.epicenter-3d {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+}
+.epicenter-3d-pulse {
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  border: 2px solid var(--alert, #E15A43);
+  opacity: 0;
+  animation: epicenter-3d-pulse 2.4s var(--ease, ease-out) infinite;
+  pointer-events: none;
+}
+@keyframes epicenter-3d-pulse {
+  0%   { transform: scale(.55); opacity: .65; }
+  70%  { transform: scale(1.25); opacity: 0; }
+  100% { transform: scale(1.25); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .epicenter-3d-pulse { display: none; }
+}
+
 .legend {
   background: var(--glass-bg); padding: 14px 16px; border-radius: var(--r-lg);
   box-shadow: var(--glass-shadow); min-width: 180px;

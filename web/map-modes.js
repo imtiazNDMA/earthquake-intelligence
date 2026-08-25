@@ -161,6 +161,15 @@
   window.eqmonMapState = { queue: [], publish: publishState };
   if (Array.isArray(buffered?.queue)) buffered.queue.forEach(publishState);
 
+  // --- Intents -------------------------------------------------------------
+  // A renderer reports what the operator did; the application decides what it
+  // means. This is the only path from an adapter back into feature code, and it
+  // carries plain values, never renderer objects.
+  function emitIntent(name, payload) {
+    const handler = window.eqmonMapIntents?.[name];
+    if (typeof handler === "function") handler(payload);
+  }
+
   // --- Layout --------------------------------------------------------------
   function resize() {
     if (typeof map !== "undefined") map.invalidateSize();
@@ -317,6 +326,7 @@
     getCamera: () => ({ ...camera, center: [...camera.center] }),
     publish: publishState,
     getState,
+    emit: emitIntent,
     resize,
   };
 })();

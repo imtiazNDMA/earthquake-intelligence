@@ -14,28 +14,33 @@ from pathlib import Path
 
 import pytest
 
-HARNESS = Path("tests/js/map_modes_harness.js")
+HARNESSES = {
+    "coordinator": (Path("tests/js/map_modes_harness.js"), "map-modes runtime checks passed"),
+    "renderer": (Path("tests/js/maplibre_3d_harness.js"), "maplibre-3d runtime checks passed"),
+}
 
 
 def _node() -> str:
     node = shutil.which("node")
     if node is None:
-        pytest.skip("node is required for the map-mode coordinator harness")
+        pytest.skip("node is required for the map harnesses")
     return node
 
 
-def test_coordinator_preserves_camera_and_state_across_modes():
+@pytest.mark.parametrize("name", sorted(HARNESSES))
+def test_map_harness_invariants_hold(name: str):
+    harness, banner = HARNESSES[name]
     result = subprocess.run(
-        [_node(), str(HARNESS)],
+        [_node(), str(harness)],
         capture_output=True,
         text=True,
         cwd=Path.cwd(),
     )
     assert result.returncode == 0, result.stderr or result.stdout
-    assert "map-modes runtime checks passed" in result.stdout
+    assert banner in result.stdout
 
 
-@pytest.mark.parametrize("module", ["web/map-modes.js", "web/maplibre-3d.js", "web/app.js"])
+@pytest.mark.parametrize("module", ["web/map-modes.js", "web/maplibre-3d.js", "web/map-style-config.js", "web/app.js"])
 def test_map_modules_parse(module: str):
     result = subprocess.run(
         [_node(), "--check", module],

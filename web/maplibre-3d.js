@@ -10,6 +10,20 @@
   const BASEMAP_LAYER = "basemap";
   const DEM_SOURCE = "terrain-dem";
   const HILLSHADE_LAYER = "terrain-hillshade";
+  const MMI_SOURCE = "current-mmi";
+  const MMI_FILL = "current-mmi-fill";
+  const MMI_LINE = "current-mmi-line";
+  const EVENTS_SOURCE = "map-events";
+  const EVENTS_CIRCLE = "map-events-circle";
+  const EMPTY_FC = { type: "FeatureCollection", features: [] };
+  // Mirrors the 2D defaults in web/app.js; a publication overrides them.
+  const MMI_BASE_OPACITY = 0.45;
+  const MMI_BASE_WEIGHT = 1;
+  const MMI_EMPHASIS = {
+    selected: { weight: 3, fillOpacity: 0.8 },
+    hovered: { weight: 2.5, fillOpacity: 0.7 },
+  };
+  let epicenterMarker = null;
   let dependencyPromise = null;
   let mapInstance = null;
   let initializationPromise = null;
@@ -165,6 +179,8 @@
         [BASEMAP_SOURCE]: config.maplibreSource(basemapName),
         // The DEM feeds both the terrain mesh and the hillshade, so its credit
         // is attached once and MapLibre prints it once.
+        [MMI_SOURCE]: { type: "geojson", data: EMPTY_FC },
+        [EVENTS_SOURCE]: { type: "geojson", data: EMPTY_FC },
         [DEM_SOURCE]: {
           type: "raster-dem",
           tiles: terrain.tiles,
@@ -186,6 +202,42 @@
             "hillshade-exaggeration": 0.25,
             "hillshade-shadow-color": "#1c232b",
             "hillshade-highlight-color": "#ffffff",
+          },
+        },
+        {
+          id: MMI_FILL,
+          type: "fill",
+          source: MMI_SOURCE,
+          // Severity ordering: a stronger band is drawn last and so is never
+          // buried under the weaker band that surrounds it.
+          layout: { "fill-sort-key": ["get", "mmi_lower"] },
+          paint: { "fill-color": ["get", "color"], "fill-opacity": MMI_BASE_OPACITY },
+        },
+        {
+          id: MMI_LINE,
+          type: "line",
+          source: MMI_SOURCE,
+          // Band colour, exactly as in 2D. The MMI palette is theme-independent,
+          // so the border reads the same against a light or a dark basemap.
+          paint: {
+            "line-color": ["get", "color"],
+            "line-width": MMI_BASE_WEIGHT,
+            "line-opacity": 0.9,
+          },
+        },
+        {
+          id: EVENTS_CIRCLE,
+          type: "circle",
+          source: EVENTS_SOURCE,
+          // Radius and colour ride on the feature: they come from the same
+          // magnitude and depth rules the 2D bubbles are drawn with.
+          paint: {
+            "circle-radius": ["get", "radius"],
+            "circle-color": ["get", "color"],
+            "circle-opacity": 0.85,
+            "circle-stroke-width": ["get", "strokeWidth"],
+            "circle-stroke-color": "#F4F6F8",
+            "circle-stroke-opacity": 0.95,
           },
         },
       ],
@@ -254,12 +306,104 @@
     if (typeof toast === "function") toast("Terrain unavailable; 3D view is flat.", "warn", 6000);
   }
 
-  // Published analysis state the 3D renderer can already act on. Layers arrive
-  // in later phases; basemap and theme are what Phase 3 owns.
+  // Selected and hovered bands take the same emphasis the 2D ladder applies;
+  // every other band keeps the published base value.
+  function bandExpression(mmi, base, key, emphasis) {
+    const parts = [];
+    const selected = mmi?.selectedLevel;
+    const hovered = mmi?.hoveredLevel;
+    if (selected != null) parts.push(["==", ["get", "mmi_lower"], selected], emphasis.selected[key]);
+    if (hovered != null && hovered !== selected) {
+      parts.push(["==", ["get", "mmi_lower"], hovered], emphasis.hovered[key]);
+    }
+    return parts.length ? ["case", ...parts, base] : base;
+  }
+
+  function applyMmi(mmi) {
+    const source = mapInstance.getSource(MMI_SOURCE);
+    if (!source) return;
+    // Hidden means no geometry, not a transparent layer: hit testing must not
+    // find a band the operator cannot see.
+    source.setData((mmi?.visible && mmi.featureCollection) || EMPTY_FC);
+    const emphasis = mmi?.emphasis || MMI_EMPHASIS;
+    const base = Number.isFinite(mmi?.opacity) ? mmi.opacity : MMI_BASE_OPACITY;
+    mapInstance.setPaintProperty(MMI_FILL, "fill-opacity",
+      bandExpression(mmi, base, "fillOpacity", emphasis));
+    mapInstance.setPaintProperty(MMI_LINE, "line-width",
+      bandExpression(mmi, MMI_BASE_WEIGHT, "weight", emphasis));
+  }
+
+  function applyMapEvents(mapEvents) {
+    const source = mapInstance.getSource(EVENTS_SOURCE);
+    if (!source) return;
+    const events = mapEvents?.events || [];
+    source.setData({
+      type: "FeatureCollection",
+      features: events.reduce((features, event) => {
+        // Number(null) is 0, which would place a coordinate-less event off the
+        // coast of Africa rather than dropping it.
+        const lon = event.lon == null ? NaN : Number(event.lon);
+        const lat = event.lat == null ? NaN : Number(event.lat);
+        if (!Number.isFinite(lon) || !Number.isFinite(lat)) return features;
+        features.push({
+          type: "Feature",
+          geometry: { type: "Point", coordinates: [lon, lat] },
+          properties: {
+            radius: event.symbol?.radius ?? 3,
+            color: event.symbol?.color ?? "#6E7B85",
+            strokeWidth: event.symbol?.strokeWidth ?? 1.4,
+            popupHtml: event.popupHtml || "",
+            ariaLabel: event.ariaLabel || "",
+          },
+        });
+        return features;
+      }, []),
+    });
+    mapInstance.setPaintProperty(EVENTS_CIRCLE, "circle-opacity", mapEvents?.opacity ?? 0.85);
+    if (mapEvents?.strokeColor) {
+      mapInstance.setPaintProperty(EVENTS_CIRCLE, "circle-stroke-color", mapEvents.strokeColor);
+    }
+  }
+
+  // The same star the 2D map draws, wrapped in a ring that breathes. The ring is
+  // decoration, so CSS drops it under prefers-reduced-motion.
+  function epicenterElement() {
+    const wrap = document.createElement("div");
+    wrap.className = "epicenter-3d";
+    wrap.innerHTML =
+      '<span class="epicenter-3d-pulse" aria-hidden="true"></span>' +
+      '<svg class="epicenter-star" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">' +
+      '<path d="M12 2.6l2.78 5.63 6.22.91-4.5 4.38 1.06 6.19L12 16.79 6.44 19.71l1.06-6.19L3 9.14l6.22-.91L12 2.6z" ' +
+      'fill="#ffffff" stroke="#000000" stroke-width="2" stroke-linejoin="round"/></svg>';
+    return wrap;
+  }
+
+  function applyEpicenter(event) {
+    const lat = event?.lat == null ? NaN : Number(event.lat);
+    const lon = event?.lon == null ? NaN : Number(event.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      epicenterMarker?.remove();
+      epicenterMarker = null;
+      return;
+    }
+    if (!epicenterMarker) {
+      epicenterMarker = new maplibregl.Marker({ element: epicenterElement(), anchor: "center" })
+        .setPopup(new maplibregl.Popup({ offset: 16 }))
+        .addTo(mapInstance);
+    }
+    epicenterMarker.setLngLat([lon, lat]);
+    epicenterMarker.getPopup().setText(event.epicenterLabel || "Epicenter");
+  }
+
+  // Published analysis state the 3D renderer draws. Every value arrives as plain
+  // data the 2D map already rendered; nothing is recomputed here.
   function applyState(state) {
     if (!mapInstance || !state) return;
     setBasemap(state.basemap || styleConfig().themeBasemap(state.theme));
     if (state.theme) mapInstance.setSky(skyFor(state.theme));
+    applyMmi(state.currentMmi);
+    applyMapEvents(state.mapEvents);
+    applyEpicenter(state.activeEvent);
   }
 
   function createMap(camera) {
@@ -316,6 +460,46 @@
       mapInstance.once("load", ready);
       mapInstance.on("error", fail);
       mapInstance.on("moveend", emitCameraChange);
+      bindInteractions();
+    });
+  }
+
+  // Clicks report intent to the coordinator rather than acting locally, so the
+  // selected band stays one piece of state shared by both renderers.
+  function bindInteractions() {
+    const pointer = layer => {
+      mapInstance.on("mouseenter", layer, () => { mapInstance.getCanvas().style.cursor = "pointer"; });
+      mapInstance.on("mouseleave", layer, () => { mapInstance.getCanvas().style.cursor = ""; });
+    };
+    pointer(MMI_FILL);
+    pointer(EVENTS_CIRCLE);
+
+    mapInstance.on("click", EVENTS_CIRCLE, event => {
+      const feature = event.features?.[0];
+      if (!feature?.properties?.popupHtml) return;
+      new maplibregl.Popup({ className: "quake-event-popup", offset: 8 })
+        .setLngLat(feature.geometry.coordinates.slice())
+        .setHTML(feature.properties.popupHtml)
+        .addTo(mapInstance);
+    });
+
+    mapInstance.on("click", MMI_FILL, event => {
+      const level = event.features?.[0]?.properties?.mmi_lower;
+      if (level != null) window.eqmonMapModes?.emit("selectMmiBand", Number(level));
+    });
+
+    mapInstance.on("mousemove", MMI_FILL, event => {
+      const level = event.features?.[0]?.properties?.mmi_lower;
+      if (level != null) window.eqmonMapModes?.emit("hoverMmiBand", Number(level));
+    });
+    mapInstance.on("mouseleave", MMI_FILL, () => {
+      window.eqmonMapModes?.emit("hoverMmiBand", null);
+    });
+
+    // Clicking bare map clears the selected band, as it does in 2D.
+    mapInstance.on("click", event => {
+      const hits = mapInstance.queryRenderedFeatures(event.point, { layers: [MMI_FILL] });
+      if (!hits.length) window.eqmonMapModes?.emit("clearMmiSelection");
     });
   }
 

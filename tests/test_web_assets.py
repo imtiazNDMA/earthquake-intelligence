@@ -207,3 +207,60 @@ def test_three_d_reapplies_basemap_and_theme_on_mode_change():
     # The 3D controls need the same chrome offsets Leaflet's already get.
     assert "body.has-ladder .maplibregl-ctrl-top-right" in styles
     assert "body.has-strip .maplibregl-ctrl-bottom-right" in styles
+
+
+def test_event_and_mmi_presentation_is_computed_once_for_both_renderers():
+    app = Path("web/app.js").read_text(encoding="utf-8")
+    renderer = Path("web/maplibre-3d.js").read_text(encoding="utf-8")
+    # The magnitude, depth, popup, and label rules live in app.js only.
+    for helper in ("function quakeSymbol", "function quakePopupHtml",
+                   "function quakeAriaLabel", "function epicenterLabel"):
+        assert helper in app
+    assert "symbol: quakeSymbol(event)" in app
+    assert "popupHtml: quakePopupHtml(event)" in app
+    assert "epicenterLabel: epicenterLabel(event)" in app
+    # The 3D renderer consumes them; it must not restate any of the rules.
+    assert "_magRadius" not in renderer
+    assert "_depthColor" not in renderer
+    assert "quake-popup-grid" not in renderer
+    assert 'event.symbol?.radius' in renderer
+    assert "feature.properties.popupHtml" in renderer
+    # Export reads the published FeatureCollection, not a renderer layer.
+    assert "if (!_lastFc) return;" in app
+
+
+def test_three_d_mmi_preserves_severity_order_and_ladder_semantics():
+    renderer = Path("web/maplibre-3d.js").read_text(encoding="utf-8")
+    app = Path("web/app.js").read_text(encoding="utf-8")
+    assert '"fill-sort-key": ["get", "mmi_lower"]' in renderer
+    assert '"fill-color": ["get", "color"]' in renderer
+    assert '"line-color": ["get", "color"]' in renderer
+    assert "function bandExpression" in renderer
+    # Emphasis numbers come from the 2D ladder, published as state.
+    assert "emphasis: { selected: { weight: 3, fillOpacity: 0.8 }" in app
+    assert "hoveredLevel: _hoveredMmiLevel" in app
+
+
+def test_renderers_report_intent_instead_of_reaching_into_each_other():
+    renderer = Path("web/maplibre-3d.js").read_text(encoding="utf-8")
+    coordinator = Path("web/map-modes.js").read_text(encoding="utf-8")
+    app = Path("web/app.js").read_text(encoding="utf-8")
+    assert "function emitIntent" in coordinator
+    assert "emit: emitIntent" in coordinator
+    assert "window.eqmonMapIntents" in app
+    for intent in ("selectMmiBand", "clearMmiSelection", "hoverMmiBand"):
+        assert f'emit("{intent}"' in renderer
+        assert intent in app
+    # The adapter never calls a feature-module function directly.
+    assert "selectMmiLevel(" not in renderer
+    assert "highlightByLevel(" not in renderer
+
+
+def test_three_d_epicenter_pulse_is_decoration_and_respects_reduced_motion():
+    renderer = Path("web/maplibre-3d.js").read_text(encoding="utf-8")
+    styles = Path("web/styles.css").read_text(encoding="utf-8")
+    assert "epicenter-3d-pulse" in renderer
+    assert "@keyframes epicenter-3d-pulse" in styles
+    pulse_off = styles.index(".epicenter-3d-pulse { display: none; }")
+    reduced = styles.rindex("@media (prefers-reduced-motion: reduce)", 0, pulse_off)
+    assert reduced < pulse_off

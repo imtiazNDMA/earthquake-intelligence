@@ -129,13 +129,7 @@ map.getPane("referencePane").style.zIndex = 410;
 map.getPane("referencePane").style.pointerEvents = "none";
 map.createPane("eventPane");
 map.getPane("eventPane").style.zIndex = 450;
-map.on("click", () => {
-  if (_selectedMmiLevel != null) {
-    _selectedMmiLevel = null;
-    Object.values(_legendItems).forEach(el => el.classList.remove("selected"));
-    _applyMmiStyles();
-  }
-});
+map.on("click", () => clearMmiSelection());
 
 // --- Basemaps (all free + keyless; tile servers reachable without a token) ---
 // URLs, zoom ceilings, and credits live in web/map-style-config.js so the 3D
@@ -515,6 +509,10 @@ function publishCurrentMmiState() {
       visible: _mmiVisible,
       opacity: MMI_STYLE.opacity,
       selectedLevel: _selectedMmiLevel,
+      hoveredLevel: _hoveredMmiLevel,
+      // Emphasis widths and fills for the selected and hovered bands, so the
+      // ladder drives both renderers from the same numbers.
+      emphasis: { selected: { weight: 3, fillOpacity: 0.8 }, hovered: { weight: 2.5, fillOpacity: 0.7 } },
     },
   });
 }
@@ -914,7 +912,6 @@ const _legendCheckboxes = {};
 let _selectedMmiLevel = null;
 
 function _applyMmiStyles() {
-  publishCurrentMmiState();
   Object.entries(_mmiLayers).forEach(([k, layers]) => {
     const level = parseInt(k);
     const isHover = _hoveredMmiLevel === level;
@@ -923,6 +920,7 @@ function _applyMmiStyles() {
     const fo = isSelected ? 0.8 : isHover ? 0.7 : 0.45;
     layers.forEach(l => l.setStyle({ weight: w, fillOpacity: fo }));
   });
+  publishCurrentMmiState();
 }
 
 let _hoveredMmiLevel = null;
@@ -953,6 +951,25 @@ function selectMmiLevel(level) {
   });
   _applyMmiStyles();
 }
+
+function clearMmiSelection() {
+  if (_selectedMmiLevel == null) return;
+  _selectedMmiLevel = null;
+  Object.values(_legendItems).forEach(el => el.classList.remove("selected"));
+  _applyMmiStyles();
+}
+
+// What a renderer can ask the application to do. Handlers take plain values, so
+// the 2D and 3D maps drive the same selection state without knowing each other.
+window.eqmonMapIntents = window.eqmonMapIntents || {};
+Object.assign(window.eqmonMapIntents, {
+  selectMmiBand: level => selectMmiLevel(level),
+  clearMmiSelection,
+  hoverMmiBand: level => {
+    if (level == null) unhighlightAll();
+    else highlightByLevel(level);
+  },
+});
 
 function presentLevels(fc) {
   const set = new Set((fc && fc.features ? fc.features : []).map(f => (f.properties || {}).mmi_lower));
@@ -1311,7 +1328,7 @@ function updateCurrentEventCard(event) {
     ? " · Origin " + new Date(event.occurred_at).toLocaleTimeString() : "";
   meta.innerHTML = `${coords}${when}`;
   pills.innerHTML = `<span>Epicenter pinned</span><span>${_mmiVisible ? "MMI visible" : "MMI hidden"}</span>`;
-  publishMapState({ activeEvent: event });
+  publishMapState({ activeEvent: { ...event, epicenterLabel: epicenterLabel(event) } });
   document.dispatchEvent(new CustomEvent("eqmon:current-event", { detail: event }));
 }
 
@@ -1427,7 +1444,7 @@ async function calculate() {
     payload._fromStart = true;
 
     if (epicenterMarker) map.removeLayer(epicenterMarker);
-    epicenterMarker = makeEpicenterMarker(payload.lat, payload.lon, "#000000", "Epicenter").addTo(map);
+    epicenterMarker = makeEpicenterMarker(payload.lat, payload.lon, "#000000", epicenterLabel(payload)).addTo(map);
     updateCurrentEventCard(payload);
     // A manual footprint has no PAGER alert and no admin rollups, so the strip
     // stays down; the status bar still reports magnitude and peak intensity.
@@ -1662,7 +1679,7 @@ async function _showImpactRun(id) {
   }
   if (evt && evt.lat != null && evt.lon != null) {
     if (epicenterMarker) map.removeLayer(epicenterMarker);
-    epicenterMarker = makeEpicenterMarker(evt.lat, evt.lon, "#000000", `Epicenter — M${evt.magnitude.toFixed(1)}`).addTo(map);
+    epicenterMarker = makeEpicenterMarker(evt.lat, evt.lon, "#000000", epicenterLabel(evt)).addTo(map);
     updateCurrentEventCard(evt);
   }
   if (hasBands && intensityLayer && intensityLayer.getBounds().isValid()) {
@@ -2399,21 +2416,26 @@ function _magRadius(mag) {
   return Math.max(3, Math.min(24, 2.5 + Math.pow(m, 1.5) * 1.1));
 }
 
-function _quakeMarker(event) {
-  const mag = Math.max(0, event.magnitude || 0);
+// Bubble geometry, colour, popup, and label for one catalog event. Computed
+// once here and handed to whichever renderer is drawing, so a 3D bubble cannot
+// drift from the 2D one it is supposed to be.
+function quakeSymbol(event) {
   const depth = event.depth_km == null ? NaN : Number(event.depth_km);
-  const color = _depthColor(depth);
-  const radius = _magRadius(mag);
-  const marker = L.circleMarker([event.lat, event.lon], {
-    radius,
-    color: getComputedStyle(document.documentElement).getPropertyValue("--text").trim() || "#F4F6F8",
-    weight: 1.4,
-    fillColor: color,
+  return {
+    radius: _magRadius(Math.max(0, event.magnitude || 0)),
+    color: _depthColor(depth),
     fillOpacity: _mapEventState.opacity,
-    opacity: 0.95,
-    className: "quake-scatter-point",
-    pane: "eventPane",
-  });
+    strokeWidth: 1.4,
+    strokeOpacity: 0.95,
+  };
+}
+
+function quakeStrokeColor() {
+  return getComputedStyle(document.documentElement).getPropertyValue("--text").trim() || "#F4F6F8";
+}
+
+function quakePopupHtml(event) {
+  const depth = event.depth_km == null ? NaN : Number(event.depth_km);
   const occurredAt = new Date(event.occurred_at);
   const date = Number.isNaN(occurredAt.getTime()) ? "Unknown" : occurredAt.toISOString().slice(0, 10);
   const time = Number.isNaN(occurredAt.getTime()) ? "Unknown" : occurredAt.toISOString().slice(11, 19) + " UTC";
@@ -2421,8 +2443,7 @@ function _quakeMarker(event) {
   const lon = Number(event.lon);
   const magnitude = Number(event.magnitude);
   const depthLabel = Number.isFinite(depth) ? `${depth.toFixed(1)} km` : "Unknown";
-  marker.bindPopup(
-    `<div class="quake-popup-title"><strong>${escapeHtml(event.place || "Earthquake")}</strong></div>` +
+  return `<div class="quake-popup-title"><strong>${escapeHtml(event.place || "Earthquake")}</strong></div>` +
     `<dl class="quake-popup-grid">` +
       `<dt>Date</dt><dd>${escapeHtml(date)}</dd>` +
       `<dt>Time</dt><dd>${escapeHtml(time)}</dd>` +
@@ -2430,16 +2451,45 @@ function _quakeMarker(event) {
       `<dt>Longitude</dt><dd>${Number.isFinite(lon) ? lon.toFixed(3) + "°" : "Unknown"}</dd>` +
       `<dt>Magnitude</dt><dd>${Number.isFinite(magnitude) ? "M" + magnitude.toFixed(1) : "Unknown"}</dd>` +
       `<dt>Depth</dt><dd>${escapeHtml(depthLabel)}</dd>` +
-    `</dl>`,
-    { className: "quake-event-popup" }
-  );
+    `</dl>`;
+}
+
+function quakeAriaLabel(event) {
+  const depth = event.depth_km == null ? NaN : Number(event.depth_km);
+  const magnitude = Number(event.magnitude);
+  const depthLabel = Number.isFinite(depth) ? `${depth.toFixed(1)} km` : "Unknown";
+  return `${event.place || "Earthquake"}, magnitude ` +
+    `${Number.isFinite(magnitude) ? magnitude.toFixed(1) : "unknown"}, depth ${depthLabel}`;
+}
+
+// One epicenter label, so the 3D marker cannot drift from the 2D star. A manual
+// footprint is labelled plainly; a catalog event carries its magnitude.
+function epicenterLabel(event) {
+  const mag = Number(event?.magnitude);
+  return event?._fromStart || !Number.isFinite(mag)
+    ? "Epicenter"
+    : `Epicenter — M${mag.toFixed(1)}`;
+}
+
+function _quakeMarker(event) {
+  const symbol = quakeSymbol(event);
+  const marker = L.circleMarker([event.lat, event.lon], {
+    radius: symbol.radius,
+    color: quakeStrokeColor(),
+    weight: symbol.strokeWidth,
+    fillColor: symbol.color,
+    fillOpacity: symbol.fillOpacity,
+    opacity: symbol.strokeOpacity,
+    className: "quake-scatter-point",
+    pane: "eventPane",
+  });
+  marker.bindPopup(quakePopupHtml(event), { className: "quake-event-popup" });
   marker.on("add", () => {
     const path = marker.getElement();
     if (!path) return;
     path.setAttribute("tabindex", "0");
     path.setAttribute("role", "button");
-    path.setAttribute("aria-label",
-      `${event.place || "Earthquake"}, magnitude ${Number.isFinite(magnitude) ? magnitude.toFixed(1) : "unknown"}, depth ${depthLabel}`);
+    path.setAttribute("aria-label", quakeAriaLabel(event));
     path.addEventListener("keydown", keyEvent => {
       if (keyEvent.key === "Enter" || keyEvent.key === " ") {
         keyEvent.preventDefault();
@@ -2523,7 +2573,15 @@ function _renderMapEvents({ fit = false } = {}) {
   const events = _filteredMapEvents();
   publishMapState({
     mapEvents: {
-      events,
+      // Each event carries the symbol the 2D map draws, so 3D reproduces it
+      // rather than reimplementing the magnitude and depth rules.
+      events: events.map(event => ({
+        ...event,
+        symbol: quakeSymbol(event),
+        popupHtml: quakePopupHtml(event),
+        ariaLabel: quakeAriaLabel(event),
+      })),
+      strokeColor: quakeStrokeColor(),
       opacity: _mapEventState.opacity,
       startIndex: _mapEventState.startIndex,
       endIndex: _mapEventState.endIndex,

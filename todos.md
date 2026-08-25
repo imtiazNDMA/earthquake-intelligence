@@ -404,30 +404,78 @@ state from leaking into feature modules.
 - `web/maplibre-3d.js`
 - `web/map-modes.js`
 - `web/app.js`
-- `tests/test_aftershock_ui.py`
+- `web/styles.css`
+- New: `tests/js/maplibre_3d_harness.js`
+- `tests/test_web_assets.py`, `tests/test_map_modes.py`
 
 **Tasks**
 
-- [ ] Add GeoJSON sources for current epicenter, catalog/map events, and MMI bands.
-- [ ] Reuse the existing MMI color lookup and selected-band semantics.
-- [ ] Render MMI fills draped over terrain with borders readable in both themes.
-- [ ] Preserve severity ordering so stronger MMI bands are not hidden by weaker ones.
-- [ ] Render the active epicenter above terrain with a restrained pulse disabled
+- [x] Add GeoJSON sources for current epicenter, catalog/map events, and MMI bands.
+- [x] Reuse the existing MMI color lookup and selected-band semantics.
+- [x] Render MMI fills draped over terrain with borders readable in both themes.
+- [x] Preserve severity ordering so stronger MMI bands are not hidden by weaker ones.
+- [x] Render the active epicenter above terrain with a restrained pulse disabled
   under reduced motion.
-- [ ] Port event bubble sizing and depth colors exactly from 2D.
-- [ ] Port event click selection, popup content, and current-event synchronization.
-- [ ] Port MMI band selection/highlighting from the existing right-side ladder.
-- [ ] Keep export behavior data-driven and renderer-independent.
+- [x] Port event bubble sizing and depth colors exactly from 2D.
+- [x] Port event click selection, popup content, and current-event synchronization.
+- [x] Port MMI band selection/highlighting from the existing right-side ladder.
+- [x] Keep export behavior data-driven and renderer-independent.
 
 **Acceptance criteria**
 
-- [ ] The same event has the same coordinates, magnitude, depth color, and popup
+- [x] The same event has the same coordinates, magnitude, depth color, and popup
   values in both modes.
-- [ ] MMI band colors and selection match 2D.
-- [ ] Drawing a new footprint while 3D is active updates both renderers.
-- [ ] No analysis formula or GeoJSON geometry changes are introduced.
+- [x] MMI band colors and selection match 2D.
+- [x] Drawing a new footprint while 3D is active updates both renderers.
+- [x] No analysis formula or GeoJSON geometry changes are introduced.
 
----
+**Phase 4 findings — 2026-08-25**
+
+- Bubble radius, depth colour, popup HTML, aria-label, and the epicenter label
+  are now computed once in `web/app.js` (`quakeSymbol`, `quakePopupHtml`,
+  `quakeAriaLabel`, `epicenterLabel`) and published with each event. The 2D
+  marker and the 3D circle both read those values, so "exactly from 2D" is
+  structural rather than a promise: `_magRadius`, `_depthColor`, and the popup
+  markup appear nowhere in the 3D renderer, and a test asserts that.
+- `epicenterLabel()` also replaced the two hand-written labels at the 2D
+  epicenter call sites, which is what keeps the 3D marker text identical.
+- MMI bands render from the published FeatureCollection with `fill-color` and
+  `line-color` read straight off `properties.color`, so the palette is the same
+  lookup in both renderers. Borders keep the band colour exactly as in 2D; the
+  MMI palette is theme-independent, so they read the same on a light or a dark
+  basemap.
+- Severity ordering uses `fill-sort-key` on `mmi_lower`, so a stronger band is
+  drawn last and is never buried under the weaker band that surrounds it.
+- Selection and hover emphasis (`weight 3 / fillOpacity 0.8` selected,
+  `2.5 / 0.7` hovered) are published from `_applyMmiStyles()` — the one place 2D
+  changes them — and rebuilt in 3D as a `case` expression over `mmi_lower`. The
+  right-side ladder therefore drives both renderers from the same numbers.
+- Hiding MMI clears the geometry rather than making the layer transparent, so
+  hit testing cannot find a band the operator cannot see.
+- A new intent channel is the only path from a renderer back into feature code:
+  `mapModes.emit(name, payload)` looks up a handler in `window.eqmonMapIntents`,
+  which `web/app.js` populates with `selectMmiBand`, `clearMmiSelection`, and
+  `hoverMmiBand`. The 3D adapter never calls `selectMmiLevel` or
+  `highlightByLevel` directly. Clearing on a bare-map click matches 2D, whose
+  own map-click handler was extracted into `clearMmiSelection()` and is now
+  shared by both paths.
+- The 3D epicenter is the same star SVG the 2D map draws, as a MapLibre marker
+  so it stays above terrain, wrapped in a pulse ring. The ring encodes nothing,
+  so `prefers-reduced-motion` removes it outright instead of slowing it.
+- Export needed no change: `exportShapefile()` already reads `_lastFc` and the
+  ladder checkboxes, never a renderer layer.
+- A bug was found and fixed by the new harness: `Number(null)` is `0`, so the
+  first coordinate guard would have drawn a coordinate-less event off the coast
+  of Africa. Both the event and epicenter guards now treat null as missing, the
+  way `depth_km` is already handled in `web/app.js`.
+- `tests/js/maplibre_3d_harness.js` loads the real adapter in a Node VM against
+  a stub MapLibre and asserts behaviour rather than source text: layer order,
+  sort key, terrain at true scale, gesture settings, basemap rebuild picking up
+  the new zoom ceiling, theme-swapped sky, the MMI emphasis expressions, event
+  features and their dropped null coordinates, marker reuse and removal, and
+  every intent emission. Full suite: 435 passed.
+- Not verified in a browser: whether bands drape convincingly over real terrain,
+  and popup legibility at pitch. Phase 9 owns the browser matrix.
 
 ### Phase 5 — Reference Overlays and Hover Interaction
 
