@@ -93,7 +93,13 @@ class StubMarker {
   setPopup(popup) { this.popup = popup; return this; }
   getPopup() { return this.popup; }
   setLngLat(lngLat) { this.lngLat = lngLat; return this; }
-  addTo(map) { map.markers.push(this); return this; }
+  addTo(map) {
+    // Real MapLibre reads the coordinate while attaching and throws without
+    // one, so the stub refuses an unpositioned marker too.
+    if (!this.lngLat) throw new TypeError("marker added before it was positioned");
+    map.markers.push(this);
+    return this;
+  }
   remove() { this.removed = true; }
 }
 

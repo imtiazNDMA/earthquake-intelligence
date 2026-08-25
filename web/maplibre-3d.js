@@ -389,9 +389,12 @@
     if (!epicenterMarker) {
       epicenterMarker = new maplibregl.Marker({ element: epicenterElement(), anchor: "center" })
         .setPopup(new maplibregl.Popup({ offset: 16 }))
+        // Positioned before attaching: MapLibre reads the coordinate on add.
+        .setLngLat([lon, lat])
         .addTo(mapInstance);
+    } else {
+      epicenterMarker.setLngLat([lon, lat]);
     }
-    epicenterMarker.setLngLat([lon, lat]);
     epicenterMarker.getPopup().setText(event.epicenterLabel || "Epicenter");
   }
 

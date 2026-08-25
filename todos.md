@@ -343,8 +343,8 @@ state from leaking into feature modules.
 **Acceptance criteria**
 
 - [x] Pakistan opens at the same center and scale as 2D.
-- [ ] Terrain is visible at regional and district scales without excessive relief.
-- [ ] Light and dark themes preserve text and control contrast.
+- [x] Terrain is visible at regional and district scales without excessive relief.
+- [x] Light and dark themes preserve text and control contrast.
 - [x] Missing DEM tiles do not blank or crash the map.
 
 **Phase 3 findings — 2026-08-25**
@@ -388,12 +388,11 @@ state from leaking into feature modules.
 - `web/styles.css` gives MapLibre's controls and attribution the same offsets
   the shell already applies to Leaflet's, clearing the MMI ladder and the
   exposure strip.
-- Two acceptance criteria are left open on purpose: relief legibility across
-  scales and light/dark contrast are visual judgements that need a real browser.
-  Playwright is not installed yet, and Phase 9 owns adding it. Everything else is
-  covered by `tests/test_web_assets.py` and the Node harness, which now also
+- Static coverage is `tests/test_web_assets.py` plus the Node harness, which
   checks catalogue parity, placeholder expansion, terrain settings, and that
   basemap and theme reach the 3D renderer as state rather than as a direct call.
+- Relief legibility and theme contrast were closed in a browser after Phase 4 —
+  see the Phase 9 browser-matrix findings.
 
 ### Phase 4 — Events and MMI Core Analysis
 
@@ -474,8 +473,9 @@ state from leaking into feature modules.
   the new zoom ceiling, theme-swapped sky, the MMI emphasis expressions, event
   features and their dropped null coordinates, marker reuse and removal, and
   every intent emission. Full suite: 435 passed.
-- Not verified in a browser: whether bands drape convincingly over real terrain,
-  and popup legibility at pitch. Phase 9 owns the browser matrix.
+- Band drape over real terrain was closed in a browser after this phase — see
+  the Phase 9 browser-matrix findings. Popup legibility at pitch remains a human
+  judgement and is left for operator sign-off in Phase 10.
 
 ### Phase 5 — Reference Overlays and Hover Interaction
 
@@ -626,16 +626,16 @@ state from leaking into feature modules.
 
 **Tasks**
 
-- [ ] Add Python Playwright to the dev dependency group through `uv` if browser
+- [x] Add Python Playwright to the dev dependency group through `uv` if browser
   tests are made part of the repeatable suite.
 - [ ] Test pure camera conversion and shared-state normalization functions.
 - [ ] Test lazy initialization, one-instance invariant, fallback, and mode state.
-- [ ] Browser-test 2D -> 3D -> 2D camera and layer preservation.
+- [x] Browser-test 2D -> 3D -> 2D camera and layer preservation.
 - [ ] Browser-test WebGL failure and DEM failure separately.
 - [ ] Browser-test events, MMI, one vector overlay, one landslide region, PGA, and
   one building district with fixture data/mocked tile responses.
 - [ ] Run interaction tests in dark and light themes.
-- [ ] Capture console errors and fail tests on unhandled exceptions.
+- [x] Capture console errors and fail tests on unhandled exceptions.
 - [ ] Establish budgets on the target machine:
   - first 3D activation <= 3 seconds on warm network
   - mode switch after initialization <= 500 ms
@@ -651,9 +651,48 @@ state from leaking into feature modules.
 node --check web/app.js
 node --check web/map-modes.js
 node --check web/maplibre-3d.js
-uv run pytest tests/test_map_modes.py -q
-uv run pytest -q
+uv run pytest tests/test_map_modes.py -q     # Node harnesses, no browser needed
+uv run pytest tests/browser -q               # browser matrix, needs Chromium
+uv run pytest -q                             # everything, browser tests last
 ```
+
+The browser matrix needs three things present, and skips rather than fails when
+any is missing: `uv run playwright install chromium`, a reachable database for
+`eqmon.api`, and network access for the CDN, tile, and DEM requests.
+
+**Browser-matrix findings — 2026-08-25**
+
+- `pytest-playwright` is in the dev group; `tests/browser/` holds a session
+  fixture that starts the real application on a free port and skips, never
+  fails, when the server cannot come up. Every test also fails on any console
+  error or unhandled page exception.
+- Terrain relief is measured, not eyeballed: `queryTerrainElevation` is sampled
+  at regional and district scale and asserted to be neither flat nor absurd,
+  with Muzaffarabad required to exceed 500 m. That closes the Phase 3 criterion
+  and confirms real DEM tiles are arriving at exaggeration `1.0`.
+- Theme contrast is computed as a WCAG ratio for the mode toggle in its active
+  and inactive states, in both themes, and asserted at AA. Measured: light
+  5.8:1 inactive and 8.4:1 active; dark comfortably above both.
+- MMI bands are published into the live 3D map and read back with
+  `queryRenderedFeatures`, confirming both bands draw over terrain and that the
+  stronger band is on top where they overlap.
+- The 2D -> 3D -> 2D round trip runs against two live renderers: the 3D camera
+  is asserted to sit exactly one zoom level below the 2D one over the same
+  centre at pitch 55, and centre, zoom, and the published analysis state come
+  back identical.
+- One real bug: `Marker.addTo()` was called before `setLngLat()`, so the very
+  first epicenter publication threw inside MapLibre. The Node stub had accepted
+  it; the stub now refuses an unpositioned marker, the way MapLibre does.
+- One test bug, not an application bug: Chromium resolves `color-mix()` to
+  `color(srgb r g b / a)` with 0-1 channels while `rgb()` stays 0-255, so the
+  first contrast reader turned white into near-black and reported a false
+  failure. The parser now picks its scale from the notation.
+- `tests/conftest.py` orders the browser matrix last. Playwright's sync API
+  keeps an asyncio loop running in the main thread for the rest of the session,
+  and 24 unrelated tests calling `asyncio.run()` failed against it while
+  `tests/browser` sorted first. Ordering fixes it without changing either half
+  of the suite. `tests/browser/__init__.py` exists only to disambiguate the
+  module basename from `tests/test_map_modes.py`.
 
 **Acceptance criteria**
 
