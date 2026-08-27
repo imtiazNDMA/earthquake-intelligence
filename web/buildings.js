@@ -10,47 +10,16 @@
 (function () {
   "use strict";
 
-  const TILE_URL = (id) => `/buildings/tiles/${id}/{z}/{x}/{y}.pbf`;
-  const DATA_MAXZOOM = 17;   // matches tippecanoe -z 17; beyond this we overzoom
+  const cfg = window.eqmonBuildingsConfig;
+  const { BANDS, UNKNOWN, heightBand, visibleDistricts } = cfg;
   const PANE = "buildingsPane";
-
-  // Height bands, metres. `height` is the only usable attribute in these tiles —
-  // it stands in for vulnerability, it is not a risk score. The legend says so.
-  const BANDS = [
-    { max: 3,        label: "Low-rise (≤3 m)",    color: "#C8C1B2" },
-    { max: 8,        label: "2–3 storey (3–8 m)", color: "#D8B22C" },
-    { max: 15,       label: "Mid-rise (8–15 m)",  color: "#E08A34" },
-    { max: Infinity, label: "High-rise (>15 m)",  color: "#DD5730" },
-  ];
-  const UNKNOWN = { label: "Unknown height", color: "#5A6570" };
-
-  /* ---- pure decision functions (no DOM, no map) ---- */
-
-  // Upstream uses -1 for "no height data"; treat 0/negative/non-finite alike.
-  function heightBand(h) {
-    if (typeof h !== "number" || !isFinite(h) || h <= 0) return UNKNOWN;
-    return BANDS.find(b => h <= b.max);
-  }
-
-  function intersects(bounds, view) {
-    // bounds = [minLon, minLat, maxLon, maxLat] from the catalog
-    return !(bounds[0] > view.getEast() || bounds[2] < view.getWest() ||
-             bounds[1] > view.getNorth() || bounds[3] < view.getSouth());
-  }
-
-  // The whole point of the layer: never more than a few sources live at once.
-  function visibleDatasets(catalog, view, zoom, minZoom, selectedId) {
-    if (zoom < minZoom) return [];
-    const pool = selectedId ? catalog.filter(d => d.id === selectedId) : catalog;
-    return pool.filter(d => intersects(d.bounds, view)).map(d => d.id);
-  }
 
   /* ---- rendering ---- */
 
   // Same shape as NamedPolySymbolizer in app.js: draw(ctx, geom, z, feature).
   class HeightSymbolizer {
     constructor(opts) {
-      this.alpha = opts.opacity ?? 0.75;
+      this.alpha = opts.opacity ?? cfg.OPACITY;
       this.stroke = opts.stroke ?? "rgba(30,41,59,0.35)";
       this.width = opts.width ?? 0.4;
     }
@@ -98,21 +67,21 @@
 
   function makeLayer(id) {
     return protomapsL.leafletLayer({
-      url: TILE_URL(id),
+      url: cfg.tileUrl(id),
       paintRules: [{
         dataLayer: "buildings",
-        symbolizer: new HeightSymbolizer({ opacity: 0.75 }),
+        symbolizer: new HeightSymbolizer({ opacity: cfg.OPACITY }),
       }],
       backgroundColor: "rgba(0,0,0,0)",
-      maxDataZoom: DATA_MAXZOOM,
+      maxDataZoom: cfg.DATA_MAXZOOM,
       pane: PANE,
     });
   }
 
   function reconcile() {
     const want = state.enabled
-      ? visibleDatasets(state.catalog, map.getBounds(), map.getZoom(),
-                        state.minZoom, state.selected)
+      ? visibleDistricts(state.catalog, map.getBounds(), map.getZoom(),
+                         state.minZoom, state.selected)
       : [];
     const wanted = new Set(want);
 
@@ -133,16 +102,19 @@
     publishBuildingState(want);
   }
 
-  // District ids and settings only — the live protomaps layers are this
-  // renderer's business and never leave it.
+  // Settings and the district catalog only — the live protomaps layers are this
+  // renderer's business and never leave it. The 3D renderer re-runs the same
+  // viewport decision against its own camera, which 2D cannot see.
   function publishBuildingState(districts) {
     publishMapState({
       buildings: {
         enabled: state.enabled,
         selected: state.selected,
         minZoom: state.minZoom,
+        catalog: state.catalog,
         districts: [...(districts || state.active.keys())],
-        opacity: 0.75,
+        opacity: cfg.OPACITY,
+        maxSources: cfg.MAX_LIVE_SOURCES,
       },
     });
   }

@@ -6,6 +6,8 @@ import hashlib
 import psycopg
 from psycopg.types.json import Jsonb
 
+from .context import AnalystContextV1, context_fingerprint
+
 
 def request_fingerprint(query: str) -> dict:
     encoded = query.encode("utf-8")
@@ -28,13 +30,18 @@ def create_catalog_query_job(conn: psycopg.Connection, *, query: str,
 
 
 def create_agent_chat_job(conn: psycopg.Connection, *, message: str,
-                          workflow_version: str, role: str = "VIEWER",
-                          actor_id: str = "unauthenticated-local") -> int:
+                           workflow_version: str, role: str = "VIEWER",
+                           actor_id: str = "unauthenticated-local",
+                           context: AnalystContextV1 | None = None) -> int:
+    fingerprint = {
+        **request_fingerprint(message),
+        **context_fingerprint(context),
+    }
     row = conn.execute(
         "INSERT INTO ai_job (workflow, workflow_version, actor_id, role, status, "
         "request_fingerprint, started_at) VALUES "
         "('agent_chat', %s, %s, %s, 'running', %s, now()) RETURNING id",
-        (workflow_version, actor_id, role, Jsonb(request_fingerprint(message))),
+        (workflow_version, actor_id, role, Jsonb(fingerprint)),
     ).fetchone()
     return row[0]
 

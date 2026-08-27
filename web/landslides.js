@@ -61,6 +61,7 @@
         regions: (state.manifest?.regions || []).map(region => ({
           key: region.key,
           label: region.label,
+          url: region.url ?? null,
           archive: region.archive ?? null,
           minZoom: region.min_zoom ?? null,
           maxZoom: region.max_zoom ?? null,
@@ -181,6 +182,7 @@
       input.checked = false;
       status.textContent = "Error";
       updatePanel(`${region.label} is unavailable. Rebuild it with scripts/build_landslide_tiles.py.`);
+      publishLandslideState();
     } finally {
       input.disabled = false;
     }

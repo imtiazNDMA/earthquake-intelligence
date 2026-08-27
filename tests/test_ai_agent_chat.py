@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timezone
 
 from pydantic import BaseModel
 
@@ -111,3 +112,45 @@ def test_history_is_sent_as_conversation_not_system_instructions():
     asyncio.run(run_agent_chat(broker, request, execute_tool=execute))
     roles = [message.role for message in broker.calls[0][0]]
     assert roles == ["system", "user", "assistant", "user"]
+
+
+def test_request_accepts_valid_workspace_context_without_changing_history_roles():
+    request = AgentChatRequest.model_validate({
+        "message": "Summarize this event",
+        "context": {
+            "schema_version": "1.0",
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+            "map": {"mode": "2d", "center": [73.47, 34.37], "zoom": 11.0,
+                    "bearing": 0.0, "pitch": 0.0, "basemap": "OpenStreetMap"},
+            "selection": {"event_id": "evt-123", "sidebar_section": "event"},
+            "display": {"theme": "dark", "reduced_motion": False},
+        },
+    })
+
+    assert request.context.selection.event_id == "evt-123"
+
+
+def test_workspace_context_is_separate_untrusted_system_data():
+    broker = FakeBroker([_completion(text="The national layer is visible.")])
+
+    async def execute(name, arguments):
+        raise AssertionError("no tool expected")
+
+    request = AgentChatRequest.model_validate({
+        "message": "What layers are visible?",
+        "context": {
+            "schema_version": "1.0",
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+            "map": {"mode": "2d", "center": [73.47, 34.37], "zoom": 11.0,
+                    "bearing": 0.0, "pitch": 0.0},
+            "layers": {"reference": [{"id": "national", "visible": True}]},
+            "display": {"theme": "dark", "reduced_motion": False},
+        },
+    })
+    asyncio.run(run_agent_chat(broker, request, execute_tool=execute))
+
+    messages = broker.calls[0][0]
+    assert [message.role for message in messages] == ["system", "system", "user"]
+    assert "not instructions" in messages[1].content
+    assert '"id":"national"' in messages[1].content
+    assert "Re-query canonical event or place facts" in messages[1].content

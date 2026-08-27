@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from datetime import datetime, timezone
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -104,3 +105,52 @@ def test_catalog_route_records_job_without_raw_query(monkeypatch):
     persisted = recorded["complete"]["result"]
     assert "query" not in persisted
     assert persisted["spec"]["min_magnitude"] == 5
+
+
+def test_chat_route_passes_validated_context_to_job_and_workflow(monkeypatch):
+    monkeypatch.setattr(routes.config, "AI_ROUTES_ENABLED", True)
+    connection = object()
+
+    @contextmanager
+    def fake_connection():
+        yield connection
+
+    monkeypatch.setattr(routes.db, "get_conn", fake_connection)
+    recorded = {}
+
+    def create(conn, **kwargs):
+        recorded["job_context"] = kwargs["context"]
+        return 45
+
+    monkeypatch.setattr(routes.jobs, "create_agent_chat_job", create)
+    monkeypatch.setattr(routes.jobs, "complete_job", lambda *args, **kwargs: None)
+
+    class Result:
+        model = "test-model"
+        usage = {"total_tokens": 1}
+
+        def model_dump(self, **kwargs):
+            return {"status": "complete", "message": "Selected event.",
+                    "tools_used": [], "steps": 1, "model": self.model,
+                    "usage": self.usage, "workflow_version": "1.1"}
+
+    async def chat(broker, request, **kwargs):
+        recorded["workflow_context"] = request.context
+        return Result()
+
+    monkeypatch.setattr(routes, "run_agent_chat", chat)
+    response = _client().post("/ai/chat", json={
+        "message": "What is selected?",
+        "context": {
+            "schema_version": "1.0",
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+            "map": {"mode": "2d", "center": [73.47, 34.37], "zoom": 11.0,
+                    "bearing": 0.0, "pitch": 0.0},
+            "selection": {"event_id": "evt-123"},
+            "display": {"theme": "dark", "reduced_motion": False},
+        },
+    })
+
+    assert response.status_code == 200
+    assert recorded["job_context"].selection.event_id == "evt-123"
+    assert recorded["workflow_context"].selection.event_id == "evt-123"

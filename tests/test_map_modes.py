@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 HARNESSES = {
+    "ai-context": (Path("tests/js/ai_context_harness.js"), "ai-context runtime checks passed"),
     "coordinator": (Path("tests/js/map_modes_harness.js"), "map-modes runtime checks passed"),
     "renderer": (Path("tests/js/maplibre_3d_harness.js"), "maplibre-3d runtime checks passed"),
 }
@@ -40,7 +41,15 @@ def test_map_harness_invariants_hold(name: str):
     assert banner in result.stdout
 
 
-@pytest.mark.parametrize("module", ["web/map-modes.js", "web/maplibre-3d.js", "web/map-style-config.js", "web/app.js"])
+@pytest.mark.parametrize("module", [
+        "web/map-modes.js",
+        "web/maplibre-3d.js",
+        "web/map-style-config.js",
+        "web/buildings-config.js",
+        "web/buildings.js",
+        "web/app.js",
+        "web/ai-context.js",
+    ])
 def test_map_modules_parse(module: str):
     result = subprocess.run(
         [_node(), "--check", module],

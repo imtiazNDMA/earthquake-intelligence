@@ -8,13 +8,15 @@
   const leafletContainer = document.getElementById("map");
   const map3dContainer = document.getElementById("map-3d");
   const control = document.getElementById("map-mode-control");
-  const loading = document.getElementById("map-mode-loading");
+  const status = document.getElementById("map-mode-status");
   const buttons = Object.fromEntries(
     Array.from(control.querySelectorAll("[data-map-mode]"), button => [button.dataset.mapMode, button])
   );
   let activeMode = "2d";
   let requestVersion = 0;
   let initializing = false;
+  let suspended = false;
+  let statusTimer = null;
 
   // --- Normalized camera ---------------------------------------------------
   // One shape for both renderers: lon/lat order, Leaflet zoom levels, and the
@@ -220,6 +222,15 @@
     });
   }
 
+  function announce(message, { persistent = false } = {}) {
+    window.clearTimeout(statusTimer);
+    status.textContent = message;
+    status.hidden = suspended;
+    if (!persistent) {
+      statusTimer = window.setTimeout(() => { status.hidden = true; }, 2500);
+    }
+  }
+
   function publishMode(mode) {
     window.dispatchEvent(new CustomEvent("eqmon:map-mode", {
       detail: { mode, camera: { ...camera, center: [...camera.center] }, state: getState() },
@@ -232,8 +243,9 @@
     const wasThreeD = activeMode === "3d";
     activeMode = "2d";
     document.body.classList.remove("map-mode-3d");
+    window.eqmonMapLibre3d?.setPaused?.(true);
     map3dContainer.setAttribute("aria-hidden", "true");
-    loading.hidden = true;
+    status.hidden = true;
     buttons["3d"].disabled = !canUse3d;
     buttons["3d"].removeAttribute("aria-busy");
     setPressed("2d");
@@ -243,6 +255,7 @@
       window.setTimeout(resize, 0);
     }
     publishMode("2d");
+    if (wasThreeD) announce("2D map active.");
   }
 
   async function show3d({ persist = true } = {}) {
@@ -255,7 +268,7 @@
 
     const requestedVersion = ++requestVersion;
     initializing = true;
-    loading.hidden = leafletContainer.style.display === "none";
+    announce("Preparing 3D map...", { persistent: true });
     buttons["3d"].disabled = true;
     buttons["3d"].setAttribute("aria-busy", "true");
 
@@ -266,8 +279,9 @@
       map3dContainer.hidden = false;
       map3dContainer.setAttribute("aria-hidden", "false");
       document.body.classList.add("map-mode-3d");
+      window.eqmonMapLibre3d.setPaused?.(false);
       activeMode = "3d";
-      loading.hidden = true;
+      status.hidden = true;
       buttons["3d"].disabled = false;
       buttons["3d"].removeAttribute("aria-busy");
       setPressed("3d");
@@ -278,11 +292,13 @@
       window.eqmonMapLibre3d.resize();
       if (persist) persistMode("3d");
       publishMode("3d");
+      announce("3D map active.");
     } catch (error) {
       if (requestedVersion !== requestVersion) return;
       clearUnavailable3dPreference();
       show2d({ persist: false });
       console.error("3D map initialization failed", error);
+      announce("3D map unavailable. 2D map active.", { persistent: true });
       if (typeof toast === "function") toast("3D map unavailable; returned to 2D.", "warn", 6000);
     }
   }
@@ -292,11 +308,17 @@
   }
 
   function syncAlternateView() {
-    const suspended = leafletContainer.style.display === "none";
+    suspended = leafletContainer.style.display === "none";
     map3dContainer.style.display = suspended ? "none" : "";
     control.hidden = suspended;
-    loading.hidden = suspended || !initializing;
+    status.hidden = suspended || !initializing;
     if (!suspended) window.setTimeout(resize, 0);
+  }
+
+  function setSuspended(value) {
+    leafletContainer.style.display = value ? "none" : "";
+    window.eqmonMapLibre3d?.setPaused?.(value || activeMode !== "3d");
+    syncAlternateView();
   }
 
   buttons["2d"].addEventListener("click", () => setMode("2d"));
@@ -310,6 +332,14 @@
     map.on("moveend", captureLeafletCamera);
     captureLeafletCamera();
   }
+
+  window.eqmonMapLibre3d?.onRendererFailure?.(() => {
+    if (activeMode !== "3d" && !initializing) return;
+    clearUnavailable3dPreference();
+    show2d({ persist: false });
+    announce("3D map stopped unexpectedly. 2D map active.", { persistent: true });
+    if (typeof toast === "function") toast("3D map stopped unexpectedly; returned to 2D.", "warn", 6000);
+  });
 
   if (!canUse3d) {
     buttons["3d"].disabled = true;
@@ -328,5 +358,10 @@
     getState,
     emit: emitIntent,
     resize,
+    setSuspended,
+    // The 3D renderer reads catalogs published in Leaflet zoom levels; the
+    // offset stays owned here.
+    toLeafletZoom: mapLibreZoomToLeaflet,
+    toMapLibreZoom: leafletZoomToMapLibre,
   };
 })();

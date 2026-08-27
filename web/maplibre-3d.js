@@ -17,12 +17,21 @@
   const EVENTS_CIRCLE = "map-events-circle";
   const EMPTY_FC = { type: "FeatureCollection", features: [] };
   const OVERLAY_PREFIX = "overlay-";
+  const BUILDINGS_PREFIX = "buildings-";
+  const BUILDINGS_SOURCE_LAYER = "buildings";
+  const LANDSLIDE_PREFIX = "landslide-";
+  const PGA_SOURCE = "pga-hazard";
+  const PGA_LAYER = "pga-hazard-raster";
   // A line of a given pixel width covers less ground the further it is from the
   // camera, so at pitch the same nominal width reads thinner than it does flat.
   // A modest constant restores the visual weight without turning boundaries into
   // ribbons at the horizon.
   const PITCH_LINE_MULTIPLIER = 1.25;
   const registeredOverlays = new Map();
+  // districtId -> nothing but its own liveness; insertion order is the eviction
+  // order when the cap is reached.
+  const liveDistricts = new Set();
+  let buildingsState = null;
   let overlayTooltip = null;
   // Mirrors the 2D defaults in web/app.js; a publication overrides them.
   const MMI_BASE_OPACITY = 0.45;
@@ -38,8 +47,14 @@
   let protocolRegistered = false;
   let cameraListener = null;
   let currentBasemap = null;
+  let styleReloadToken = 0;
+  let lastState = null;
+  let stateApplyPending = false;
   let terrainEnabled = false;
   let terrainAnnounced = false;
+  const hazardErrors = new Set();
+  let rendererFailureListener = null;
+  let renderingPaused = false;
 
   function loadStylesheet() {
     return new Promise((resolve, reject) => {
@@ -131,10 +146,11 @@
   // applies what it is given, in MapLibre's own zoom scale.
   function setCamera(camera) {
     if (!mapInstance || !camera) return;
+    const mobile = window.matchMedia?.("(max-width: 760px)").matches;
     mapInstance.jumpTo({
       center: camera.center,
       zoom: camera.zoom,
-      bearing: camera.bearing ?? 0,
+      bearing: mobile ? 0 : (camera.bearing ?? 0),
       pitch: camera.pitch ?? 0,
     });
   }
@@ -177,88 +193,135 @@
     return published || config.themeBasemap(document.documentElement.dataset.theme);
   }
 
-  function buildStyle(basemapName) {
-    const config = styleConfig();
-    const terrain = config.TERRAIN;
-    currentBasemap = basemapName;
+  function analysisSources() {
+    const terrain = styleConfig().TERRAIN;
     return {
-      version: 8,
-      sources: {
-        [BASEMAP_SOURCE]: config.maplibreSource(basemapName),
-        [MMI_SOURCE]: { type: "geojson", data: EMPTY_FC },
-        [EVENTS_SOURCE]: { type: "geojson", data: EMPTY_FC },
-        // The DEM feeds both the terrain mesh and the hillshade, so its credit
-        // is attached once and MapLibre prints it once.
-        [DEM_SOURCE]: {
-          type: "raster-dem",
-          tiles: terrain.tiles,
-          encoding: terrain.encoding,
-          tileSize: terrain.tileSize,
-          maxzoom: terrain.maxzoom,
-          attribution: terrain.attribution,
-        },
+      [MMI_SOURCE]: { type: "geojson", data: EMPTY_FC },
+      [EVENTS_SOURCE]: { type: "geojson", data: EMPTY_FC },
+      // The DEM feeds both the terrain mesh and the hillshade, so its credit is
+      // attached once and MapLibre prints it once.
+      [DEM_SOURCE]: {
+        type: "raster-dem",
+        tiles: terrain.tiles,
+        encoding: terrain.encoding,
+        tileSize: terrain.tileSize,
+        maxzoom: terrain.maxzoom,
+        attribution: terrain.attribution,
       },
-      layers: [
-        { id: BASEMAP_LAYER, type: "raster", source: BASEMAP_SOURCE },
-        // Shading only, at low strength: relief should read as depth cue, not
-        // as another data layer competing with the hazard palette above it.
-        {
-          id: HILLSHADE_LAYER,
-          type: "hillshade",
-          source: DEM_SOURCE,
-          paint: {
-            "hillshade-exaggeration": 0.25,
-            "hillshade-shadow-color": "#1c232b",
-            "hillshade-highlight-color": "#ffffff",
-          },
-        },
-        {
-          id: MMI_FILL,
-          type: "fill",
-          source: MMI_SOURCE,
-          // Severity ordering: a stronger band is drawn last and so is never
-          // buried under the weaker band that surrounds it.
-          layout: { "fill-sort-key": ["get", "mmi_lower"] },
-          paint: { "fill-color": ["get", "color"], "fill-opacity": MMI_BASE_OPACITY },
-        },
-        {
-          id: MMI_LINE,
-          type: "line",
-          source: MMI_SOURCE,
-          // Band colour, exactly as in 2D. The MMI palette is theme-independent,
-          // so the border reads the same against a light or a dark basemap.
-          paint: {
-            "line-color": ["get", "color"],
-            "line-width": MMI_BASE_WEIGHT,
-            "line-opacity": 0.9,
-          },
-        },
-        {
-          id: EVENTS_CIRCLE,
-          type: "circle",
-          source: EVENTS_SOURCE,
-          // Radius and colour ride on the feature: they come from the same
-          // magnitude and depth rules the 2D bubbles are drawn with.
-          paint: {
-            "circle-radius": ["get", "radius"],
-            "circle-color": ["get", "color"],
-            "circle-opacity": 0.85,
-            "circle-stroke-width": ["get", "strokeWidth"],
-            "circle-stroke-color": "#F4F6F8",
-            "circle-stroke-opacity": 0.95,
-          },
-        },
-      ],
+    };
+  }
+
+  // Shading only, at low strength: relief should read as depth cue, not as
+  // another data layer competing with the hazard palette above it.
+  const hillshadeLayer = () => ({
+    id: HILLSHADE_LAYER,
+    type: "hillshade",
+    source: DEM_SOURCE,
+    paint: {
+      "hillshade-exaggeration": 0.25,
+      "hillshade-shadow-color": "#1c232b",
+      "hillshade-highlight-color": "#ffffff",
+    },
+  });
+
+  const analysisLayers = () => [
+    {
+      id: MMI_FILL,
+      type: "fill",
+      source: MMI_SOURCE,
+      // Severity ordering: a stronger band is drawn last and so is never buried
+      // under the weaker band that surrounds it.
+      layout: { "fill-sort-key": ["get", "mmi_lower"] },
+      paint: { "fill-color": ["get", "color"], "fill-opacity": MMI_BASE_OPACITY },
+    },
+    {
+      id: MMI_LINE,
+      type: "line",
+      source: MMI_SOURCE,
+      // Band colour, exactly as in 2D. The MMI palette is theme-independent, so
+      // the border reads the same against a light or a dark basemap.
+      paint: {
+        "line-color": ["get", "color"],
+        "line-width": MMI_BASE_WEIGHT,
+        "line-opacity": 0.9,
+      },
+    },
+    {
+      id: EVENTS_CIRCLE,
+      type: "circle",
+      source: EVENTS_SOURCE,
+      // Radius and colour ride on the feature: they come from the same magnitude
+      // and depth rules the 2D bubbles are drawn with.
+      paint: {
+        "circle-radius": ["get", "radius"],
+        "circle-color": ["get", "color"],
+        "circle-opacity": 0.85,
+        "circle-stroke-width": ["get", "strokeWidth"],
+        "circle-stroke-color": "#F4F6F8",
+        "circle-stroke-opacity": 0.95,
+      },
+    },
+  ];
+
+  // Any basemap style, raster or vector, plus everything this renderer draws on
+  // top of it. Relief slips under the basemap's own labels; analysis goes above.
+  function composeStyle(base) {
+    const layers = [...base.layers];
+    const labels = layers.findIndex(layer => layer.type === "symbol");
+    layers.splice(labels < 0 ? layers.length : labels, 0, hillshadeLayer());
+    return {
+      ...base,
+      sources: { ...base.sources, ...analysisSources() },
+      layers: [...layers, ...analysisLayers()],
       sky: skyFor(document.documentElement.dataset.theme),
     };
+  }
+
+  function rasterBase(name) {
+    return {
+      version: 8,
+      sources: { [BASEMAP_SOURCE]: styleConfig().maplibreSource(name) },
+      layers: [{ id: BASEMAP_LAYER, type: "raster", source: BASEMAP_SOURCE }],
+    };
+  }
+
+  // Imagery with the labels of a vector style on top. composeStyle then slips
+  // the hillshade in above the imagery and below those labels.
+  async function hybridBase(name) {
+    const config = styleConfig();
+    const labels = await config.labelStyle(name);
+    const base = rasterBase(name);
+    return {
+      ...labels,
+      sources: { ...base.sources, ...labels.sources },
+      layers: [...base.layers, ...labels.layers],
+    };
+  }
+
+  async function styleFor(name) {
+    const config = styleConfig();
+    currentBasemap = name;
+    if (config.isRaster(name)) return composeStyle(rasterBase(name));
+    if (!config.isVector(name)) return composeStyle(await hybridBase(name));
+    const response = await fetch(config.styleUrl(name));
+    if (!response.ok) throw new Error(`${name}: HTTP ${response.status}`);
+    return composeStyle(await response.json());
+  }
+
+  function setBasemap(name) {
+    const config = styleConfig();
+    if (!mapInstance || !name || name === currentBasemap || !config) return;
+    // Only a plain raster swap can be done in place; anything else brings its
+    // own layers and needs the style rebuilt.
+    if (!config.isRaster(name) || !config.isRaster(currentBasemap)) return reloadStyle(name);
+    swapRasterBasemap(name);
   }
 
   // Rebuilt rather than retiled: every basemap carries its own zoom ceiling and
   // credit, and a raster source can change neither in place. Only the bottom
   // layer is touched, so terrain, hillshade, and analysis layers above survive.
-  function setBasemap(name) {
+  function swapRasterBasemap(name) {
     const config = styleConfig();
-    if (!mapInstance || !name || name === currentBasemap || !config) return;
     if (!mapInstance.getSource(BASEMAP_SOURCE)) return;
     const above = mapInstance.getStyle().layers[1]?.id;
     if (mapInstance.getLayer(BASEMAP_LAYER)) mapInstance.removeLayer(BASEMAP_LAYER);
@@ -266,6 +329,55 @@
     mapInstance.addSource(BASEMAP_SOURCE, config.maplibreSource(name));
     mapInstance.addLayer({ id: BASEMAP_LAYER, type: "raster", source: BASEMAP_SOURCE }, above);
     currentBasemap = name;
+  }
+
+  // `styledata` fires several times while a style is being installed, and the
+  // first of them lands before MapLibre will accept paint or sky calls. Waiting
+  // for isStyleLoaded is the difference between a switch and a rollback.
+  function styleLoaded(timeoutMs = 15000) {
+    return new Promise(resolve => {
+      if (mapInstance.isStyleLoaded()) return resolve(true);
+      const finish = ok => {
+        mapInstance.off("styledata", check);
+        window.clearTimeout(timer);
+        resolve(ok);
+      };
+      const check = () => { if (mapInstance.isStyleLoaded()) finish(true); };
+      const timer = window.setTimeout(() => finish(false), timeoutMs);
+      mapInstance.on("styledata", check);
+    });
+  }
+
+  // A vector basemap brings its own layers, so the style is replaced wholesale.
+  // Everything this renderer draws is registered again from the published state,
+  // which is why switching never refetches analysis.
+  function reloadStyle(name) {
+    const previous = currentBasemap;
+    const token = ++styleReloadToken;
+    return styleFor(name)
+      .then(style => {
+        mapInstance.setStyle(style);
+        // The old layers are gone as of this call, so nothing may claim they
+        // still exist while the new style installs.
+        registeredOverlays.clear();
+        liveDistricts.clear();
+        overlayTooltip = null;
+        return styleLoaded();
+      })
+      .then(() => {
+        if (token !== styleReloadToken) return null;
+        // Terrain only after the style is installed: attaching a mesh to a
+        // half-built style takes MapLibre's renderer down with it.
+        return enableTerrain();
+      })
+      .then(() => {
+        if (token === styleReloadToken && lastState) applyState(lastState);
+      })
+      .catch(error => {
+        currentBasemap = previous;
+        console.error("basemap unavailable", name, error);
+        if (typeof toast === "function") toast(`${name} could not be loaded.`, "warn", 6000);
+      });
   }
 
   // Terrain is an enhancement, never a precondition: if the DEM does not arrive
@@ -339,7 +451,7 @@
   // checkbox would refetch the archive and strip any handler bound to its layer.
   function registerOverlay(name, overlay) {
     const sourceId = overlaySourceId(overlay.id);
-    if (registeredOverlays.has(name)) return;
+    if (mapInstance.getLayer(overlayLineId(overlay.id))) return;
     if (!mapInstance.getSource(sourceId)) {
       mapInstance.addSource(sourceId, {
         type: "vector",
@@ -418,7 +530,9 @@
     if (!overlays) return;
     Object.entries(overlays).forEach(([name, overlay]) => {
       if (!overlay?.id) return;
-      if (registeredOverlays.has(name)) updateOverlay(name, overlay);
+      // A style swap can outlive the registry, so liveness is read off the map.
+      const live = registeredOverlays.has(name) && mapInstance.getLayer(overlayLineId(overlay.id));
+      if (live) updateOverlay(name, overlay);
       else registerOverlay(name, overlay);
     });
   }
@@ -471,6 +585,190 @@
       });
     }
     overlayTooltip.setLngLat(event.lngLat).setHTML(html).addTo(mapInstance);
+  }
+
+
+  /* ---- building extrusions ---- */
+
+  function buildingsConfig() { return window.eqmonBuildingsConfig; }
+  function buildingsSourceId(district) { return `${BUILDINGS_PREFIX}${district}`; }
+  function buildingsLayerId(district) { return `${BUILDINGS_PREFIX}${district}-extrusion`; }
+
+  // The catalog is published in Leaflet zoom levels, the only scale the minimum
+  // zoom is ever expressed in, so the camera is converted rather than the rule.
+  function wantedDistricts() {
+    const cfg = buildingsConfig();
+    const modes = window.eqmonMapModes;
+    if (!cfg || !modes?.toLeafletZoom || !buildingsState?.enabled) return [];
+    return cfg.visibleDistricts(
+      buildingsState.catalog,
+      mapInstance.getBounds(),
+      modes.toLeafletZoom(mapInstance.getZoom()),
+      buildingsState.minZoom,
+      buildingsState.selected,
+      buildingsState.maxSources ?? cfg.MAX_LIVE_SOURCES
+    );
+  }
+
+  function addDistrict(district) {
+    const cfg = buildingsConfig();
+    const sourceId = buildingsSourceId(district);
+    if (!mapInstance.getSource(sourceId)) {
+      mapInstance.addSource(sourceId, {
+        type: "vector",
+        tiles: [location.origin + cfg.tileUrl(district)],
+        maxzoom: cfg.DATA_MAXZOOM,
+      });
+    }
+    if (mapInstance.getLayer(buildingsLayerId(district))) {
+      liveDistricts.add(district);
+      return;
+    }
+    mapInstance.addLayer({
+      id: buildingsLayerId(district),
+      type: "fill-extrusion",
+      source: sourceId,
+      "source-layer": BUILDINGS_SOURCE_LAYER,
+      minzoom: window.eqmonMapModes.toMapLibreZoom(buildingsState.minZoom),
+      paint: {
+        "fill-extrusion-color": cfg.colorExpression(),
+        "fill-extrusion-height": cfg.heightExpression(),
+        "fill-extrusion-base": 0,
+        "fill-extrusion-opacity": buildingsState.opacity ?? cfg.OPACITY,
+      },
+    // Context, not analysis: extrusions stay under the shaking footprint and
+    // the event bubbles.
+    }, MMI_FILL);
+    liveDistricts.add(district);
+  }
+
+  function removeDistrict(district) {
+    if (mapInstance.getLayer(buildingsLayerId(district))) mapInstance.removeLayer(buildingsLayerId(district));
+    if (mapInstance.getSource(buildingsSourceId(district))) mapInstance.removeSource(buildingsSourceId(district));
+    liveDistricts.delete(district);
+  }
+
+  function onRendererFailure(handler) {
+    rendererFailureListener = typeof handler === "function" ? handler : null;
+  }
+
+  function setPaused(paused) {
+    renderingPaused = Boolean(paused);
+    if (!mapInstance) return;
+    if (renderingPaused) mapInstance.stop?.();
+    else {
+      mapInstance.resize();
+      mapInstance.triggerRepaint?.();
+    }
+  }
+
+  function hazardUrl(path) {
+    return new URL(path, location.href).href;
+  }
+
+  function hazardError(key, label) {
+    if (hazardErrors.has(key)) return;
+    hazardErrors.add(key);
+    console.warn(`${label} unavailable`);
+    if (typeof toast === "function") toast(`${label} unavailable.`, "warn", 6000);
+  }
+
+  function landslideSourceId(key) { return `${LANDSLIDE_PREFIX}${key}`; }
+  function landslideLayerId(key) { return `${LANDSLIDE_PREFIX}${key}-raster`; }
+
+  function applyLandslides(landslides) {
+    if (!landslides?.regions) return;
+    landslides.regions.forEach(region => {
+      const sourceId = landslideSourceId(region.key);
+      const layerId = landslideLayerId(region.key);
+      if (!region.url) {
+        if (region.enabled) hazardError(sourceId, `${region.label} landslide layer`);
+        return;
+      }
+      try {
+        if (!mapInstance.getSource(sourceId)) {
+          mapInstance.addSource(sourceId, {
+            type: "raster",
+            url: `pmtiles://${hazardUrl(region.url)}`,
+            minzoom: region.minZoom ?? 0,
+            maxzoom: region.maxZoom ?? 22,
+            tileSize: 256,
+            attribution: "Landslide susceptibility source: supplied regional masks",
+          });
+        }
+        if (!mapInstance.getLayer(layerId)) {
+          mapInstance.addLayer({
+            id: layerId,
+            type: "raster",
+            source: sourceId,
+            layout: { visibility: region.enabled ? "visible" : "none" },
+            paint: {
+              "raster-opacity": landslides.opacity ?? 0.62,
+              "raster-resampling": "nearest",
+              "raster-fade-duration": 0,
+            },
+          }, MMI_FILL);
+        } else {
+          mapInstance.setLayoutProperty(layerId, "visibility", region.enabled ? "visible" : "none");
+          mapInstance.setPaintProperty(layerId, "raster-opacity", landslides.opacity ?? 0.62);
+        }
+      } catch (error) {
+        hazardError(sourceId, `${region.label} landslide layer`);
+      }
+    });
+  }
+
+  function applyPga(pga) {
+    if (!pga) return;
+    const renderable = Boolean(pga.enabled && pga.image && Array.isArray(pga.bounds));
+    try {
+      if (mapInstance.getLayer(PGA_LAYER)) mapInstance.removeLayer(PGA_LAYER);
+      if (mapInstance.getSource(PGA_SOURCE)) mapInstance.removeSource(PGA_SOURCE);
+      if (!renderable) return;
+      const [west, south, east, north] = pga.bounds;
+      mapInstance.addSource(PGA_SOURCE, {
+        type: "image",
+        url: hazardUrl(pga.image),
+        coordinates: [[west, north], [east, north], [east, south], [west, south]],
+        attribution: pga.attribution || "",
+      });
+      mapInstance.addLayer({
+        id: PGA_LAYER,
+        type: "raster",
+        source: PGA_SOURCE,
+        paint: {
+          "raster-opacity": pga.opacity ?? 0.55,
+          "raster-resampling": "nearest",
+          "raster-fade-duration": 0,
+        },
+      }, MMI_FILL);
+    } catch (error) {
+      hazardError(PGA_SOURCE, "PGA hazard layer");
+    }
+  }
+
+  function reconcileBuildings() {
+    if (!mapInstance || !buildingsConfig()) return;
+    const wanted = new Set(wantedDistricts());
+    for (const district of [...liveDistricts]) {
+      if (!wanted.has(district)) removeDistrict(district);
+    }
+    for (const district of wanted) {
+      if (!liveDistricts.has(district)) addDistrict(district);
+    }
+  }
+
+  function applyBuildings(buildings) {
+    if (!buildings) return;
+    const opacityChanged = buildings.opacity !== buildingsState?.opacity;
+    buildingsState = buildings;
+    if (opacityChanged) {
+      const opacity = buildings.opacity ?? buildingsConfig().OPACITY;
+      liveDistricts.forEach(district => {
+        mapInstance.setPaintProperty(buildingsLayerId(district), "fill-extrusion-opacity", opacity);
+      });
+    }
+    reconcileBuildings();
   }
 
   // Selected and hovered bands take the same emphasis the 2D ladder applies;
@@ -569,19 +867,37 @@
   // data the 2D map already rendered; nothing is recomputed here.
   function applyState(state) {
     if (!mapInstance || !state) return;
+    lastState = state;
+    // Published state can arrive mid-swap; it is applied once the style will
+    // accept it, from whatever the newest snapshot is by then.
+    if (!mapInstance.isStyleLoaded()) {
+      if (!stateApplyPending) {
+        stateApplyPending = true;
+        styleLoaded().then(() => {
+          stateApplyPending = false;
+          applyState(lastState);
+        });
+      }
+      return;
+    }
     setBasemap(state.basemap || styleConfig().themeBasemap(state.theme));
     if (state.theme) mapInstance.setSky(skyFor(state.theme));
     applyOverlays(state.overlays);
+    applyLandslides(state.landslides);
+    applyPga(state.pga);
     applyMmi(state.currentMmi);
     applyMapEvents(state.mapEvents);
     applyEpicenter(state.activeEvent);
+    applyBuildings(state.buildings);
   }
 
-  function createMap(camera) {
+  function createMap(camera, style) {
     const initial = camera || DEFAULT_CAMERA;
     return new Promise((resolve, reject) => {
       let settled = false;
-      const timeout = window.setTimeout(() => fail(new Error("3D map initialization timed out")), 15000);
+      // Generous on purpose: a vector basemap fetches a style, its glyphs, and
+      // its first tiles before MapLibre reports "load".
+      const timeout = window.setTimeout(() => fail(new Error("3D map initialization timed out")), 25000);
 
       function cleanListeners() {
         window.clearTimeout(timeout);
@@ -620,7 +936,7 @@
         // fight the page scroll on a phone. Mouse and keyboard keep both.
         dragRotate: true,
         touchPitch: false,
-        style: buildStyle(initialBasemapName()),
+        style,
       });
       mapInstance.touchZoomRotate?.disableRotation();
       mapInstance.addControl(
@@ -632,6 +948,12 @@
       mapInstance.on("error", fail);
       mapInstance.on("moveend", emitCameraChange);
       bindInteractions();
+      const canvas = mapInstance.getCanvas();
+      canvas.addEventListener?.("webglcontextlost", event => {
+        event.preventDefault?.();
+        terrainEnabled = false;
+        rendererFailureListener?.(new Error("WebGL context lost"));
+      });
     });
   }
 
@@ -682,13 +1004,21 @@
 
     // Tectonic Zones needs its pastels rebuilt as tiles arrive.
     mapInstance.on("sourcedata", event => {
-      if (!event.sourceId?.startsWith(OVERLAY_PREFIX) || !event.isSourceLoaded) return;
-      for (const overlay of registeredOverlays.values()) {
-        if (overlay.namedFill && overlay.visible && overlaySourceId(overlay.id) === event.sourceId) {
-          applyNamedFill(overlay);
+      if (event.sourceId?.startsWith(OVERLAY_PREFIX) && event.isSourceLoaded) {
+        for (const overlay of registeredOverlays.values()) {
+          if (overlay.namedFill && overlay.visible && overlaySourceId(overlay.id) === event.sourceId) {
+            applyNamedFill(overlay);
+          }
         }
       }
     });
+
+    mapInstance.on("error", event => {
+      if (event.sourceId?.startsWith(LANDSLIDE_PREFIX)) hazardError(event.sourceId, "Landslide layer");
+      if (event.sourceId === PGA_SOURCE) hazardError(PGA_SOURCE, "PGA hazard layer");
+    });
+
+    mapInstance.on("moveend", reconcileBuildings);
 
     // Clicking bare map clears the selected band, as it does in 2D.
     mapInstance.on("click", event => {
@@ -700,7 +1030,7 @@
   async function initializeMapLibre3d(camera) {
     await loadDependencies();
     registerPmtilesProtocol();
-    const instance = await createMap(camera);
+    const instance = await createMap(camera, await styleFor(initialBasemapName()));
     await enableTerrain();
     return instance;
   }
@@ -719,12 +1049,17 @@
 
   window.eqmonMapLibre3d = {
     ensureMapLibre3d,
+    // The 2D renderer needs the same library to draw a vector basemap in Leaflet.
+    ensureLibrary: loadDependencies,
     hasInstance: () => Boolean(mapInstance),
     resize: () => mapInstance?.resize(),
     setCamera,
     getCamera: readCamera,
     onCameraChange,
     applyState,
+    onRendererFailure,
+    setPaused,
+    isPaused: () => renderingPaused,
     overlayLayerIds: () => [...registeredOverlays.values()].flatMap(overlay => {
       const ids = [overlayLineId(overlay.id)];
       if (overlayHasFill(overlay)) ids.unshift(overlayFillId(overlay.id));
@@ -732,6 +1067,7 @@
     }),
     setBasemap,
     getBasemap: () => currentBasemap,
+    liveBuildingDistricts: () => [...liveDistricts],
     hasTerrain: () => terrainEnabled,
   };
 })();

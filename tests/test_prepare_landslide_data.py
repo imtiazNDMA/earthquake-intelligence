@@ -93,7 +93,7 @@ def test_tile_manifest_can_recover_an_existing_region(tmp_path):
         transform=from_origin(70, 35, 0.1, 0.1),
     ) as dataset:
         dataset.write(np.full((1, 2, 2), 5, dtype="uint8"))
-    (script.OUTPUT_DIR / "test.pmtiles").write_bytes(b"built")
+    (script.OUTPUT_DIR / "test.pmtiles").write_bytes(b"PMTiles\x03built")
 
     entry = script.existing_region_entry("Test")
 
@@ -101,3 +101,16 @@ def test_tile_manifest_can_recover_an_existing_region(tmp_path):
     assert entry["key"] == "Test"
     assert entry["url"] == "landslides/test.pmtiles"
     assert entry["max_zoom"] == 9
+
+
+def test_tile_manifest_rejects_a_corrupt_existing_archive(tmp_path):
+    script = _load_script("build_landslide_tiles.py")
+    script.SOURCE_DIR = tmp_path / "source"
+    script.OUTPUT_DIR = tmp_path / "output"
+    script.SOURCE_DIR.mkdir()
+    script.OUTPUT_DIR.mkdir()
+    script.REGIONS = {"Test": ("Test region", "test", 9)}
+    (script.SOURCE_DIR / "test.tif").touch()
+    (script.OUTPUT_DIR / "test.pmtiles").write_bytes(b"\x00" * 128)
+
+    assert script.existing_region_entry("Test") is None

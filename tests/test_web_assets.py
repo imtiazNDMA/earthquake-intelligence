@@ -13,8 +13,10 @@ def test_mutable_frontend_assets_are_revisioned():
         "app.js",
         "landslides.js",
         "buildings.js",
+        "buildings-config.js",
         "maplibre-3d.js",
         "map-modes.js",
+        "ai-context.js",
     ):
         assert re.search(rf'["\']{re.escape(asset)}\?v=[^"\']+["\']', INDEX), (
             f"{asset} needs a cache-busting revision in web/index.html"
@@ -40,6 +42,17 @@ def test_landslide_regions_are_independently_toggleable_and_lazy():
     assert "L.layerGroup" not in LANDSLIDES
 
 
+def test_building_bands_live_in_one_shared_module():
+    """Both renderers must colour buildings from the same table, or the 3D
+    extrusions would drift from the legend the 2D layer prints."""
+    config = Path("web/buildings-config.js").read_text(encoding="utf-8")
+    buildings = Path("web/buildings.js").read_text(encoding="utf-8")
+    three_d = Path("web/maplibre-3d.js").read_text(encoding="utf-8")
+    assert '"#DD5730"' in config
+    assert '"#DD5730"' not in buildings and '"#DD5730"' not in three_d
+    assert "eqmonBuildingsConfig" in buildings and "eqmonBuildingsConfig" in three_d
+
+
 def test_building_legend_is_compact_and_height_specific():
     buildings = Path("web/buildings.js").read_text(encoding="utf-8")
     assert "Building height bands" in buildings
@@ -52,7 +65,7 @@ def test_map_mode_control_has_stable_containers_and_native_buttons():
     assert INDEX.count('id="map"') == 1
     assert INDEX.count('id="map-3d"') == 1
     assert 'id="map-mode-control"' in INDEX
-    assert 'role="group" aria-label="Map view"' in INDEX
+    assert 'role="group" aria-label="Map view mode"' in INDEX
     assert re.search(
         r'<button[^>]+data-map-mode="2d"[^>]+aria-pressed="true"', INDEX
     )
@@ -83,7 +96,7 @@ def test_maplibre_renderer_is_exactly_pinned_and_lazy():
     # Phase 3 moved the basemap definitions out of the renderer; it now builds
     # its raster source from the same catalogue the 2D map reads.
     assert 'type: "raster"' in renderer
-    assert "config.maplibreSource(basemapName)" in renderer
+    assert "maplibreSource(name)" in renderer
     config = Path("web/map-style-config.js").read_text(encoding="utf-8")
     assert "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" in config
     assert "maxZoom: 19" in config
@@ -155,12 +168,12 @@ def test_basemap_catalogue_is_shared_and_loads_before_the_2d_map():
     app = Path("web/app.js").read_text(encoding="utf-8")
     # One catalogue, read by both renderers.
     assert "window.eqmonMapStyleConfig" in config
-    assert "MAP_STYLE_CONFIG.BASEMAP_DEFS.map" in app
+    assert "MAP_STYLE_CONFIG.BASEMAP_DEFS" in app
+    assert "L.tileLayer(def.template" in app
     assert "MAP_STYLE_CONFIG.leafletOptions(def)" in app
     assert "MAP_STYLE_CONFIG.themeBasemap(mode)" in app
     # No catalogue URL may be written twice. (The Insights hotspot mini-map has
     # its own basemap and is explicitly out of scope for the dual renderer.)
-    assert "server.arcgisonline.com" not in app
     assert "tile.openstreetmap.org" not in app
     assert "tile.opentopomap.org" not in app
     # The catalogue has to exist before app.js builds Leaflet layers from it.
@@ -289,7 +302,7 @@ def test_three_d_overlays_are_registered_once_and_only_toggled():
     renderer = Path("web/maplibre-3d.js").read_text(encoding="utf-8")
     assert "function registerOverlay" in renderer
     assert "function updateOverlay" in renderer
-    assert "if (registeredOverlays.has(name)) return;" in renderer
+    assert "registeredOverlays.has(name) && mapInstance.getLayer" in renderer
     # Editing goes through set*Property; nothing is torn down and rebuilt.
     assert 'setLayoutProperty(lineId, "visibility", visibility)' in renderer
     assert "removeLayer(overlayLineId" not in renderer
@@ -313,3 +326,32 @@ def test_three_d_overlay_paint_preserves_published_palettes():
     assert 'namedFill: name === "Tectonic Zones" ? "Name" : null' in app
     assert "function applyNamedFill" in renderer
     assert "querySourceFeatures" in renderer
+
+
+# Hosts that need an account, a token, or a commercial licence. The portal is
+# built on open data only, so none of them may reappear in the shipped frontend.
+KEY_GATED_HOSTS = (
+    "basemaps.cartocdn.com",
+    "server.arcgisonline.com",
+    "tiles.stadiamaps.com",
+    "api.mapbox.com",
+    "api.maptiler.com",
+    "tile.thunderforest.com",
+)
+
+
+def test_no_key_gated_tile_hosts_ship_in_the_frontend():
+    for path in sorted(Path("web").glob("*.js")) + [Path("web/index.html"), Path("web/styles.css")]:
+        text = path.read_text(encoding="utf-8")
+        for host in KEY_GATED_HOSTS:
+            assert host not in text, f"{path.name} still points at {host}"
+
+
+def test_basemap_catalogue_is_open_and_keyless():
+    config = Path("web/map-style-config.js").read_text(encoding="utf-8")
+    for host in KEY_GATED_HOSTS:
+        assert host not in config
+    # Both kinds are described in one catalogue: raster tiles and vector styles.
+    assert "tiles.openfreemap.org/styles/" in config
+    assert "tiles.maps.eox.at" in config
+    assert 'kind: VECTOR' in config and 'kind: RASTER' in config

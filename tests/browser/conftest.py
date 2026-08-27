@@ -59,10 +59,26 @@ def app_server() -> str:
             process.kill()
 
 
+# The building tiles come from a TileServerGL instance that is not part of this
+# suite, so its absence is expected noise rather than a page defect. Nothing else
+# is ever filtered: an ignored error here would be an error nobody sees.
+EXTERNAL_NOISE = "/buildings/"
+
+
+def _is_external_noise(message) -> bool:
+    location = (message.location or {}).get("url", "") if hasattr(message, "location") else ""
+    return EXTERNAL_NOISE in location or EXTERNAL_NOISE in message.text or "buildings: catalog" in message.text
+
+
 @pytest.fixture()
 def console_errors(page):
     """Fail a test on any unhandled page exception or console error."""
     errors: list[str] = []
-    page.on("console", lambda message: errors.append(message.text) if message.type == "error" else None)
+
+    def _record(message):
+        if message.type == "error" and not _is_external_noise(message):
+            errors.append(message.text)
+
+    page.on("console", _record)
     page.on("pageerror", lambda error: errors.append(str(error)))
     return errors

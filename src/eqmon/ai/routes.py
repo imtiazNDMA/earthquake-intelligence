@@ -108,6 +108,7 @@ async def agent_chat(request: AgentChatRequest) -> dict:
         job_id = jobs.create_agent_chat_job(
             conn, message=request.message,
             workflow_version=AGENT_CHAT_WORKFLOW_VERSION,
+            context=request.context,
         )
 
     registry = default_registry()

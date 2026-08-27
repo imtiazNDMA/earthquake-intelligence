@@ -38,6 +38,14 @@ REGIONS = {
     "KP": ("Khyber Pakhtunkhwa", "kp", 14),
     "Baloch": ("Balochistan", "baloch", 12),
 }
+PMTILES_MAGIC = b"PMTiles"
+
+
+def _valid_archive(path: Path) -> bool:
+    if not path.is_file() or path.stat().st_size < len(PMTILES_MAGIC):
+        return False
+    with path.open("rb") as stream:
+        return stream.read(len(PMTILES_MAGIC)) == PMTILES_MAGIC
 
 
 def _rgba_source(source: Path, target: Path) -> None:
@@ -63,7 +71,7 @@ def build_region(key: str, *, force: bool = False, workers: int = 4) -> dict:
     temporary = SOURCE_DIR / f".{stem}.rgba.tif"
     if not source.exists():
         raise FileNotFoundError(f"Prepared COG not found: {source}")
-    if output.exists() and not force:
+    if _valid_archive(output) and not force:
         with rasterio.open(source) as src:
             bounds = transform_bounds(src.crs, "EPSG:4326", *src.bounds, densify_pts=21)
         return _entry(key, label, stem, max_zoom, bounds, output)
@@ -109,7 +117,7 @@ def existing_region_entry(key: str) -> dict | None:
     label, stem, max_zoom = REGIONS[key]
     source = SOURCE_DIR / f"{stem}.tif"
     output = OUTPUT_DIR / f"{stem}.pmtiles"
-    if not source.exists() or not output.exists():
+    if not source.exists() or not _valid_archive(output):
         return None
     with rasterio.open(source) as src:
         bounds = transform_bounds(src.crs, "EPSG:4326", *src.bounds, densify_pts=21)

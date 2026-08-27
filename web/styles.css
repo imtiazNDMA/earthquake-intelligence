@@ -75,7 +75,7 @@
 
   /* Shell widths. The dashboard reads these too, so its column cannot drift
      under the panel when the panel is resized. */
-  --rail-w: 86px;
+  --rail-w: 110px;
   --panel-w: 408px;
   --num: "tnum" 1;
   /* Condensed + heavy: the setting for magnitudes and other headline figures. */
@@ -205,6 +205,13 @@ body:has(#map-time-control:not([hidden])) .map-mode-loading { top: 230px; }
   body:has(#sidebar.collapsed) .map-mode-loading { left: auto; }
   body:has(#map-time-control:not([hidden])) #map-mode-control { top: 174px; }
   body:has(#map-time-control:not([hidden])) .map-mode-loading { top: 230px; }
+}
+@media (max-width: 760px), (min-resolution: 1.9dppx) {
+  #map-mode-control {
+    left: auto; right: 12px; top: 64px;
+    max-width: calc(100vw - 24px);
+  }
+  .map-mode-loading { left: auto; right: 12px; top: 120px; max-width: calc(100vw - 24px); }
 }
 @media (prefers-reduced-motion: reduce) {
   #map, #map-3d, #map-mode-control, .map-mode-loading { transition: none; }
@@ -2106,4 +2113,10 @@ body.has-strip .ai-chat { bottom: 274px; }
     --rail-w: 76px;
     --panel-w: calc(100vw - var(--rail-w));
   }
+}
+
+/* The analytics hotspot inset uses the raster OSM backdrop in both themes —
+   there is no keyless dark raster basemap — so dark mode dims it here. */
+:root[data-theme="dark"] #hotspot-map .leaflet-tile-pane {
+  filter: brightness(0.72) saturate(0.85) contrast(1.05);
 }

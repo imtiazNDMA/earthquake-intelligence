@@ -131,13 +131,68 @@ map.createPane("eventPane");
 map.getPane("eventPane").style.zIndex = 450;
 map.on("click", () => clearMmiSelection());
 
-// --- Basemaps (all free + keyless; tile servers reachable without a token) ---
+// --- Basemaps (all free + keyless; open data, no account, no token) ---
 // URLs, zoom ceilings, and credits live in web/map-style-config.js so the 3D
-// renderer builds its raster sources from the same rows.
+// renderer builds its sources from the same rows.
 const MAP_STYLE_CONFIG = window.eqmonMapStyleConfig;
-const BASEMAPS = Object.fromEntries(MAP_STYLE_CONFIG.BASEMAP_DEFS.map(def =>
-  [def.name, L.tileLayer(def.template, MAP_STYLE_CONFIG.leafletOptions(def))]));
+// Raster layers are cheap, so they exist from the start. A vector style pulls in
+// MapLibre and its Leaflet bridge, so it is built the first time it is chosen.
+const BASEMAPS = Object.fromEntries(MAP_STYLE_CONFIG.BASEMAP_DEFS
+  .filter(def => def.kind === "raster")
+  .map(def => [def.name, L.tileLayer(def.template, MAP_STYLE_CONFIG.leafletOptions(def))]));
 BASEMAPS[MAP_STYLE_CONFIG.THEME_BASEMAPS.light].addTo(map); // default basemap
+
+// maplibre-3d.js loads after this file, and the dark theme asks for a vector
+// basemap while the page is still parsing, so the adapter is awaited rather than
+// assumed.
+function mapLibreAdapter() {
+  if (window.eqmonMapLibre3d) return Promise.resolve(window.eqmonMapLibre3d);
+  return new Promise((resolve, reject) => {
+    window.addEventListener("load", () => {
+      window.eqmonMapLibre3d ? resolve(window.eqmonMapLibre3d) : reject(new Error("MapLibre adapter missing"));
+    }, { once: true });
+  });
+}
+
+let _vectorSupport = null;
+function ensureVectorSupport() {
+  if (_vectorSupport) return _vectorSupport;
+  const plugin = MAP_STYLE_CONFIG.VECTOR_PLUGIN;
+  _vectorSupport = mapLibreAdapter()
+    .then(adapter => adapter.ensureLibrary())
+    .then(() => new Promise((resolve, reject) => {
+      // The plugin captures the maplibregl global as it loads, so it can only be
+      // injected once the library is there.
+      if (window.L?.maplibreGL) return resolve();
+      const script = document.createElement("script");
+      script.id = plugin.id;
+      script.src = plugin.src;
+      script.integrity = plugin.integrity;
+      script.crossOrigin = "anonymous";
+      script.onload = resolve;
+      script.onerror = () => { script.remove(); reject(new Error("vector basemap plugin failed to load")); };
+      document.head.appendChild(script);
+    }))
+    .catch(error => { _vectorSupport = null; throw error; });
+  return _vectorSupport;
+}
+
+// Labels ride in their own pane above the imagery and below every data layer.
+const LABELS_PANE = "basemapLabelsPane";
+map.createPane(LABELS_PANE);
+map.getPane(LABELS_PANE).style.zIndex = 250;
+map.getPane(LABELS_PANE).style.pointerEvents = "none";
+
+async function lazyBasemapLayer(name) {
+  await ensureVectorSupport();
+  const def = MAP_STYLE_CONFIG.get(name);
+  if (def.kind === "vector") return L.maplibreGL({ style: def.styleUrl, attribution: def.attribution });
+  const labels = await MAP_STYLE_CONFIG.labelStyle(name);
+  return L.layerGroup([
+    L.tileLayer(def.template, MAP_STYLE_CONFIG.leafletOptions(def)),
+    L.maplibreGL({ style: labels, pane: LABELS_PANE }),
+  ]);
+}
 
 // --- Vector-tile reference overlays (protomaps-leaflet over pmtiles) ---
 // `dataLayer` MUST equal the tippecanoe -l layer id used in scripts/build_tiles.py.
@@ -477,13 +532,23 @@ _setupFaultHover();
 map.zoomControl.setPosition("topright");
 
 // --- Map config panel: overlay checklist + basemap radios ---
-const BASEMAP_NAMES = Object.keys(BASEMAPS);
+const BASEMAP_NAMES = MAP_STYLE_CONFIG.names();
 let currentBasemap = MAP_STYLE_CONFIG.THEME_BASEMAPS.light;
 publishMapState({ basemap: currentBasemap });
 let _userPickedBasemap = false;   // once true, theme no longer auto-switches the basemap
 const _basemapRadios = {};        // name -> radio input, for keeping the config panel in sync
-function setBasemap(name) {
-  if (!BASEMAPS[name] || name === currentBasemap) return;
+async function setBasemap(name) {
+  if (name === currentBasemap || !MAP_STYLE_CONFIG.names().includes(name)) return;
+  if (!BASEMAPS[name]) {
+    try {
+      BASEMAPS[name] = await lazyBasemapLayer(name);
+    } catch (error) {
+      console.error("basemap unavailable", name, error);
+      toast(`${name} could not be loaded; keeping ${currentBasemap}.`, "warn", 6000);
+      if (_basemapRadios[currentBasemap]) _basemapRadios[currentBasemap].checked = true;
+      return;
+    }
+  }
   if (BASEMAPS[currentBasemap] && map.hasLayer(BASEMAPS[currentBasemap])) {
     map.removeLayer(BASEMAPS[currentBasemap]);
   }
@@ -571,7 +636,7 @@ function updateConfigSummary() {
   const hazardChecked = document.querySelectorAll('#cfg-hazard-layers input[type="checkbox"]:checked').length;
   const currentMmi = document.getElementById("current-mmi-toggle");
   const basemap = document.querySelector('#basemap-list input[type="radio"]:checked')?.nextElementSibling?.textContent || "";
-  const basemapSummary = basemap.replace(" (Dark Matter)", "");
+  const basemapSummary = basemap;
   const count = document.getElementById("cfg-visible-count");
   const overlays = document.getElementById("cfg-overlay-active");
   const hazards = document.getElementById("cfg-hazard-active");
@@ -746,6 +811,7 @@ function _pgaRender() {
       bounds: renderable ? _pga.manifest.bounds : null,
       image: renderable ? entry.image : null,
       label: renderable ? entry.label : null,
+      attribution: renderable ? (_pga.manifest.attribution || "") : null,
     },
   });
 }
@@ -845,6 +911,7 @@ function _pgaBuildPanel() {
     _pga.opacity = parseFloat(_pga.els.opacity.value);
     _pga.els.opacityVal.textContent = `${Math.round(_pga.opacity * 100)}%`;
     if (_pga.layer) _pga.layer.setOpacity(_pga.opacity);
+    _pgaRender();
   });
 }
 
@@ -2765,6 +2832,7 @@ document.getElementById("map-bubble-opacity")?.addEventListener("input", event =
   const output = document.getElementById("map-bubble-opacity-value");
   if (output) output.textContent = `${Math.round(_mapEventState.opacity * 100)}%`;
   _mapEventsLayer?.eachLayer(layer => layer.setStyle?.({ fillOpacity: _mapEventState.opacity }));
+  _renderMapEvents();
 });
 document.getElementById("map-time-start")?.addEventListener("input", event => {
   const end = document.getElementById("map-time-end");
@@ -2859,7 +2927,7 @@ function showSection(key) {
   const nowDashboard = key === "dashboard";
   activeSection = key;
   setCollapsed(false);
-  document.getElementById("map").style.display = nowDashboard ? "none" : "";
+  window.eqmonMapModes?.setSuspended(nowDashboard);
   document.getElementById("dashboard-view").classList.toggle("open", nowDashboard);
   if (nowDashboard && !wasDashboard) renderDashboard();
   if (wasDashboard && !nowDashboard) setTimeout(resizeActiveMap, 100);
@@ -3033,9 +3101,11 @@ async function renderHotspotMap(grid) {
   if (!host) return;
   if (_hotspotMap) { _hotspotMap.remove(); _hotspotMap = null; }
   _hotspotMap = L.map(host, { attributionControl: false }).setView([30.4, 69.3], 4);
-  const style = currentTheme() === "dark" ? "dark_all" : "light_all";
-  L.tileLayer(`https://{s}.basemaps.cartocdn.com/${style}/{z}/{x}/{y}{r}.png`,
-    { subdomains: "abcd" }).addTo(_hotspotMap);
+  // Raster OSM only: this inset is a backdrop for the hotspot grid, not an
+  // analytical basemap, so it does not justify pulling MapLibre into the page.
+  // Dark theme dims it through CSS (see .hotspot-map in styles.css).
+  const backdrop = MAP_STYLE_CONFIG.get("OpenStreetMap");
+  L.tileLayer(backdrop.template, MAP_STYLE_CONFIG.leafletOptions(backdrop)).addTo(_hotspotMap);
 
   const cell = 0.25; // GRID_CELL_DEG server-side
   const max = grid.reduce((m, c) => Math.max(m, c.count), 1);
@@ -3202,7 +3272,7 @@ function applyTheme(mode) {
   if (eventsEl._allEvents) drawTimeline(eventsEl._allEvents);
 }
 
-// Match the basemap to the theme (Dark Matter for dark, OSM for light) — but only
+// Match the basemap to the theme (Dark for dark, OSM for light) — but only
 // until the user picks a basemap themselves, then we never override their choice.
 function syncBasemapToTheme(mode) {
   if (_userPickedBasemap) return;
@@ -3434,8 +3504,7 @@ function _asRenderResults(data) {
 function _asShowExpanded() {
   if (!_asData) return;
   const expandedView = document.getElementById("as-expanded-view");
-  const mapEl = document.getElementById("map");
-  mapEl.style.display = "none";
+  window.eqmonMapModes?.setSuspended(true);
   expandedView.classList.add("open");
   const mags = _asData.target_mags;
   const days = _asData.days || _AS_DAYS;
@@ -3594,9 +3663,8 @@ function _asRenderExpandedGauge() {
 
 function _asCloseExpanded() {
   const expandedView = document.getElementById("as-expanded-view");
-  const mapEl = document.getElementById("map");
   expandedView.classList.remove("open");
-  mapEl.style.display = "";
+  window.eqmonMapModes?.setSuspended(false);
   if (_asGaugeAnimation) { _asGaugeAnimation.pause(); _asGaugeAnimation = null; }
   if (_asGaugeFrame) { cancelAnimationFrame(_asGaugeFrame); _asGaugeFrame = null; }
   setTimeout(resizeActiveMap, 100);
@@ -3746,7 +3814,11 @@ document.addEventListener("DOMContentLoaded", () => {
       try {
         const response = await fetch("/ai/chat", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message, history }),
+          body: JSON.stringify({
+            message,
+            history,
+            context: window.eqmonAiContext?.collect?.() || null,
+          }),
         });
         const payload = await response.json();
         if (!response.ok) {
@@ -3828,13 +3900,13 @@ function _arcValue(elements, layer, field) {
 }
 
 function _arcOpen() {
-  document.getElementById("map").style.display = "none";
+  window.eqmonMapModes?.setSuspended(true);
   document.getElementById("arc-view").classList.add("open");
 }
 
 function _arcClose() {
   document.getElementById("arc-view").classList.remove("open");
-  document.getElementById("map").style.display = "";
+  window.eqmonMapModes?.setSuspended(false);
   setTimeout(resizeActiveMap, 100);
 }
 

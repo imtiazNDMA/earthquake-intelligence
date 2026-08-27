@@ -310,3 +310,172 @@ def test_toggling_an_overlay_edits_layers_without_accumulating_them(page, app_se
         """() => window.__map3d.getLayoutProperty("overlay-districts-line", "visibility")"""
     ) == "none"
     assert not console_errors, console_errors
+
+
+BUILDINGS_CATALOG = [
+    {"id": "Muzaffarabad_buildings", "label": "Muzaffarabad", "bounds": [73.2, 34.1, 73.8, 34.7]},
+    {"id": "Karachi_buildings", "label": "Karachi", "bounds": [66.8, 24.7, 67.4, 25.1]},
+]
+
+PUBLISH_BUILDINGS = """
+catalog => window.eqmonMapModes.publish({
+  buildings: { enabled: true, selected: "", minZoom: 12, catalog,
+               districts: [], opacity: 0.75, maxSources: 6 },
+})
+"""
+
+
+def test_building_extrusions_follow_the_viewport_and_stay_under_the_hazard(page, app_server, console_errors):
+    """Phase 6: extrusions live only where the camera is, and below the MMI fill.
+
+    The district tiles themselves come from the TileServerGL proxy, which the
+    suite does not run; the conftest fixture filters that one external failure,
+    so the layer bookkeeping is still asserted exactly.
+    """
+    _open(page, app_server, console_errors)
+    _activate_3d(page)
+    _set_view(page, {"center": [73.47, 34.37], "zoom": 13})
+    page.evaluate(PUBLISH_BUILDINGS, BUILDINGS_CATALOG)
+
+    assert page.evaluate("() => window.eqmonMapLibre3d.liveBuildingDistricts()") == [
+        "Muzaffarabad_buildings"
+    ]
+
+    layer = page.evaluate(
+        """() => window.__map3d.getStyle().layers
+             .find(l => l.id === "buildings-Muzaffarabad_buildings-extrusion")"""
+    )
+    assert layer["type"] == "fill-extrusion"
+    order = page.evaluate("() => window.__map3d.getStyle().layers.map(l => l.id)")
+    assert order.index("buildings-Muzaffarabad_buildings-extrusion") < order.index("current-mmi-fill")
+
+    # Panning to the other end of the country evicts the district left behind.
+    _set_view(page, {"center": [67.0, 24.9], "zoom": 13})
+    page.wait_for_function(
+        """() => window.eqmonMapLibre3d.liveBuildingDistricts()
+             .join() === "Karachi_buildings\"""",
+        timeout=10000,
+    )
+    assert page.evaluate(
+        """() => window.__map3d.getStyle().layers
+             .some(l => l.id === "buildings-Muzaffarabad_buildings-extrusion")"""
+    ) is False
+
+    # Zooming out past the catalog minimum takes every source down with it.
+    _set_view(page, REGIONAL_VIEW)
+    page.wait_for_function(
+        "() => window.eqmonMapLibre3d.liveBuildingDistricts().length === 0",
+        timeout=10000,
+    )
+    assert not console_errors, console_errors
+
+
+def test_open_basemaps_switch_between_raster_vector_and_labelled_satellite(page, app_server, console_errors):
+    """Every basemap is keyless: raster tiles, a vector style, and imagery+labels."""
+    _open(page, app_server, console_errors)
+    _activate_3d(page)
+    _set_view(page, DISTRICT_VIEW)
+
+    def switch(name):
+        page.evaluate("name => window.eqmonMapModes.publish({ basemap: name })", name)
+        page.wait_for_function("name => window.eqmonMapLibre3d.getBasemap() === name", arg=name)
+        page.evaluate(WAIT_FOR_IDLE)
+        return page.evaluate("() => window.__map3d.getStyle().layers.map(l => l.id)")
+
+    raster = switch("OpenStreetMap")
+    assert raster[0] == "basemap"
+
+    vector = switch("Dark")
+    # A vector style brings its own layers; ours are registered again on top.
+    assert "basemap" not in vector
+    assert "current-mmi-fill" in vector and "terrain-hillshade" in vector
+
+    hybrid = switch("Satellite + labels")
+    assert hybrid[0] == "basemap"
+    labels = page.evaluate(
+        """() => window.__map3d.getStyle().layers
+             .filter(l => l.type === "symbol" && !l.id.startsWith("overlay-")).length"""
+    )
+    assert labels > 0, "labelled satellite drew no labels"
+    # Imagery is the map: no fill from the label style may cover it.
+    assert page.evaluate(
+        """() => window.__map3d.getStyle().layers
+             .some(l => l.type === "background" || (l.type === "fill" && !l.id.startsWith("overlay-")
+                        && !l.id.startsWith("current-mmi")))"""
+    ) is False
+    assert not console_errors, console_errors
+
+
+@pytest.mark.parametrize("viewport", [
+    {"width": 1440, "height": 900},
+    {"width": 1024, "height": 768},
+    {"width": 430, "height": 800},
+])
+def test_mode_control_is_named_reachable_and_unobscured(page, app_server, console_errors, viewport):
+    """Phase 8: the primary mode control remains operable across target layouts."""
+    _open(page, app_server, console_errors)
+    page.set_viewport_size(viewport)
+    control = page.locator("#map-mode-control")
+    box = control.bounding_box()
+    assert box is not None
+    assert box["x"] >= 0 and box["y"] >= 52
+    assert box["x"] + box["width"] <= viewport["width"]
+    assert box["y"] + box["height"] <= viewport["height"]
+    assert control.get_attribute("aria-label") == "Map view mode"
+    for mode in ("2d", "3d"):
+        button = control.locator(f'[data-map-mode="{mode}"]')
+        button_box = button.bounding_box()
+        assert button_box["width"] >= 44 and button_box["height"] >= 44
+
+
+def test_full_screen_suspension_restores_the_active_renderer(page, app_server, console_errors):
+    """Phase 8: full-screen views suspend and restore whichever renderer is active."""
+    _open(page, app_server, console_errors)
+    _activate_3d(page)
+    page.evaluate("() => window.eqmonMapModes.setSuspended(true)")
+    assert page.locator("#map-3d").evaluate("el => getComputedStyle(el).display") == "none"
+    assert page.locator("#map-mode-control").is_hidden()
+    page.evaluate("() => window.eqmonMapModes.setSuspended(false)")
+    assert page.locator("#map-mode-control").is_visible()
+    assert page.evaluate("() => window.eqmonMapModes.getMode()") == "3d"
+    assert page.locator("#map-3d").evaluate("el => getComputedStyle(el).display") != "none"
+
+
+def test_mobile_three_d_resets_bearing_and_reduced_motion_disables_fades(page, app_server, console_errors):
+    """Phase 8: phone entry is north-up and reduced-motion mode has no renderer fade."""
+    page.emulate_media(reduced_motion="reduce")
+    _open(page, app_server, console_errors)
+    page.set_viewport_size({"width": 430, "height": 800})
+    page.evaluate(
+        "() => window.eqmonMapModes.setCamera({ center: [73.47, 34.37], zoom: 11, bearing: 80, pitch: 55 })"
+    )
+    _activate_3d(page)
+    assert page.evaluate("() => window.__map3d.getBearing()") == pytest.approx(0, abs=0.01)
+    durations = page.evaluate(
+        """() => ["map", "map-3d"].map(id => getComputedStyle(document.getElementById(id)).transitionDuration)"""
+    )
+    assert all(max(float(part.removesuffix("s")) for part in value.split(", ")) <= 0.001 for value in durations)
+
+
+def test_webgl_context_loss_returns_to_usable_two_d(page, app_server, console_errors):
+    """Phase 9: context loss falls back without reloading the application."""
+    _open(page, app_server, console_errors)
+    _activate_3d(page)
+    page.evaluate(
+        """() => window.__map3d.getCanvas().dispatchEvent(new Event("webglcontextlost", { cancelable: true }))"""
+    )
+    page.wait_for_function("() => window.eqmonMapModes.getMode() === '2d'")
+    assert page.locator('#map-mode-control [data-map-mode="2d"]').get_attribute("aria-pressed") == "true"
+    assert page.locator("#map").evaluate("el => getComputedStyle(el).pointerEvents") != "none"
+
+
+def test_hidden_three_d_renderer_is_paused_and_resumed(page, app_server, console_errors):
+    """Phase 9: inactive WebGL does not keep a render loop alive."""
+    _open(page, app_server, console_errors)
+    _activate_3d(page)
+    assert page.evaluate("() => window.eqmonMapLibre3d.isPaused()") is False
+    page.evaluate("() => window.eqmonMapModes.setMode('2d')")
+    assert page.evaluate("() => window.eqmonMapLibre3d.isPaused()") is True
+    page.evaluate("() => window.eqmonMapModes.setMode('3d')")
+    page.wait_for_function("() => window.eqmonMapModes.getMode() === '3d'")
+    assert page.evaluate("() => window.eqmonMapLibre3d.isPaused()") is False
