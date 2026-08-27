@@ -1,3 +1,20 @@
+// --- Shared analysis state ------------------------------------------------
+// Renderer-agnostic state goes to the mode coordinator (web/map-modes.js) so a
+// 2D/3D switch can redraw from what is already loaded instead of refetching.
+// The coordinator loads after this file, so early publications are buffered.
+window.eqmonMapState = window.eqmonMapState || {
+  queue: [],
+  publish(patch) { this.queue.push(patch); },
+};
+function publishMapState(patch) { window.eqmonMapState.publish(patch); }
+
+// Both renderers are laid out by the coordinator; before it exists only the 2D
+// map can need resizing.
+function resizeActiveMap() {
+  if (window.eqmonMapModes) window.eqmonMapModes.resize();
+  else if (typeof map !== "undefined") map.invalidateSize();
+}
+
 // ============================================================
 //  Icon system — one coherent visual language.
 //  • Base: crisp inline SVGs (Lucide-style, inherit currentColor) — always work.
@@ -10,6 +27,7 @@ const LORD_ICONS = {
   event:     { page: "https://lordicon.com/icons/system/regular/12-plus",        src: "" },
   catalog:   { page: "https://lordicon.com/icons/system/regular/2-line-list",     src: "" },
   aftershock:{ page: "https://lordicon.com/icons/system/regular/61-target",      src: "" },
+  landslide: { page: "",                                                        src: "" },
   dashboard: { page: "https://lordicon.com/icons/system/regular/10-analytics",    src: "" },
   config:    { page: "https://lordicon.com/icons/system/regular/53-settings",     src: "" },
   refresh:   { page: "https://lordicon.com/icons/system/regular/103-refresh",     src: "" },
@@ -39,6 +57,7 @@ const SVG_PATHS = {
   building: '<path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/>',
   waves:    '<path d="M2 6c.6.5 1.2 1 2.5 1C7 7 7 5 9.5 5c2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/><path d="M2 12c.6.5 1.2 1 2.5 1C7 13 7 11 9.5 11c2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/><path d="M2 18c.6.5 1.2 1 2.5 1C7 19 7 17 9.5 17c2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/>',
   target:   '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+  mountain: '<path d="m3 20 6-11 4 7 2-3 6 7"/><path d="m7.4 12 1.6 2 1.4-1.5"/>',
   maximize: '<path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>',
   moon:     '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
   sun:      '<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>',
@@ -108,57 +127,93 @@ const map = L.map("map").setView([30.4, 69.3], 5); // Primary Focus Country: Pak
 map.createPane("referencePane");
 map.getPane("referencePane").style.zIndex = 410;
 map.getPane("referencePane").style.pointerEvents = "none";
-map.on("click", () => {
-  if (_selectedMmiLevel != null) {
-    _selectedMmiLevel = null;
-    Object.values(_legendItems).forEach(el => el.classList.remove("selected"));
-    _applyMmiStyles();
-  }
-});
+map.createPane("eventPane");
+map.getPane("eventPane").style.zIndex = 450;
+map.on("click", () => clearMmiSelection());
 
-// --- Basemaps (all free + keyless; tile servers reachable without a token) ---
-const OSM_ATTR = "© OpenStreetMap contributors";
-const CARTO_ATTR = OSM_ATTR + " © CARTO";
-const ESRI_ATTR = "Tiles © Esri";
-const BASEMAPS = {
-  "OpenStreetMap": L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution: OSM_ATTR, maxZoom: 19,
-  }),
-  "Humanitarian (HOT)": L.tileLayer("https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png", {
-    attribution: OSM_ATTR + " © Humanitarian OpenStreetMap Team", maxZoom: 19,
-  }),
-  "Topographic": L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", {
-    attribution: OSM_ATTR + " © OpenTopoMap (CC-BY-SA)", maxZoom: 17,
-  }),
-  "Light (Positron)": L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
-    attribution: CARTO_ATTR, subdomains: "abcd", maxZoom: 20,
-  }),
-  "Voyager": L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
-    attribution: CARTO_ATTR, subdomains: "abcd", maxZoom: 20,
-  }),
-  "Dark (Dark Matter)": L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-    attribution: CARTO_ATTR, subdomains: "abcd", maxZoom: 20,
-  }),
-  "CyclOSM": L.tileLayer("https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png", {
-    attribution: OSM_ATTR + " © CyclOSM", subdomains: "abc", maxZoom: 20,
-  }),
-  "Transport (OPNVKarte)": L.tileLayer("https://tileserver.memomaps.de/tilegen/{z}/{x}/{y}.png", {
-    attribution: OSM_ATTR + " © ÖPNVKarte", maxZoom: 18,
-  }),
-  "Satellite (Esri)": L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
-    attribution: ESRI_ATTR + ", Maxar, Earthstar Geographics", maxZoom: 19,
-  }),
-};
-BASEMAPS["OpenStreetMap"].addTo(map); // default basemap
+// --- Basemaps (all free + keyless; open data, no account, no token) ---
+// URLs, zoom ceilings, and credits live in web/map-style-config.js so the 3D
+// renderer builds its sources from the same rows.
+const MAP_STYLE_CONFIG = window.eqmonMapStyleConfig;
+// Raster layers are cheap, so they exist from the start. A vector style pulls in
+// MapLibre and its Leaflet bridge, so it is built the first time it is chosen.
+const BASEMAPS = Object.fromEntries(MAP_STYLE_CONFIG.BASEMAP_DEFS
+  .filter(def => def.kind === "raster")
+  .map(def => [def.name, L.tileLayer(def.template, MAP_STYLE_CONFIG.leafletOptions(def))]));
+BASEMAPS[MAP_STYLE_CONFIG.THEME_BASEMAPS.light].addTo(map); // default basemap
+
+// maplibre-3d.js loads after this file, and the dark theme asks for a vector
+// basemap while the page is still parsing, so the adapter is awaited rather than
+// assumed.
+function mapLibreAdapter() {
+  if (window.eqmonMapLibre3d) return Promise.resolve(window.eqmonMapLibre3d);
+  return new Promise((resolve, reject) => {
+    window.addEventListener("load", () => {
+      window.eqmonMapLibre3d ? resolve(window.eqmonMapLibre3d) : reject(new Error("MapLibre adapter missing"));
+    }, { once: true });
+  });
+}
+
+let _vectorSupport = null;
+function ensureVectorSupport() {
+  if (_vectorSupport) return _vectorSupport;
+  const plugin = MAP_STYLE_CONFIG.VECTOR_PLUGIN;
+  _vectorSupport = mapLibreAdapter()
+    .then(adapter => adapter.ensureLibrary())
+    .then(() => new Promise((resolve, reject) => {
+      // The plugin captures the maplibregl global as it loads, so it can only be
+      // injected once the library is there.
+      if (window.L?.maplibreGL) return resolve();
+      const script = document.createElement("script");
+      script.id = plugin.id;
+      script.src = plugin.src;
+      script.integrity = plugin.integrity;
+      script.crossOrigin = "anonymous";
+      script.onload = resolve;
+      script.onerror = () => { script.remove(); reject(new Error("vector basemap plugin failed to load")); };
+      document.head.appendChild(script);
+    }))
+    .catch(error => { _vectorSupport = null; throw error; });
+  return _vectorSupport;
+}
+
+// Labels ride in their own pane above the imagery and below every data layer.
+const LABELS_PANE = "basemapLabelsPane";
+map.createPane(LABELS_PANE);
+map.getPane(LABELS_PANE).style.zIndex = 250;
+map.getPane(LABELS_PANE).style.pointerEvents = "none";
+
+async function lazyBasemapLayer(name) {
+  await ensureVectorSupport();
+  const def = MAP_STYLE_CONFIG.get(name);
+  if (def.kind === "vector") return L.maplibreGL({ style: def.styleUrl, attribution: def.attribution });
+  const labels = await MAP_STYLE_CONFIG.labelStyle(name);
+  return L.layerGroup([
+    L.tileLayer(def.template, MAP_STYLE_CONFIG.leafletOptions(def)),
+    L.maplibreGL({ style: labels, pane: LABELS_PANE }),
+  ]);
+}
 
 // --- Vector-tile reference overlays (protomaps-leaflet over pmtiles) ---
 // `dataLayer` MUST equal the tippecanoe -l layer id used in scripts/build_tiles.py.
 
 const OVERLAY_CONFIG = {
-  National:        { id: "national",         color: "#444",   width: 1.5, defaultOn: true, opacity: 1, hoverFields: ["Name", "name", "NAME"], hoverTolerancePx: 16 },
-  Provinces:       { id: "provinces",        color: "#666",   width: 1.0, defaultOn: true, opacity: 1, hoverFields: ["Name", "name", "NAME", "province", "PROVINCE"], hoverTolerancePx: 16 },
-  Districts:       { id: "districts",        color: "#999",   width: 0.6, defaultOn: false, opacity: 0.8, hoverFields: ["Name", "name", "NAME", "district", "DISTRICT"], hoverTolerancePx: 16 },
-  Tehsils:         { id: "tehsils",          color: "#bbb",   width: 0.4, defaultOn: false, opacity: 0.7, hoverFields: ["Name", "name", "NAME", "tehsil", "TEHSIL"], hoverTolerancePx: 16 },
+  // Boundary attribute names come straight from the source shapefiles
+  // (data/Boundaries_Data/*.geojson) — they are NOT a uniform "name" column:
+  // national=Admin01_Na, provinces=Province, districts=Districts, tehsils=name.
+  // A null label means the value is the tooltip heading rather than a field row.
+  National:        { id: "national",         color: "#444",   width: 1.5, defaultOn: true, opacity: 1,
+                     hoverFields: ["Admin01_Na"], hoverLabels: { Admin01_Na: null }, hoverTolerancePx: 16 },
+  Provinces:       { id: "provinces",        color: "#666",   width: 1.0, defaultOn: true, opacity: 1,
+                     hoverFields: ["Province"], hoverLabels: { Province: null }, hoverTolerancePx: 16 },
+  Districts:       { id: "districts",        color: "#999",   width: 0.6, defaultOn: false, opacity: 0.8,
+                     hoverFields: ["Districts", "division", "province"],
+                     hoverLabels: { Districts: null, division: "Division", province: "Province" },
+                     hoverTolerancePx: 16 },
+  Tehsils:         { id: "tehsils",          color: "#bbb",   width: 0.4, defaultOn: false, opacity: 0.7,
+                     hoverFields: ["name", "district", "province"],
+                     hoverLabels: { name: null, district: "District", province: "Province" },
+                     hoverTolerancePx: 16 },
   "Global Faults": { id: "faults",           color: "#C42A2E", width: 0.8, defaultOn: false, lineOnly: true, faultStyle: true, opacity: 0.9, hoverTolerancePx: 12 },
   "Plate boundaries": { id: "plate_boundaries", color: "#D8B22C", width: 1.6, defaultOn: false, lineOnly: true, opacity: 0.85, hoverFields: ["Name_Full", "Name"], hoverTolerancePx: 12 },
   "National Faults": { id: "pak_faults_major", color: "#C42A2E", width: 1.1, defaultOn: true, lineOnly: true, faultStyle: true, opacity: 0.9, hoverFields: ["Name", "Symbols", "Type"], hoverTolerancePx: 12 },
@@ -195,13 +250,11 @@ const OVERLAY_CONFIG = {
                      fillColor: "#8C5A3C", fillOpacity: 0.3, opacity: 0.7 },
 };
 
-const DEFAULT_HOVER_FIELDS = ["Name", "name", "Fault_Name", "FAULT", "fault", "TYPE", "Type", "type", "Length_km", "Fault_Leng", "SlipRate"];
-
-function _pastelFromName(name) {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h);
-  return `hsl(${((h % 360) + 360) % 360}, 45%, 75%)`;
-}
+// Hover fields, hit tolerance, the name-to-pastel hash, and the tooltip markup
+// are shared with the 3D renderer through web/overlay-format.js.
+const OVERLAY_FORMAT = window.eqmonOverlayFormat;
+const DEFAULT_HOVER_FIELDS = OVERLAY_FORMAT.DEFAULT_HOVER_FIELDS;
+const _pastelFromName = OVERLAY_FORMAT.pastelFromName;
 
 class NamedPolySymbolizer {
   constructor(opts) {
@@ -351,8 +404,7 @@ function _setupFaultHover() {
   }
 
   function needsHover(name) {
-    const cfg = OVERLAY_CONFIG[name];
-    return !!cfg?.hoverFields || name.includes("Fault") || name.includes("fault") || name === "Tectonic Zones";
+    return OVERLAY_FORMAT.needsHover(name, OVERLAY_CONFIG[name]);
   }
 
   map.on("mousemove", function (e) {
@@ -365,33 +417,16 @@ function _setupFaultHover() {
     for (const [name, layer] of Object.entries(OVERLAYS)) {
       if (!map.hasLayer(layer) || !needsHover(name)) continue;
       const c = OVERLAY_CONFIG[name];
-      const hoverFields = c.hoverFields ?? DEFAULT_HOVER_FIELDS;
+      // Probing at zero spreads the query points onto the cursor alone; the
+      // tolerance below still widens the hit test itself.
       const hoverPoints = hoverQueryPoints(e, c.hoverTolerancePx ?? ((c.lineOnly || c.faultStyle) ? 8 : 0));
-      const hoverTolerancePx = c.hoverTolerancePx ?? ((c.lineOnly || c.faultStyle) ? 8 : 16);
+      const hoverTolerancePx = OVERLAY_FORMAT.hoverTolerance(c);
       for (const point of hoverPoints) {
         const results = layer.queryTileFeaturesDebug(point.lng, point.lat, hoverTolerancePx);
         for (const [, features] of results) {
           for (const picked of features) {
             if (picked.layerName !== c.id) continue;
-            const props = picked.feature.props;
-            const labels = c.hoverLabels || {};
-            const units = c.hoverUnits || {};
-            const lines = [];
-            for (const k of hoverFields) {
-              if (props[k] == null || props[k] === "") continue;
-              // A configured label wins; otherwise fall back to the raw column
-              // name, de-underscored. An explicit null means "no label" — the
-              // value stands on its own as the tooltip's heading.
-              const label = k in labels ? labels[k] : k.replace(/_/g, " ");
-              const unit = units[k] ? ` ${escapeHtml(units[k])}` : "";
-              const value = escapeHtml(String(props[k])) + unit;
-              lines.push(label ? `${escapeHtml(label)}: ${value}` : `<b>${value}</b>`);
-            }
-            if (lines.length === 0) lines.push(escapeHtml(name));
-            const html = hoverFields.length === 1 && lines.length === 1
-              ? escapeHtml(String(props[hoverFields[0]]))
-              : lines.join("<br>");
-            found = { latlng: e.latlng, html };
+            found = { latlng: e.latlng, html: OVERLAY_FORMAT.tooltipHtml(name, c, picked.feature.props) };
             break;
           }
           if (found) break;
@@ -446,31 +481,98 @@ function rebuildOverlay(name) {
   if (on) map.removeLayer(old);
   OVERLAYS[name] = buildOverlay(name);
   if (on) OVERLAYS[name].addTo(map);
+  publishOverlayState();
 }
+
+// Every reference overlay as plain data: visibility plus the style fields a
+// renderer needs to reproduce it. Layer instances stay out of shared state.
+function overlayStateSnapshot() {
+  const snapshot = {};
+  Object.entries(OVERLAY_CONFIG).forEach(([name, c]) => {
+    snapshot[name] = {
+      id: c.id,
+      visible: Boolean(OVERLAYS[name] && map.hasLayer(OVERLAYS[name])),
+      color: c.color,
+      width: c.width,
+      opacity: c.opacity ?? 1,
+      fillColor: c.fillColor ?? null,
+      fillOpacity: c.fillOpacity ?? null,
+      lineOnly: Boolean(c.lineOnly),
+      faultStyle: Boolean(c.faultStyle),
+      // Tectonic Zones fills each polygon with a pastel hashed from its name
+      // rather than one published colour, so the renderer has to be told.
+      namedFill: name === "Tectonic Zones" ? "Name" : null,
+      categorical: c.categorical
+        ? { prop: c.categorical.prop, colors: { ...c.categorical.colors } }
+        : null,
+      hover: OVERLAY_FORMAT.needsHover(name, c)
+        ? {
+            fields: OVERLAY_FORMAT.hoverFields(c),
+            labels: c.hoverLabels ? { ...c.hoverLabels } : null,
+            units: c.hoverUnits ? { ...c.hoverUnits } : null,
+            tolerancePx: OVERLAY_FORMAT.hoverTolerance(c),
+          }
+        : null,
+    };
+  });
+  return snapshot;
+}
+
+function publishOverlayState() { publishMapState({ overlays: overlayStateSnapshot() }); }
 
 const OVERLAYS = {};
 Object.keys(OVERLAY_CONFIG).forEach(name => {
   OVERLAYS[name] = buildOverlay(name);
   if (OVERLAY_CONFIG[name].defaultOn) OVERLAYS[name].addTo(map);
 });
+publishOverlayState();
 _setupFaultHover();
 
 // Move the zoom control clear of the left-edge sidebar shell.
 map.zoomControl.setPosition("topright");
 
 // --- Map config panel: overlay checklist + basemap radios ---
-const BASEMAP_NAMES = Object.keys(BASEMAPS);
-let currentBasemap = "OpenStreetMap";
+const BASEMAP_NAMES = MAP_STYLE_CONFIG.names();
+let currentBasemap = MAP_STYLE_CONFIG.THEME_BASEMAPS.light;
+publishMapState({ basemap: currentBasemap });
 let _userPickedBasemap = false;   // once true, theme no longer auto-switches the basemap
 const _basemapRadios = {};        // name -> radio input, for keeping the config panel in sync
-function setBasemap(name) {
-  if (!BASEMAPS[name] || name === currentBasemap) return;
+async function setBasemap(name) {
+  if (name === currentBasemap || !MAP_STYLE_CONFIG.names().includes(name)) return;
+  if (!BASEMAPS[name]) {
+    try {
+      BASEMAPS[name] = await lazyBasemapLayer(name);
+    } catch (error) {
+      console.error("basemap unavailable", name, error);
+      toast(`${name} could not be loaded; keeping ${currentBasemap}.`, "warn", 6000);
+      if (_basemapRadios[currentBasemap]) _basemapRadios[currentBasemap].checked = true;
+      return;
+    }
+  }
   if (BASEMAPS[currentBasemap] && map.hasLayer(BASEMAPS[currentBasemap])) {
     map.removeLayer(BASEMAPS[currentBasemap]);
   }
   BASEMAPS[name].addTo(map);
   if (typeof BASEMAPS[name].bringToBack === "function") BASEMAPS[name].bringToBack();
   currentBasemap = name;
+  publishMapState({ basemap: name });
+}
+
+// The footprint, its visibility, and the styling that both renderers derive
+// from it. Republished rather than recomputed when the renderer changes.
+function publishCurrentMmiState() {
+  publishMapState({
+    currentMmi: {
+      featureCollection: _lastFc,
+      visible: _mmiVisible,
+      opacity: MMI_STYLE.opacity,
+      selectedLevel: _selectedMmiLevel,
+      hoveredLevel: _hoveredMmiLevel,
+      // Emphasis widths and fills for the selected and hovered bands, so the
+      // ladder drives both renderers from the same numbers.
+      emphasis: { selected: { weight: 3, fillOpacity: 0.8 }, hovered: { weight: 2.5, fillOpacity: 0.7 } },
+    },
+  });
 }
 
 function refreshMmiLayerStyles() {
@@ -484,14 +586,11 @@ function refreshMmiLayerStyles() {
 }
 
 function buildMmiOpacityControl() {
-  const section = document.getElementById("sec-config");
+  const section = document.getElementById("cfg-display-settings") || document.getElementById("sec-config");
   if (!section) return;
 
   const group = document.createElement("div");
   group.className = "cfg-group";
-  const title = document.createElement("div");
-  title.className = "field-label";
-  title.textContent = "MMI intensity";
   const row = document.createElement("label");
   row.className = "cfg-row";
   const txt = document.createElement("span");
@@ -507,19 +606,62 @@ function buildMmiOpacityControl() {
   slider.step = "0.05";
   slider.value = String(MMI_STYLE.opacity);
   slider.title = "MMI polygon opacity";
+  slider.setAttribute("aria-label", "MMI polygon opacity");
   const value = document.createElement("span");
   value.className = "cfg-value";
-  const syncValue = () => { value.textContent = `${Math.round(parseFloat(slider.value) * 100)}%`; };
+  const syncValue = () => {
+    const displayValue = `${Math.round(parseFloat(slider.value) * 100)}%`;
+    value.textContent = displayValue;
+    const summary = document.getElementById("cfg-display-value");
+    if (summary) summary.textContent = displayValue;
+  };
   syncValue();
   slider.addEventListener("input", () => {
     MMI_STYLE.opacity = parseFloat(slider.value);
     syncValue();
     refreshMmiLayerStyles();
+    publishCurrentMmiState();
   });
   controls.append(slider, value);
   row.append(txt, controls);
-  group.append(title, row);
+  group.append(row);
   section.appendChild(group);
+}
+
+function updateConfigSummary() {
+  const section = document.getElementById("sec-config");
+  if (!section) return;
+  const checked = section.querySelectorAll('input[type="checkbox"]:checked').length;
+  const overlayChecked = document.querySelectorAll('#overlay-list input[type="checkbox"]:checked').length;
+  const hazardChecked = document.querySelectorAll('#cfg-hazard-layers input[type="checkbox"]:checked').length;
+  const currentMmi = document.getElementById("current-mmi-toggle");
+  const basemap = document.querySelector('#basemap-list input[type="radio"]:checked')?.nextElementSibling?.textContent || "";
+  const basemapSummary = basemap;
+  const count = document.getElementById("cfg-visible-count");
+  const overlays = document.getElementById("cfg-overlay-active");
+  const hazards = document.getElementById("cfg-hazard-active");
+  const mmiState = document.getElementById("current-mmi-state");
+  const base = document.getElementById("cfg-basemap-active");
+  if (count) count.textContent = String(checked);
+  if (overlays) overlays.textContent = `${overlayChecked} active`;
+  if (hazards) hazards.textContent = `${hazardChecked} active`;
+  if (mmiState) mmiState.textContent = currentMmi?.checked ? "On" : "Off";
+  if (base && basemapSummary) base.textContent = basemapSummary;
+}
+
+function initConfigAccordions() {
+  const section = document.getElementById("sec-config");
+  if (!section) return;
+  section.querySelectorAll(".cfg-accordion-head").forEach(button => {
+    button.addEventListener("click", () => {
+      const accordion = button.closest(".cfg-accordion");
+      const open = accordion.classList.toggle("open");
+      button.setAttribute("aria-expanded", String(open));
+    });
+  });
+  section.addEventListener("change", event => {
+    if (event.target.matches('input[type="checkbox"], input[type="radio"]')) updateConfigSummary();
+  });
 }
 
 function buildConfigPanel() {
@@ -531,10 +673,12 @@ function buildConfigPanel() {
     const cb = document.createElement("input");
     cb.type = "checkbox";
     cb.checked = !!c.defaultOn;
+    cb.setAttribute("aria-label", name);
     cb.addEventListener("change", () => {
       if (cb.checked) OVERLAYS[name].addTo(map);
       else map.removeLayer(OVERLAYS[name]);
       controls.style.display = cb.checked ? "flex" : "none";
+      publishOverlayState();
     });
     const sw = document.createElement("span");
     sw.className = "swatch";
@@ -552,6 +696,7 @@ function buildConfigPanel() {
     w.value = c.width;
     w.step = "0.1"; w.min = "0.1"; w.max = "5";
     w.title = "Line width";
+    w.setAttribute("aria-label", `${name} line width`);
     w.addEventListener("change", () => { c.width = parseFloat(w.value) || c.width; rebuildOverlay(name); });
     controls.appendChild(w);
     const colPick = document.createElement("input");
@@ -559,6 +704,7 @@ function buildConfigPanel() {
     colPick.className = "ov-color";
     colPick.value = c.color;
     colPick.title = "Line color";
+    colPick.setAttribute("aria-label", `${name} line color`);
     colPick.addEventListener("input", () => {
       c.color = colPick.value;
       sw.style.background = c.color;
@@ -572,6 +718,7 @@ function buildConfigPanel() {
     o.className = "ov-opacity";
     o.min = "0"; o.max = "1"; o.step = "0.05"; o.value = c.opacity ?? 1;
     o.title = "Opacity";
+    o.setAttribute("aria-label", `${name} opacity`);
     o.addEventListener("input", () => {
       const v = parseFloat(o.value);
       c.opacity = v;
@@ -617,6 +764,8 @@ function buildConfigPanel() {
 }
 buildConfigPanel();
 buildMmiOpacityControl();
+initConfigAccordions();
+updateConfigSummary();
 
 // --- Seismic hazard: PGA return-period overlays -------------------------
 // Probabilistic peak ground acceleration, one grid per return period, rendered
@@ -645,31 +794,75 @@ function _pgaCurrent() {
 function _pgaRender() {
   if (_pga.layer) { map.removeLayer(_pga.layer); _pga.layer = null; }
   const entry = _pgaCurrent();
-  if (!_pga.enabled || !entry || !_pga.manifest) { _pgaRenderLegend(); return; }
-  const [w, s, e, n] = _pga.manifest.bounds;
-  _pga.layer = L.imageOverlay(entry.image, [[s, w], [n, e]], {
-    opacity: _pga.opacity, pane: PGA_PANE, interactive: false,
-    alt: `PGA, ${entry.label} return period`,
-  }).addTo(map);
+  const renderable = Boolean(_pga.enabled && entry && _pga.manifest);
+  if (renderable) {
+    const [w, s, e, n] = _pga.manifest.bounds;
+    _pga.layer = L.imageOverlay(entry.image, [[s, w], [n, e]], {
+      opacity: _pga.opacity, pane: PGA_PANE, interactive: false,
+      alt: `PGA, ${entry.label} return period`,
+    }).addTo(map);
+  }
   _pgaRenderLegend();
+  publishMapState({
+    pga: {
+      enabled: renderable,
+      returnPeriod: _pga.period,
+      opacity: _pga.opacity,
+      bounds: renderable ? _pga.manifest.bounds : null,
+      image: renderable ? entry.image : null,
+      label: renderable ? entry.label : null,
+      attribution: renderable ? (_pga.manifest.attribution || "") : null,
+    },
+  });
+}
+
+// The hazard key belongs next to the hazard, not in the sidebar the map is read
+// away from — so it rides in the map's bottom-right corner as a Leaflet control.
+// That position inherits the shell's existing chrome offsets (`.leaflet-right`
+// clears the MMI ladder, `.leaflet-bottom` clears the exposure strip).
+function _pgaEnsureMapLegend() {
+  if (_pga.els.mapLegend) return _pga.els.mapLegend;
+  const ctl = L.control({ position: "bottomright" });
+  ctl.onAdd = function () {
+    const div = L.DomUtil.create("div", "pga-map-legend");
+    // A legend is a reading surface, not a map surface: clicks and wheel must
+    // not pan or zoom the map underneath it.
+    L.DomEvent.disableClickPropagation(div);
+    L.DomEvent.disableScrollPropagation(div);
+    return div;
+  };
+  ctl.addTo(map);
+  _pga.els.mapLegend = ctl.getContainer();
+  return _pga.els.mapLegend;
 }
 
 function _pgaRenderLegend() {
-  const el = _pga.els.legend;
-  if (!el) return;
+  const el = _pgaEnsureMapLegend();
   const entry = _pgaCurrent();
-  if (!_pga.enabled || !entry) { el.innerHTML = ""; return; }
+  if (!_pga.enabled || !entry) { el.hidden = true; el.innerHTML = ""; return; }
   // Breaks differ per return period, so the legend is rebuilt on every change —
   // a stale legend here would misread the map rather than merely look wrong.
+  // Ordered high-to-low so the severe end reads first, as on the MMI ladder.
+  const bands = entry.legend.slice().reverse();
+  el.hidden = false;
   el.innerHTML =
-    `<div class="pga-legend-head">Peak ground acceleration (g) · ${escapeHtml(entry.exceedance)}</div>` +
-    entry.legend.map(b =>
-      `<div class="pga-legend-row"><span class="pga-swatch" style="background:${b.color}"></span>` +
-      `<span>${escapeHtml(b.label)}</span></div>`).join("");
+    `<div class="pgl-head">` +
+      `<span class="pgl-title">Peak ground acceleration</span>` +
+      `<span class="pgl-unit">g</span>` +
+    `</div>` +
+    `<div class="pgl-sub">${escapeHtml(entry.label)} return period · ${escapeHtml(entry.exceedance)}</div>` +
+    `<div class="pgl-scale">` +
+      `<div class="pgl-ramp">` +
+        bands.map(b => `<i style="background:${b.color}"></i>`).join("") +
+      `</div>` +
+      `<div class="pgl-labels">` +
+        bands.map(b => `<span>${escapeHtml(b.label)}</span>`).join("") +
+      `</div>` +
+    `</div>`;
 }
 
 function _pgaBuildPanel() {
-  const section = document.getElementById("sec-config");
+  const section = document.getElementById("cfg-hazard-layers") || document.getElementById("sec-config");
   if (!section) return;
   const group = document.createElement("div");
   group.className = "cfg-group";
@@ -687,20 +880,19 @@ function _pgaBuildPanel() {
           <span class="cfg-value" id="pga-opacity-val"></span>
         </span>
       </label>
-      <div class="pga-legend" id="pga-legend"></div>
       <div class="cfg-note" id="pga-note"></div>
     </div>`;
   section.appendChild(group);
 
-  _pga.els = {
+  // Merge, never replace: the map legend's container may already be registered.
+  Object.assign(_pga.els, {
     toggle: group.querySelector("#pga-toggle"),
     controls: group.querySelector("#pga-controls"),
     period: group.querySelector("#pga-period"),
     opacity: group.querySelector("#pga-opacity"),
     opacityVal: group.querySelector("#pga-opacity-val"),
-    legend: group.querySelector("#pga-legend"),
     note: group.querySelector("#pga-note"),
-  };
+  });
 
   _pga.els.opacity.value = String(_pga.opacity);
   _pga.els.opacityVal.textContent = `${Math.round(_pga.opacity * 100)}%`;
@@ -709,6 +901,7 @@ function _pgaBuildPanel() {
     _pga.enabled = _pga.els.toggle.checked;
     _pga.els.controls.style.display = _pga.enabled ? "block" : "none";
     _pgaRender();
+    updateConfigSummary();
   });
   _pga.els.period.addEventListener("change", () => {
     _pga.period = parseInt(_pga.els.period.value, 10);
@@ -718,6 +911,7 @@ function _pgaBuildPanel() {
     _pga.opacity = parseFloat(_pga.els.opacity.value);
     _pga.els.opacityVal.textContent = `${Math.round(_pga.opacity * 100)}%`;
     if (_pga.layer) _pga.layer.setOpacity(_pga.opacity);
+    _pgaRender();
   });
 }
 
@@ -786,6 +980,7 @@ function _applyMmiStyles() {
     const fo = isSelected ? 0.8 : isHover ? 0.7 : 0.45;
     layers.forEach(l => l.setStyle({ weight: w, fillOpacity: fo }));
   });
+  publishCurrentMmiState();
 }
 
 let _hoveredMmiLevel = null;
@@ -816,6 +1011,25 @@ function selectMmiLevel(level) {
   });
   _applyMmiStyles();
 }
+
+function clearMmiSelection() {
+  if (_selectedMmiLevel == null) return;
+  _selectedMmiLevel = null;
+  Object.values(_legendItems).forEach(el => el.classList.remove("selected"));
+  _applyMmiStyles();
+}
+
+// What a renderer can ask the application to do. Handlers take plain values, so
+// the 2D and 3D maps drive the same selection state without knowing each other.
+window.eqmonMapIntents = window.eqmonMapIntents || {};
+Object.assign(window.eqmonMapIntents, {
+  selectMmiBand: level => selectMmiLevel(level),
+  clearMmiSelection,
+  hoverMmiBand: level => {
+    if (level == null) unhighlightAll();
+    else highlightByLevel(level);
+  },
+});
 
 function presentLevels(fc) {
   const set = new Set((fc && fc.features ? fc.features : []).map(f => (f.properties || {}).mmi_lower));
@@ -1001,6 +1215,105 @@ function syncMmiToggle() {
   if (toggle) toggle.checked = _mmiVisible;
 }
 
+// --- Radar sweep over the footprint ----------------------------------------
+// A bright ring travels out from the epicenter every couple of seconds, clipped
+// to the outer band so it only ever lights up real footprint. It animates
+// nothing the map encodes: MMI lives in fill colour and fill opacity, and a
+// band that breathed either would read as a changing intensity. This rides over
+// the top instead, and re-asserts where the epicenter is on each pass.
+// Prototyped alongside the alternatives in web/prototypes/e-mmi-motion.html.
+
+const _mmiSweep = { anim: null, teardown: null };
+const SWEEP_SPEED = 1.3;              // chosen against the prototype's speed control
+const SWEEP_CYCLE_MS = 2200 / SWEEP_SPEED;
+const SWEEP_GAP_MS = 700 / SWEEP_SPEED;   // beat between passes, so it reads as a pulse
+
+function _stopMmiSweep() {
+  if (_mmiSweep.anim) { _mmiSweep.anim.pause(); _mmiSweep.anim = null; }
+  if (_mmiSweep.teardown) { _mmiSweep.teardown(); _mmiSweep.teardown = null; }
+}
+
+function _startMmiSweep(layer) {
+  if (typeof anime === "undefined") return;
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+
+  // Outer edge of the footprint is the *lowest* MMI band, and the epicenter sits
+  // in the highest — both read off the geometry rather than threaded in, so this
+  // works identically for a manual footprint and a catalog event.
+  let outer = null, inner = null, lo = Infinity, hi = -Infinity;
+  layer.eachLayer((l) => {
+    const level = l.feature?.properties?.mmi_lower;
+    if (!Number.isFinite(level) || !l.getElement()) return;
+    if (level < lo) { lo = level; outer = l; }
+    if (level > hi) { hi = level; inner = l; }
+  });
+  if (!outer || !inner) return;
+
+  const svg = map.getPanes().overlayPane.querySelector("svg");
+  if (!svg) return;
+  const NS = "http://www.w3.org/2000/svg";
+  const mk = (n) => document.createElementNS(NS, n);
+
+  const uid = `mmi-sweep-${Date.now().toString(36)}`;
+  const defs = mk("defs");
+  const clip = mk("clipPath");
+  clip.setAttribute("id", uid);
+  const clipPath = mk("path");
+  clip.appendChild(clipPath);
+  defs.appendChild(clip);
+
+  const g = mk("g");
+  g.setAttribute("clip-path", `url(#${uid})`);
+  g.setAttribute("class", "mmi-sweep");
+  const ring = mk("circle");
+  ring.setAttribute("class", "mmi-sweep-ring");
+  g.appendChild(ring);
+  svg.append(defs, g);
+
+  // Leaflet rewrites each path's `d` on zoom and never during a zoom animation,
+  // so the clip and the centre are refreshed on settle — recomputing the centre
+  // per frame instead would fight the pane transform mid-zoom and visibly drift.
+  const outerEl = outer.getElement();
+  const span = () => {
+    const b = outer.getBounds();
+    return map.latLngToLayerPoint(b.getNorthEast()).distanceTo(map.latLngToLayerPoint(b.getSouthWest())) / 2;
+  };
+  let centre = map.latLngToLayerPoint(inner.getBounds().getCenter());
+  let reach = span();
+  const resync = () => {
+    clipPath.setAttribute("d", outerEl.getAttribute("d") || "");
+    centre = map.latLngToLayerPoint(inner.getBounds().getCenter());
+    reach = span();
+    ring.setAttribute("cx", centre.x);
+    ring.setAttribute("cy", centre.y);
+  };
+  resync();
+  map.on("zoomend moveend", resync);
+
+  // Progress is normalised and scaled to `reach` at paint time, so a zoom
+  // partway through a pass resizes the ring with the map instead of finishing
+  // the sweep at the previous scale.
+  const state = { p: 0, o: 0 };
+  _mmiSweep.anim = anime.animate(state, {
+    p: [{ to: 1 }],
+    o: [{ to: 0.95, duration: SWEEP_CYCLE_MS * 0.12 }, { to: 0, duration: SWEEP_CYCLE_MS * 0.88 }],
+    duration: SWEEP_CYCLE_MS,
+    delay: SWEEP_GAP_MS,
+    loop: true,
+    ease: "outSine",
+    onUpdate: () => {
+      ring.setAttribute("r", state.p * reach);
+      ring.style.opacity = state.o;
+    },
+  });
+
+  _mmiSweep.teardown = () => {
+    map.off("zoomend moveend", resync);
+    g.remove();
+    defs.remove();
+  };
+}
+
 function renderCurrentMmiLayer(fc) {
   _lastFc = fc;
   _mmiLayers = {};
@@ -1008,6 +1321,7 @@ function renderCurrentMmiLayer(fc) {
   // The footprint just changed, so any open ARC breakdown describes the old one.
   // (The button itself is re-rendered with the ladder, in renderLegend.)
   if (_arcData) { _arcData = null; _arcClose(); }
+  _stopMmiSweep();
   if (intensityLayer) {
     map.removeLayer(intensityLayer);
     intensityLayer = null;
@@ -1015,19 +1329,21 @@ function renderCurrentMmiLayer(fc) {
   if (!_mmiVisible) {
     _hideLegend();
     syncMmiToggle();
+    publishCurrentMmiState();
     return null;
   }
   intensityLayer = L.geoJSON(fc, { style, onEachFeature: onMmiFeature }).addTo(map);
-  if (fc.features.length > 0) _showLegend(fc);
+  if (fc.features.length > 0) { _showLegend(fc); _startMmiSweep(intensityLayer); }
   else _hideLegend();
   syncMmiToggle();
+  publishCurrentMmiState();
   return intensityLayer;
 }
 
 function setCurrentMmiVisible(visible) {
   _mmiVisible = visible;
   if (_lastFc) renderCurrentMmiLayer(_lastFc);
-  else syncMmiToggle();
+  else { syncMmiToggle(); publishCurrentMmiState(); }
   updateCurrentEventCard(_currentEvent);
 }
 
@@ -1049,6 +1365,8 @@ function updateCurrentEventCard(event) {
     pills.innerHTML = "<span>Epicenter pending</span><span>MMI pending</span>";
     updateStatusBar(null);
     hideExposureStrip();
+    publishMapState({ activeEvent: null });
+    document.dispatchEvent(new CustomEvent("eqmon:current-event", { detail: null }));
     return;
   }
   const mag = Number(event.magnitude);
@@ -1070,6 +1388,92 @@ function updateCurrentEventCard(event) {
     ? " · Origin " + new Date(event.occurred_at).toLocaleTimeString() : "";
   meta.innerHTML = `${coords}${when}`;
   pills.innerHTML = `<span>Epicenter pinned</span><span>${_mmiVisible ? "MMI visible" : "MMI hidden"}</span>`;
+  publishMapState({ activeEvent: { ...event, epicenterLabel: epicenterLabel(event) } });
+  document.dispatchEvent(new CustomEvent("eqmon:current-event", { detail: event }));
+}
+
+// --- Epicenter loader: the wait, staged where the answer will appear --------
+// Computing a footprint takes long enough to feel like nothing is happening,
+// and the sidebar spinner is nowhere near the part of the screen the user is
+// watching. This puts the wait on the map, at the epicenter, as a grid of cells
+// pulsing outward from the centre — anime.js grid staggering, which reads as a
+// wavefront leaving the hypocentre, the thing actually being computed.
+
+const MMI_LOADER_PANE = "mmiLoaderPane";
+const MMI_LOADER_GRID = 9;        // odd, so a single cell sits on the epicenter
+const _mmiLoader = { marker: null, anim: null };
+
+function _mmiLoaderEnsurePane() {
+  if (map.getPane(MMI_LOADER_PANE)) return;
+  map.createPane(MMI_LOADER_PANE);
+  // 650: above the epicenter marker (600) so the wait is never buried, below
+  // popups (700). Never interactive — it must not eat clicks on the map.
+  map.getPane(MMI_LOADER_PANE).style.zIndex = 650;
+  map.getPane(MMI_LOADER_PANE).style.pointerEvents = "none";
+}
+
+function showMmiLoader(lat, lon, label) {
+  hideMmiLoader();
+  if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lon))) return;
+  _mmiLoaderEnsurePane();
+
+  const n = MMI_LOADER_GRID;
+  const mid = (n - 1) / 2;
+  // Cells outside this radius are hidden, so a square grid reads as a disc —
+  // shaking radiates as a circular front, and a square field would draw a
+  // boundary the physics has not got. The 0.2 slack rounds the silhouette;
+  // exactly `mid` leaves single-cell spikes at the four poles.
+  const radius = mid + 0.2;
+  // Each cell carries its own ring distance so the CSS fallback below can
+  // stagger radially too, on the same geometry anime.js uses. Hidden cells stay
+  // in the DOM: anime.js grid staggering indexes by position, so removing them
+  // would shift every cell after them onto the wrong delay.
+  const cells = Array.from({ length: n * n }, (_, i) => {
+    const dx = (i % n) - mid, dy = Math.floor(i / n) - mid;
+    const dist = Math.hypot(dx, dy);
+    const off = dist > radius ? " class=\"is-off\"" : "";
+    return `<i${off} style="--d:${Math.round(dist * 55)}ms"></i>`;
+  }).join("");
+
+  const size = n * 13;
+  const icon = L.divIcon({
+    className: "mmi-loader",
+    html: `<div class="mmi-loader-grid">${cells}</div>` +
+          `<span class="mmi-loader-cap">${escapeHtml(label || "Calculating intensity")}</span>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+  });
+  _mmiLoader.marker = L.marker([lat, lon], {
+    icon, pane: MMI_LOADER_PANE, interactive: false, keyboard: false,
+    zIndexOffset: 1000,
+  }).addTo(map);
+
+  const dots = _mmiLoader.marker.getElement()?.querySelectorAll(".mmi-loader-grid i");
+  if (!dots || !dots.length) return;
+  // Reduced motion gets the marker without the pulse: the position still says
+  // where the work is happening, which is the load-bearing half of this.
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+  if (typeof anime === "undefined") {
+    // CDN blocked or SRI mismatch. The `--d` delays above drive an equivalent
+    // CSS ripple, so the loader degrades instead of vanishing.
+    _mmiLoader.marker.getElement()?.classList.add("mmi-loader-css");
+    return;
+  }
+  _mmiLoader.anim = anime.animate(dots, {
+    scale: [{ to: 1.7 }, { to: 0.4 }],
+    opacity: [{ to: 1 }, { to: 0.18 }],
+    duration: 900,
+    delay: anime.stagger(55, { grid: [n, n], from: "center" }),
+    loop: true,
+    ease: "inOutQuad",
+  });
+}
+
+function hideMmiLoader() {
+  // Pause before removing the nodes: a running anime.js instance keeps ticking
+  // against detached elements otherwise, once per calculation, forever.
+  if (_mmiLoader.anim) { _mmiLoader.anim.pause(); _mmiLoader.anim = null; }
+  if (_mmiLoader.marker) { map.removeLayer(_mmiLoader.marker); _mmiLoader.marker = null; }
 }
 
 async function calculate() {
@@ -1081,6 +1485,7 @@ async function calculate() {
     save_to_catalog: document.getElementById("save-catalog").checked,
   };
   statusEl.innerHTML = spinnerHTML() + " Calculating…";
+  showMmiLoader(payload.lat, payload.lon, "Calculating intensity");
   try {
     const resp = await fetch("/intensity", {
       method: "POST",
@@ -1095,9 +1500,11 @@ async function calculate() {
     }
     const fc = await resp.json();
     renderCurrentMmiLayer(fc);
+    if (fc.event_id) payload.id = fc.event_id;
+    payload._fromStart = true;
 
     if (epicenterMarker) map.removeLayer(epicenterMarker);
-    epicenterMarker = makeEpicenterMarker(payload.lat, payload.lon, "#000000", "Epicenter").addTo(map);
+    epicenterMarker = makeEpicenterMarker(payload.lat, payload.lon, "#000000", epicenterLabel(payload)).addTo(map);
     updateCurrentEventCard(payload);
     // A manual footprint has no PAGER alert and no admin rollups, so the strip
     // stays down; the status bar still reports magnitude and peak intensity.
@@ -1114,6 +1521,10 @@ async function calculate() {
   } catch (e) {
     statusEl.textContent = "";
     toast("Request failed: " + e.message, "error");
+  } finally {
+    // `finally`, not the happy path: the early return above and any throw must
+    // still clear the loader, or it pulses over the map forever.
+    hideMmiLoader();
   }
 }
 
@@ -1279,7 +1690,22 @@ confirmOverlay.addEventListener("keydown", (e) => {
   }
 });
 
+// Wraps the impact run purely to own the epicenter loader's lifetime. The inner
+// function has several early returns; a wrapper guarantees the loader is torn
+// down on every one of them without threading cleanup through each exit.
 async function showImpact(id) {
+  // The catalog row already carries the coordinates, so the loader can land on
+  // the epicenter immediately rather than after /events/{id} comes back.
+  const known = (eventsEl._allEvents || []).find(e => String(e.id) === String(id));
+  showMmiLoader(known?.lat, known?.lon, "Computing impact");
+  try {
+    return await _showImpactRun(id);
+  } finally {
+    hideMmiLoader();
+  }
+}
+
+async function _showImpactRun(id) {
   _compLayers.forEach(l => map.removeLayer(l));
   _compLayers = [];
   if (_cmpLegendCtrl) { map.removeControl(_cmpLegendCtrl); _cmpLegendCtrl = null; }
@@ -1313,7 +1739,7 @@ async function showImpact(id) {
   }
   if (evt && evt.lat != null && evt.lon != null) {
     if (epicenterMarker) map.removeLayer(epicenterMarker);
-    epicenterMarker = makeEpicenterMarker(evt.lat, evt.lon, "#000000", `Epicenter — M${evt.magnitude.toFixed(1)}`).addTo(map);
+    epicenterMarker = makeEpicenterMarker(evt.lat, evt.lon, "#000000", epicenterLabel(evt)).addTo(map);
     updateCurrentEventCard(evt);
   }
   if (hasBands && intensityLayer && intensityLayer.getBounds().isValid()) {
@@ -1497,6 +1923,7 @@ const _ALERT_TEXT = {
 function setAlertLevel(level, label) {
   const lv = _ALERT_TEXT[level] ? level : "none";
   document.documentElement.dataset.alert = lv;
+  publishMapState({ alertLevel: lv });
   const el = document.getElementById("alert-chip-text");
   if (el) el.textContent = lv === "none" ? (label || "No PAGER alert") : _ALERT_TEXT[lv];
   document.querySelectorAll("[data-alert-preview]").forEach((button) => {
@@ -1508,36 +1935,38 @@ document.querySelectorAll("[data-alert-preview]").forEach((button) => {
   button.addEventListener("click", () => setAlertLevel(button.dataset.alertPreview));
 });
 
-// A running clock only means something while a response is live. Past 72 hours
-// the elapsed count is noise, so the bar shows the origin date instead.
-const _ELAPSED_MAX_S = 72 * 3600;
-let _elapsedTimer = null;
+// Magnitude bands for the room's alert level. Real PAGER is an impact product —
+// modelled fatalities and losses — which only USGS publishes, and then only for
+// some events. Manual entries and most PMD rows carry no alert at all, which
+// left the console sitting at "none" through events that plainly warranted a
+// response. Magnitude is the one severity signal every event has, so it drives
+// the level here.
+const _ALERT_MAG_BANDS = [
+  { min: 7.0, level: "red" },     // major — national response
+  { min: 6.0, level: "orange" },  // strong — damaging over a wide area
+  { min: 4.5, level: "yellow" },  // moderate — locally felt, light damage
+  { min: -Infinity, level: "green" },
+];
+const _ALERT_RANK = { none: 0, green: 1, yellow: 2, orange: 3, red: 4 };
 
-function startElapsed(occurredAt) {
-  const out = document.getElementById("sb-elapsed");
-  const lbl = document.getElementById("sb-elapsed-label");
-  if (!out) return;
-  if (_elapsedTimer) { clearInterval(_elapsedTimer); _elapsedTimer = null; }
-  const t0 = occurredAt ? new Date(occurredAt).getTime() : NaN;
-  if (!Number.isFinite(t0)) {
-    out.textContent = "—";
-    if (lbl) lbl.textContent = "ELAPSED";
-    return;
-  }
-  if ((Date.now() - t0) / 1000 > _ELAPSED_MAX_S) {
-    if (lbl) lbl.textContent = "ORIGIN";
-    out.textContent = new Date(t0).toLocaleDateString(undefined,
-      { day: "2-digit", month: "short", year: "numeric" }).toUpperCase();
-    return;
-  }
-  if (lbl) lbl.textContent = "ELAPSED";
-  const tick = () => {
-    const s = Math.max(0, Math.floor((Date.now() - t0) / 1000));
-    const p = n => String(n).padStart(2, "0");
-    out.textContent = `${p(Math.floor(s / 3600))}:${p(Math.floor(s / 60) % 60)}:${p(s % 60)}`;
-  };
-  tick();
-  _elapsedTimer = setInterval(tick, 1000);
+function alertFromMagnitude(magnitude) {
+  // Number(null) and Number("") are 0, which would read as a green alert on an
+  // event that simply has no magnitude — reject those before converting.
+  if (magnitude == null || magnitude === "") return null;
+  const m = Number(magnitude);
+  if (!Number.isFinite(m)) return null;
+  return _ALERT_MAG_BANDS.find(b => m >= b.min).level;
+}
+
+// A published PAGER level still counts, but only to escalate: a modest-magnitude
+// quake under a dense city can be red, and the magnitude band must not talk that
+// back down.
+function alertForEvent(evt) {
+  const byMag = alertFromMagnitude(evt?.magnitude);
+  const published = _ALERT_TEXT[evt?.alert] ? evt.alert : null;
+  if (!byMag) return published;
+  if (!published) return byMag;
+  return _ALERT_RANK[published] > _ALERT_RANK[byMag] ? published : byMag;
 }
 
 // Reflect an event in the status bar. Called whenever an event becomes active.
@@ -1548,17 +1977,15 @@ function updateStatusBar(evt, peakMmi) {
     setAlertLevel(null, "No active event");
     if (id) id.textContent = "—";
     if (peak) peak.textContent = "—";
-    startElapsed(null);
     return;
   }
-  setAlertLevel(evt.alert);
+  setAlertLevel(alertForEvent(evt));
   if (id) {
     const mag = Number(evt.magnitude);
     id.textContent = `${Number.isFinite(mag) ? "M" + mag.toFixed(1) : "M?"} ${evt.source || ""}`.trim();
     id.title = evt.place || "";
   }
   if (peak) peak.textContent = peakMmi ? `MMI ${(MMI_CLASSES[peakMmi] || [peakMmi])[0]}` : "—";
-  startElapsed(evt.occurred_at);
 }
 
 // Start with the room at rest: no alert frame, no event in the status bar.
@@ -1597,7 +2024,7 @@ function renderExposureStrip(rollups, level, peakBand) {
 
   strip.hidden = false;
   document.body.classList.add("has-strip");
-  if (map) setTimeout(() => map.invalidateSize(), 60);
+  setTimeout(resizeActiveMap, 60);
 
   const byBand = new Map();
   rows.forEach(d => byBand.set(d.mmi_max, (byBand.get(d.mmi_max) || 0) + 1));
@@ -1688,77 +2115,205 @@ function renderTimelineChart(events) {
   if (!wrap) {
     wrap = document.createElement("div");
     wrap.id = "tl-wrap";
-    wrap.innerHTML = `<div class="tl-header"><span class="tl-title">Timeline</span><button class="tl-toggle">−</button></div><canvas id="tl-canvas"></canvas>`;
+    wrap.innerHTML = `<div class="tl-header"><span class="tl-title">Timeline</span>` +
+      `<button class="tl-toggle" aria-label="Collapse timeline">−</button></div>` +
+      `<div class="tl-plot"><canvas id="tl-canvas"></canvas>` +
+      `<div class="tl-tip" hidden></div></div>`;
     eventsEl.parentNode.insertBefore(wrap, eventsEl);
     wrap.querySelector(".tl-toggle").addEventListener("click", () => {
       _timelineExpanded = !_timelineExpanded;
-      const c = document.getElementById("tl-canvas");
-      if (c) c.style.display = _timelineExpanded ? "" : "none";
-      wrap.querySelector(".tl-toggle").textContent = _timelineExpanded ? "−" : "+";
+      // Hide the plot, not the canvas: the tooltip lives alongside it, and a
+      // zero-width parent is what breaks the next redraw.
+      const plot = wrap.querySelector(".tl-plot");
+      if (plot) plot.style.display = _timelineExpanded ? "" : "none";
+      const btn = wrap.querySelector(".tl-toggle");
+      btn.textContent = _timelineExpanded ? "−" : "+";
+      btn.setAttribute("aria-label", _timelineExpanded ? "Collapse timeline" : "Expand timeline");
       if (_timelineExpanded && eventsEl._allEvents) drawTimeline(eventsEl._allEvents);
     });
   }
   drawTimeline(events);
 }
+// Magnitude against time for the events currently listed, drawn as a spike
+// train: a stem from the catalog floor up to each magnitude, capped with a dot
+// coloured by PAGER alert. Stems rather than loose dots because height is the
+// quantity being read, and because a spike train is the shape this domain
+// already thinks in.
+const TL_H = 132;                 // CSS px — enough for both gutters to breathe
+let _tlState = null;              // { sorted, geom } for repaint on hover
+let _tlHover = -1;
+let _tlObserver = null;
+
+function _tlObserve(wrap) {
+  // The catalog can render while its section is hidden or the sidebar is
+  // collapsed, and a canvas sized from a zero-width parent silently keeps its
+  // 300px default bitmap — which CSS then stretches, drawing geometry that was
+  // computed for a canvas that never existed. Redraw once there is real width.
+  if (_tlObserver || typeof ResizeObserver === "undefined") return;
+  _tlObserver = new ResizeObserver(() => {
+    if (wrap.clientWidth > 0 && eventsEl._allEvents && _timelineExpanded) {
+      drawTimeline(eventsEl._allEvents);
+    }
+  });
+  _tlObserver.observe(wrap);
+}
+
+function _tlPaint() {
+  if (!_tlState) return;
+  const { sorted, geom, ctx } = _tlState;
+  const { w, h, pad, pw, ph, mLo, mHi, x, y, colors } = geom;
+
+  ctx.clearRect(0, 0, w, h);
+  ctx.font = `10px ${getComputedStyle(document.documentElement)
+    .getPropertyValue("--font-mono").trim() || "monospace"}`;
+  ctx.textBaseline = "middle";
+
+  // Gridlines sit behind and stay faint. Stems and gridlines at the same weight
+  // turn the plot into a mesh, so the horizontals give way to the verticals.
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = colors.grid;
+  for (let m = Math.ceil(mLo); m <= Math.floor(mHi); m++) {
+    const yy = Math.round(y(m)) + 0.5;   // +0.5 keeps a 1px line from blurring
+    ctx.globalAlpha = 0.5;
+    ctx.beginPath(); ctx.moveTo(pad.left, yy); ctx.lineTo(w - pad.right, yy); ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = colors.axis;
+    ctx.textAlign = "right";
+    ctx.fillText(m.toFixed(1), pad.left - 6, yy);
+  }
+  // The floor the spikes stand on — the only horizontal drawn at full strength.
+  const base = Math.round(y(mLo)) + 0.5;
+  ctx.strokeStyle = colors.grid;
+  ctx.beginPath(); ctx.moveTo(pad.left, base); ctx.lineTo(w - pad.right, base); ctx.stroke();
+
+  sorted.forEach((e, i) => {
+    const px = x(e), py = y(e.magnitude);
+    const on = i === _tlHover;
+    ctx.strokeStyle = colors.axis;
+    ctx.globalAlpha = on ? 0.85 : 0.32;
+    ctx.lineWidth = on ? 1.5 : 1;
+    ctx.beginPath(); ctx.moveTo(px, base); ctx.lineTo(px, py); ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.beginPath(); ctx.arc(px, py, on ? 5 : 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = colors.alert[e.alert] || colors.dot;
+    ctx.fill();
+    ctx.strokeStyle = colors.ring; ctx.lineWidth = 1.5; ctx.stroke();
+  });
+
+  // Endpoint dates only. The 20 newest events usually span hours, so interior
+  // ticks repeat the same day and collide.
+  const day = t => new Date(t).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  const first = day(sorted[0].occurred_at);
+  const last = day(sorted[sorted.length - 1].occurred_at);
+  ctx.fillStyle = colors.axis;
+  ctx.textAlign = "left";
+  ctx.fillText(first, pad.left, h - 7);
+  if (first !== last) {
+    ctx.textAlign = "right";
+    ctx.fillText(last, w - pad.right, h - 7);
+  }
+}
+
 function drawTimeline(events) {
   const canvas = document.getElementById("tl-canvas");
   if (!canvas) return;
-  const sorted = [...events].filter(e => e.magnitude != null && e.occurred_at).sort((a, b) => new Date(a.occurred_at) - new Date(b.occurred_at));
-  if (sorted.length < 2) { canvas.style.display = "none"; return; }
+  const wrap = canvas.parentElement;
+  _tlObserve(wrap);
+
+  const sorted = [...events]
+    .filter(e => e.magnitude != null && e.occurred_at)
+    .sort((a, b) => new Date(a.occurred_at) - new Date(b.occurred_at));
+  if (sorted.length < 2) { canvas.style.display = "none"; _tlState = null; return; }
   canvas.style.display = "";
-  const w = canvas.width = canvas.parentElement.clientWidth - 4 || 228;
-  const h = canvas.height = 120;
+
+  const cssW = wrap.clientWidth;
+  if (cssW < 40) return;   // no usable width yet; the observer will call back
+
+  // Draw in CSS pixels but back the canvas with device pixels, or the whole
+  // chart is resampled and every hairline goes soft.
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(cssW * dpr);
+  canvas.height = Math.round(TL_H * dpr);
+  canvas.style.height = `${TL_H}px`;
   const ctx = canvas.getContext("2d");
-  const _cs = getComputedStyle(document.documentElement);
-  const gridC = _cs.getPropertyValue("--border").trim() || "#eee";
-  const axisC = _cs.getPropertyValue("--text-muted").trim() || "#ccc";
-  const ringC = _cs.getPropertyValue("--surface").trim() || "#fff";
-  const pad = { top: 6, right: 6, bottom: 18, left: 30 };
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const cs = getComputedStyle(document.documentElement);
+  const colors = {
+    grid: cs.getPropertyValue("--border").trim() || "#eee",
+    axis: cs.getPropertyValue("--text-muted").trim() || "#999",
+    ring: cs.getPropertyValue("--surface").trim() || "#fff",
+    dot: cs.getPropertyValue("--slate-muted").trim() || "#666",
+    alert: { green: "#2E9E5B", yellow: "#D8B22C", orange: "#DD5730", red: "#C42A2E" },
+  };
+
+  const pad = { top: 12, right: 10, bottom: 22, left: 32 };
+  const w = cssW, h = TL_H;
   const pw = w - pad.left - pad.right, ph = h - pad.top - pad.bottom;
-  const t0 = new Date(sorted[0].occurred_at).getTime(), t1 = new Date(sorted[sorted.length - 1].occurred_at).getTime(), ts = t1 - t0 || 1;
-  const mm0 = Math.max(0, Math.min(...sorted.map(e => e.magnitude)) - 0.3), mm1 = Math.max(...sorted.map(e => e.magnitude)) + 0.3, ms = mm1 - mm0 || 1;
-  const x = e => pad.left + ((new Date(e.occurred_at).getTime() - t0) / ts) * pw;
-  const y = e => pad.top + ph - ((e.magnitude - mm0) / ms) * ph;
-  ctx.clearRect(0, 0, w, h);
-  ctx.strokeStyle = gridC; ctx.lineWidth = 1; ctx.font = "12px sans-serif";
-  for (let m = Math.ceil(mm0); m <= Math.floor(mm1); m++) {
-    const yy = pad.top + ph - ((m - mm0) / ms) * ph;
-    ctx.beginPath(); ctx.moveTo(pad.left, yy); ctx.lineTo(w - pad.right, yy); ctx.stroke();
-    ctx.fillStyle = axisC; ctx.textAlign = "right"; ctx.fillText(m + ".0", pad.left - 4, yy + 3);
-  }
-  // Only the endpoints: the catalog's 20 newest events usually span hours, so
-  // interior ticks repeat the same date and pile up on each other.
-  ctx.fillStyle = axisC;
-  const dateAt = e => new Date(e.occurred_at).toLocaleDateString();
-  ctx.textAlign = "left";
-  ctx.fillText(dateAt(sorted[0]), pad.left, h - 4);
-  if (sorted.length > 1 && dateAt(sorted[0]) !== dateAt(sorted[sorted.length - 1])) {
-    ctx.textAlign = "right";
-    ctx.fillText(dateAt(sorted[sorted.length - 1]), w - pad.right, h - 4);
-  }
-  const AC = { green: "#2E9E5B", yellow: "#D8B22C", orange: "#DD5730", red: "#C42A2E" };
-  sorted.forEach(e => {
-    ctx.beginPath(); ctx.arc(x(e), y(e), 4, 0, Math.PI * 2);
-    ctx.fillStyle = AC[e.alert] || "#666";
-    ctx.fill(); ctx.strokeStyle = ringC; ctx.lineWidth = 1; ctx.stroke();
-  });
-  canvas.onmousemove = function(ev) {
+
+  // Snap the scale to half magnitudes so the gridlines land on round numbers.
+  const mags = sorted.map(e => e.magnitude);
+  const mLo = Math.floor(Math.min(...mags) * 2) / 2;
+  const mHi = Math.max(Math.ceil(Math.max(...mags) * 2) / 2, mLo + 0.5);
+  const t0 = new Date(sorted[0].occurred_at).getTime();
+  const t1 = new Date(sorted[sorted.length - 1].occurred_at).getTime();
+  const ts = t1 - t0 || 1;
+  // Inset by the dot radius so the first and last spikes are not clipped by
+  // the plot edges.
+  const x = e => pad.left + 5 + ((new Date(e.occurred_at).getTime() - t0) / ts) * (pw - 10);
+  const y = m => pad.top + ph - ((m - mLo) / (mHi - mLo)) * ph;
+
+  _tlState = { sorted, ctx, geom: { w, h, pad, pw, ph, mLo, mHi, x, y, colors } };
+  _tlHover = -1;
+  _tlPaint();
+
+  const tip = wrap.querySelector(".tl-tip");
+  const hit = (ev) => {
     const r = canvas.getBoundingClientRect();
     const mx = ev.clientX - r.left, my = ev.clientY - r.top;
-    for (const e of sorted) {
-      if ((mx - x(e)) ** 2 + (my - y(e)) ** 2 < 64) {
-        canvas.title = `M${e.magnitude.toFixed(1)} ${e.place || ""} (${new Date(e.occurred_at).toLocaleDateString()})`;
-        canvas.style.cursor = "pointer"; return;
+    let best = -1, bestD = 14 * 14;   // generous: these are small targets
+    sorted.forEach((e, i) => {
+      const d = (mx - x(e)) ** 2 + (my - y(e.magnitude)) ** 2;
+      if (d < bestD) { bestD = d; best = i; }
+    });
+    return best;
+  };
+
+  canvas.onmousemove = (ev) => {
+    const i = hit(ev);
+    if (i !== _tlHover) {
+      _tlHover = i;
+      _tlPaint();
+      canvas.style.cursor = i >= 0 ? "pointer" : "default";
+      if (i < 0) { tip.hidden = true; }
+      else {
+        const e = sorted[i];
+        const when = new Date(e.occurred_at);
+        tip.innerHTML =
+          `<b>M${e.magnitude.toFixed(1)}</b> ${escapeHtml(e.place || "Location not named")}` +
+          `<span>${when.toLocaleDateString(undefined, { day: "numeric", month: "short" })}` +
+          ` · ${when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>`;
+        tip.hidden = false;
+        // Centre on the spike, then clamp to the plot. Flipping at a threshold
+        // is not enough: a long place name makes the box wider than the space
+        // beside the spike, so it overflows whichever way it is anchored.
+        const px = x(e), py = y(e.magnitude);
+        tip.style.transform = "none";
+        tip.style.left = "0px";
+        const tw = tip.offsetWidth, th = tip.offsetHeight;
+        tip.style.left = `${Math.max(0, Math.min(px - tw / 2, w - tw))}px`;
+        // Above the dot, unless that would clip it out of the top of the plot.
+        const above = py - th - 8;
+        tip.style.top = `${above >= 0 ? above : py + 10}px`;
       }
     }
-    canvas.title = ""; canvas.style.cursor = "default";
   };
-  canvas.onclick = function(ev) {
-    const r = canvas.getBoundingClientRect();
-    const mx = ev.clientX - r.left, my = ev.clientY - r.top;
-    for (const e of sorted) {
-      if ((mx - x(e)) ** 2 + (my - y(e)) ** 2 < 64) { showImpact(e.id); return; }
-    }
+  canvas.onmouseleave = () => {
+    _tlHover = -1; _tlPaint(); tip.hidden = true; canvas.style.cursor = "default";
+  };
+  canvas.onclick = (ev) => {
+    const i = hit(ev);
+    if (i >= 0) showImpact(sorted[i].id);
   };
 }
 // --- Comparison mode ---
@@ -1806,6 +2361,7 @@ async function showComparison() {
   _mmiLayers = {};
   _compLayers.forEach(l => map.removeLayer(l));
   _compLayers = [];
+  _stopMmiSweep();
   if (intensityLayer) { map.removeLayer(intensityLayer); intensityLayer = null; }
   _hideLegend();
   hideExposureStrip();
@@ -1907,6 +2463,11 @@ refreshEvents();
 // --- USGS/PMD earthquake map tab ---
 let _mapEventsLayer = null;
 let _mapEventsLoaded = false;
+let _mapPlateAnnotationsLayer = null;
+const _mapEventState = {
+  events: [], timeOrdered: [], startIndex: 0, endIndex: 0, opacity: 0.85,
+  totalMatches: 0,
+};
 
 function _magRadius(mag) {
   // Quadratic scaling for area proportional to energy release (~10^(1.5*M))
@@ -1915,25 +2476,247 @@ function _magRadius(mag) {
   return Math.max(3, Math.min(24, 2.5 + Math.pow(m, 1.5) * 1.1));
 }
 
+// Bubble geometry, colour, popup, and label for one catalog event. Computed
+// once here and handed to whichever renderer is drawing, so a 3D bubble cannot
+// drift from the 2D one it is supposed to be.
+function quakeSymbol(event) {
+  const depth = event.depth_km == null ? NaN : Number(event.depth_km);
+  return {
+    radius: _magRadius(Math.max(0, event.magnitude || 0)),
+    color: _depthColor(depth),
+    fillOpacity: _mapEventState.opacity,
+    strokeWidth: 1.4,
+    strokeOpacity: 0.95,
+  };
+}
+
+function quakeStrokeColor() {
+  return getComputedStyle(document.documentElement).getPropertyValue("--text").trim() || "#F4F6F8";
+}
+
+function quakePopupHtml(event) {
+  const depth = event.depth_km == null ? NaN : Number(event.depth_km);
+  const occurredAt = new Date(event.occurred_at);
+  const date = Number.isNaN(occurredAt.getTime()) ? "Unknown" : occurredAt.toISOString().slice(0, 10);
+  const time = Number.isNaN(occurredAt.getTime()) ? "Unknown" : occurredAt.toISOString().slice(11, 19) + " UTC";
+  const lat = Number(event.lat);
+  const lon = Number(event.lon);
+  const magnitude = Number(event.magnitude);
+  const depthLabel = Number.isFinite(depth) ? `${depth.toFixed(1)} km` : "Unknown";
+  return `<div class="quake-popup-title"><strong>${escapeHtml(event.place || "Earthquake")}</strong></div>` +
+    `<dl class="quake-popup-grid">` +
+      `<dt>Date</dt><dd>${escapeHtml(date)}</dd>` +
+      `<dt>Time</dt><dd>${escapeHtml(time)}</dd>` +
+      `<dt>Latitude</dt><dd>${Number.isFinite(lat) ? lat.toFixed(3) + "°" : "Unknown"}</dd>` +
+      `<dt>Longitude</dt><dd>${Number.isFinite(lon) ? lon.toFixed(3) + "°" : "Unknown"}</dd>` +
+      `<dt>Magnitude</dt><dd>${Number.isFinite(magnitude) ? "M" + magnitude.toFixed(1) : "Unknown"}</dd>` +
+      `<dt>Depth</dt><dd>${escapeHtml(depthLabel)}</dd>` +
+    `</dl>`;
+}
+
+function quakeAriaLabel(event) {
+  const depth = event.depth_km == null ? NaN : Number(event.depth_km);
+  const magnitude = Number(event.magnitude);
+  const depthLabel = Number.isFinite(depth) ? `${depth.toFixed(1)} km` : "Unknown";
+  return `${event.place || "Earthquake"}, magnitude ` +
+    `${Number.isFinite(magnitude) ? magnitude.toFixed(1) : "unknown"}, depth ${depthLabel}`;
+}
+
+// One epicenter label, so the 3D marker cannot drift from the 2D star. A manual
+// footprint is labelled plainly; a catalog event carries its magnitude.
+function epicenterLabel(event) {
+  const mag = Number(event?.magnitude);
+  return event?._fromStart || !Number.isFinite(mag)
+    ? "Epicenter"
+    : `Epicenter — M${mag.toFixed(1)}`;
+}
+
 function _quakeMarker(event) {
-  const mag = Math.max(0, event.magnitude || 0);
-  const color = _magColor(mag);
-  const radius = _magRadius(mag);
+  const symbol = quakeSymbol(event);
   const marker = L.circleMarker([event.lat, event.lon], {
-    radius,
-    color: "#fff",
-    weight: 1.2,
-    fillColor: color,
-    fillOpacity: 0.85,
-    opacity: 0.95,
+    radius: symbol.radius,
+    color: quakeStrokeColor(),
+    weight: symbol.strokeWidth,
+    fillColor: symbol.color,
+    fillOpacity: symbol.fillOpacity,
+    opacity: symbol.strokeOpacity,
     className: "quake-scatter-point",
+    pane: "eventPane",
   });
-  marker.bindPopup(
-    `<strong>M${Number(event.magnitude).toFixed(1)}</strong><br>` +
-    `${escapeHtml(event.place || "Unknown location")}<br>` +
-    `<span style="color:var(--text-muted)">${new Date(event.occurred_at).toLocaleString()}</span>`
-  );
+  marker.bindPopup(quakePopupHtml(event), { className: "quake-event-popup" });
+  marker.on("add", () => {
+    const path = marker.getElement();
+    if (!path) return;
+    path.setAttribute("tabindex", "0");
+    path.setAttribute("role", "button");
+    path.setAttribute("aria-label", quakeAriaLabel(event));
+    path.addEventListener("keydown", keyEvent => {
+      if (keyEvent.key === "Enter" || keyEvent.key === " ") {
+        keyEvent.preventDefault();
+        marker.openPopup();
+      }
+    });
+  });
   return marker;
+}
+
+function _depthColor(depth) {
+  if (!Number.isFinite(depth)) return "#6E7B85";
+  if (depth < 35) return "#E15A43";
+  if (depth < 70) return "#D9A52E";
+  if (depth < 150) return "#8DAA73";
+  if (depth < 300) return "#668FA3";
+  return "#756C9D";
+}
+
+function _mapEventTime(event) {
+  const value = Date.parse(event.occurred_at);
+  return Number.isFinite(value) ? value : null;
+}
+
+function _formatMapTime(timestamp) {
+  if (!Number.isFinite(timestamp)) return "No data";
+  return new Date(timestamp).toLocaleString([], {
+    year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+  });
+}
+
+function _setMapTimeDomain(events) {
+  _mapEventState.timeOrdered = events
+    .filter(event => _mapEventTime(event) != null)
+    .sort((a, b) => _mapEventTime(a) - _mapEventTime(b));
+  const max = Math.max(0, _mapEventState.timeOrdered.length - 1);
+  _mapEventState.startIndex = 0;
+  _mapEventState.endIndex = max;
+  const start = document.getElementById("map-time-start");
+  const end = document.getElementById("map-time-end");
+  for (const input of [start, end]) {
+    if (!input) continue;
+    input.min = "0";
+    input.max = String(max);
+    input.disabled = max === 0;
+  }
+  if (start) start.value = "0";
+  if (end) end.value = String(max);
+  _syncMapTimeControl();
+}
+
+function _filteredMapEvents() {
+  if (!_mapEventState.timeOrdered.length) return [];
+  const startEvent = _mapEventState.timeOrdered[_mapEventState.startIndex];
+  const endEvent = _mapEventState.timeOrdered[_mapEventState.endIndex];
+  const startTime = _mapEventTime(startEvent);
+  const endTime = _mapEventTime(endEvent);
+  return _mapEventState.events.filter(event => {
+    const time = _mapEventTime(event);
+    return time != null && time >= startTime && time <= endTime;
+  });
+}
+
+function _syncMapTimeControl() {
+  const ordered = _mapEventState.timeOrdered;
+  const max = Math.max(1, ordered.length - 1);
+  const startTime = ordered.length ? _mapEventTime(ordered[_mapEventState.startIndex]) : null;
+  const endTime = ordered.length ? _mapEventTime(ordered[_mapEventState.endIndex]) : null;
+  const startLabel = document.getElementById("map-time-start-label");
+  const endLabel = document.getElementById("map-time-end-label");
+  const track = document.getElementById("map-time-track");
+  if (startLabel) startLabel.textContent = _formatMapTime(startTime);
+  if (endLabel) endLabel.textContent = _formatMapTime(endTime);
+  if (track) {
+    track.style.setProperty("--time-start", `${(_mapEventState.startIndex / max) * 100}%`);
+    track.style.setProperty("--time-end", `${(_mapEventState.endIndex / max) * 100}%`);
+  }
+}
+
+function _renderMapEvents({ fit = false } = {}) {
+  const events = _filteredMapEvents();
+  publishMapState({
+    mapEvents: {
+      // Each event carries the symbol the 2D map draws, so 3D reproduces it
+      // rather than reimplementing the magnitude and depth rules.
+      events: events.map(event => ({
+        ...event,
+        symbol: quakeSymbol(event),
+        popupHtml: quakePopupHtml(event),
+        ariaLabel: quakeAriaLabel(event),
+      })),
+      strokeColor: quakeStrokeColor(),
+      opacity: _mapEventState.opacity,
+      startIndex: _mapEventState.startIndex,
+      endIndex: _mapEventState.endIndex,
+      total: _mapEventState.events.length,
+      totalMatches: _mapEventState.totalMatches,
+    },
+  });
+  if (_mapEventsLayer) map.removeLayer(_mapEventsLayer);
+  _mapEventsLayer = L.layerGroup(events.map(_quakeMarker)).addTo(map);
+  const status = document.getElementById("map-events-status");
+  const count = document.getElementById("map-time-count");
+  const label = `${events.length} of ${_mapEventState.events.length} events`;
+  if (count) count.textContent = label;
+  if (status) {
+    status.textContent = events.length
+      ? `${events.length} shown of ${_mapEventState.totalMatches} catalog matches`
+      : "No earthquakes in this time window";
+  }
+  if (fit && events.length) {
+    const bounds = L.latLngBounds(events.map(event => [event.lat, event.lon]));
+    if (bounds.isValid()) map.fitBounds(bounds.pad(0.15));
+  }
+}
+
+function _buildMapPlateAnnotations() {
+  const boundaries = buildOverlay("Plate boundaries");
+  const plateText = new protomapsL.CenteredTextSymbolizer({
+    labelProps: ["PLATE"], fontFamily: "JetBrains Mono", fontSize: 12,
+    fontWeight: 500, fill: "#E6CF5A", stroke: "#101418", width: 3,
+  });
+  // Polygon vector tiles clip one plate into several display tiles. Give every
+  // label for the same plate a shared key so the labeler keeps one annotation
+  // rather than stamping the name once per tile.
+  const deduplicatedPlateText = {
+    place(layout, geom, feature) {
+      const labels = plateText.place(layout, geom, feature);
+      labels?.forEach(label => {
+        label.deduplicationKey = String(feature.props.PLATE || "plate");
+        label.deduplicationDistance = 500;
+      });
+      return labels;
+    },
+  };
+  const labels = protomapsL.leafletLayer({
+    url: "/tiles/plates.pmtiles",
+    paintRules: [],
+    labelRules: [{
+      dataLayer: "plates", minzoom: 2, maxzoom: 8,
+      filter: (_zoom, feature) => Boolean(feature.props.PLATE),
+      symbolizer: deduplicatedPlateText,
+    }],
+    backgroundColor: "rgba(0,0,0,0)",
+    pane: "referencePane",
+  });
+  const group = L.layerGroup([boundaries, labels]);
+  group._mapBoundaryLayer = boundaries;
+  group._mapLabelLayer = labels;
+  return group;
+}
+
+function _syncMapPlateAnnotations() {
+  const toggle = document.getElementById("map-plates-toggle");
+  if (!toggle?.checked) {
+    if (_mapPlateAnnotationsLayer && map.hasLayer(_mapPlateAnnotationsLayer)) map.removeLayer(_mapPlateAnnotationsLayer);
+    return;
+  }
+  if (!_mapPlateAnnotationsLayer) _mapPlateAnnotationsLayer = _buildMapPlateAnnotations();
+  const boundary = _mapPlateAnnotationsLayer._mapBoundaryLayer;
+  const globalBoundaryVisible = map.hasLayer(OVERLAYS["Plate boundaries"]);
+  if (globalBoundaryVisible && _mapPlateAnnotationsLayer.hasLayer(boundary)) {
+    _mapPlateAnnotationsLayer.removeLayer(boundary);
+  } else if (!globalBoundaryVisible && !_mapPlateAnnotationsLayer.hasLayer(boundary)) {
+    _mapPlateAnnotationsLayer.addLayer(boundary);
+  }
+  if (!map.hasLayer(_mapPlateAnnotationsLayer)) _mapPlateAnnotationsLayer.addTo(map);
 }
 
 // Magnitude is ordered, so it reads as one ramp from quiet steel to hot ember
@@ -1954,6 +2737,8 @@ async function loadMapEvents({ fit = true } = {}) {
   const includePMD = document.getElementById("map-src-pmd")?.checked;
   const minmag = document.getElementById("map-minmag")?.value || "";
   const limit = Math.max(1, Math.min(1000, parseInt(document.getElementById("map-limit")?.value || "250", 10)));
+  const dateFrom = document.getElementById("map-date-from")?.value || "";
+  const dateTo = document.getElementById("map-date-to")?.value || "";
   const sources = new Set([
     ...(includeUSGS ? ["USGS"] : []),
     ...(includePMD ? ["PMD"] : []),
@@ -1962,24 +2747,37 @@ async function loadMapEvents({ fit = true } = {}) {
   if (btn) { btn.disabled = true; btn.innerHTML = spinnerHTML() + " Loading…"; }
   if (status) status.textContent = "Loading recent earthquakes…";
 
+  if (dateFrom && dateTo && dateFrom > dateTo) {
+    if (status) status.textContent = "From date must not be later than To date";
+    if (btn) { btn.disabled = false; btn.textContent = "Show earthquakes"; }
+    return;
+  }
+
   try {
-    let url = `/events?limit=${encodeURIComponent(limit)}&orderby=time`;
-    if (minmag) url += `&min_magnitude=${encodeURIComponent(minmag)}`;
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error("HTTP " + resp.status);
-    const data = await resp.json();
-    const events = (data.events || data)
-      .filter(e => sources.has(e.source) && e.lat != null && e.lon != null);
+    const common = new URLSearchParams({ limit: String(limit), orderby: "time" });
+    if (minmag) common.set("min_magnitude", minmag);
+    if (dateFrom) common.set("occurred_after", dateFrom + "T00:00:00Z");
+    if (dateTo) common.set("occurred_before", dateTo + "T23:59:59.999Z");
+    const responses = await Promise.all([...sources].map(async source => {
+      const params = new URLSearchParams(common);
+      params.set("source", source);
+      const response = await fetch(`/events?${params}`);
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      return response.json();
+    }));
+    const events = responses
+      .flatMap(data => data.events || data)
+      .filter(event => event.lat != null && event.lon != null)
+      .sort((a, b) => _mapEventTime(b) - _mapEventTime(a))
+      .slice(0, limit);
 
-    if (_mapEventsLayer) map.removeLayer(_mapEventsLayer);
-    _mapEventsLayer = L.layerGroup(events.map(_quakeMarker)).addTo(map);
+    _mapEventState.totalMatches = responses.reduce(
+      (sum, data) => sum + (Number(data.total) || (data.events || data).length), 0);
+    _mapEventState.events = events;
+    _setMapTimeDomain(events);
+    _renderMapEvents({ fit });
     _mapEventsLoaded = true;
-    if (status) status.textContent = events.length ? "Earthquakes shown on map" : "No matching USGS/PMD events found";
-
-    if (fit && events.length) {
-      const bounds = L.latLngBounds(events.map(e => [e.lat, e.lon]));
-      if (bounds.isValid()) map.fitBounds(bounds.pad(0.15));
-    }
+    if (!events.length && status) status.textContent = "No matching USGS/PMD events found";
   } catch (err) {
     if (status) status.textContent = "";
     toast("Could not load earthquake map: " + err.message, "error");
@@ -1991,6 +2789,75 @@ async function loadMapEvents({ fit = true } = {}) {
 document.getElementById("map-events-refresh")?.addEventListener("click", () => loadMapEvents());
 ["map-src-usgs", "map-src-pmd"].forEach(id => {
   document.getElementById(id)?.addEventListener("change", () => loadMapEvents({ fit: false }));
+});
+const mapDateFrom = document.getElementById("map-date-from");
+const mapDateTo = document.getElementById("map-date-to");
+const mapToday = new Date().toISOString().slice(0, 10);
+if (mapDateFrom) mapDateFrom.max = mapToday;
+if (mapDateTo) {
+  mapDateTo.max = mapToday;
+  mapDateTo.value = mapToday;
+}
+[mapDateFrom, mapDateTo].forEach(input => input?.addEventListener("change", () => {
+  if (mapDateFrom && mapDateTo && mapDateFrom.value > mapDateTo.value) {
+    if (input === mapDateFrom) mapDateTo.value = mapDateFrom.value;
+    else mapDateFrom.value = mapDateTo.value;
+  }
+  loadMapEvents({ fit: false });
+}));
+
+async function loadMapCatalogCoverage() {
+  const element = document.getElementById("map-catalog-coverage");
+  if (!element) return;
+  try {
+    const response = await fetch("/events/catalog/coverage");
+    if (!response.ok) return;
+    const payload = await response.json();
+    const summaries = (payload.sources || []).map(source => {
+      const earliest = source.earliest_occurred_at?.slice(0, 10) || "none";
+      const latest = source.latest_occurred_at?.slice(0, 10) || "none";
+      return `${source.source}: ${earliest} to ${latest}`;
+    });
+    element.textContent = summaries.length
+      ? `Stored coverage. ${summaries.join("; ")}. Completeness not asserted.`
+      : "No source records stored yet. Completeness not asserted.";
+  } catch {
+    // The map remains usable if coverage metadata is temporarily unavailable.
+  }
+}
+loadMapCatalogCoverage();
+document.getElementById("map-plates-toggle")?.addEventListener("change", _syncMapPlateAnnotations);
+document.getElementById("map-bubble-opacity")?.addEventListener("input", event => {
+  _mapEventState.opacity = Number(event.target.value);
+  const output = document.getElementById("map-bubble-opacity-value");
+  if (output) output.textContent = `${Math.round(_mapEventState.opacity * 100)}%`;
+  _mapEventsLayer?.eachLayer(layer => layer.setStyle?.({ fillOpacity: _mapEventState.opacity }));
+  _renderMapEvents();
+});
+document.getElementById("map-time-start")?.addEventListener("input", event => {
+  const end = document.getElementById("map-time-end");
+  _mapEventState.startIndex = Math.min(Number(event.target.value), Number(end?.value || 0));
+  event.target.value = String(_mapEventState.startIndex);
+  _syncMapTimeControl();
+  _renderMapEvents();
+});
+document.getElementById("map-time-end")?.addEventListener("input", event => {
+  const start = document.getElementById("map-time-start");
+  _mapEventState.endIndex = Math.max(Number(event.target.value), Number(start?.value || 0));
+  event.target.value = String(_mapEventState.endIndex);
+  _syncMapTimeControl();
+  _renderMapEvents();
+});
+document.getElementById("map-time-reset")?.addEventListener("click", () => {
+  const max = Math.max(0, _mapEventState.timeOrdered.length - 1);
+  _mapEventState.startIndex = 0;
+  _mapEventState.endIndex = max;
+  const start = document.getElementById("map-time-start");
+  const end = document.getElementById("map-time-end");
+  if (start) start.value = "0";
+  if (end) end.value = String(max);
+  _syncMapTimeControl();
+  _renderMapEvents();
 });
 
 // Catalog source tabs
@@ -2020,7 +2887,7 @@ document.getElementById("filter-source").addEventListener("change", () => {
 });
 
 // --- Sidebar rail: section switching + collapse ---
-const SECTIONS = { event: "sec-event", catalog: "sec-catalog", mapEvents: "sec-map-events", aftershock: "sec-aftershock", infra: "sec-infra", dashboard: "sec-dashboard", config: "sec-config" };
+const SECTIONS = { event: "sec-event", catalog: "sec-catalog", mapEvents: "sec-map-events", aftershock: "sec-aftershock", landslide: "sec-landslide", infra: "sec-infra", dashboard: "sec-dashboard", config: "sec-config" };
 // Start as null (not "event") so the initial showSection("event") renders the
 // section instead of matching the active-icon-toggle guard and collapsing.
 let activeSection = null;
@@ -2029,13 +2896,14 @@ let sidebarCollapsed = false;
 function setCollapsed(value) {
   sidebarCollapsed = value;
   document.getElementById("sidebar").classList.toggle("collapsed", value);
+  setTimeout(resizeActiveMap, 250);   // after the collapse transition settles
   const c = document.getElementById("rail-collapse");
   c.innerHTML = svgIcon(value ? "chevron-right" : "chevron-left", 18);
   c.setAttribute("aria-label", value ? "Expand panel" : "Collapse panel");
 }
 
 // (Re)render the rail icons, reflecting which section is active (for Lordicon coloring).
-const RAIL_GLYPH = { event: "plus", catalog: "list", mapEvents: "pin", aftershock: "target", infra: "building", dashboard: "chart", config: "settings" };
+const RAIL_GLYPH = { event: "plus", catalog: "list", mapEvents: "pin", aftershock: "target", landslide: "mountain", infra: "building", dashboard: "chart", config: "settings" };
 function renderRailIcons() {
   document.querySelectorAll(".rail-ic").forEach((b) => {
     const section = b.dataset.section;
@@ -2059,10 +2927,10 @@ function showSection(key) {
   const nowDashboard = key === "dashboard";
   activeSection = key;
   setCollapsed(false);
-  document.getElementById("map").style.display = nowDashboard ? "none" : "";
+  window.eqmonMapModes?.setSuspended(nowDashboard);
   document.getElementById("dashboard-view").classList.toggle("open", nowDashboard);
   if (nowDashboard && !wasDashboard) renderDashboard();
-  if (wasDashboard && !nowDashboard) setTimeout(() => map.invalidateSize(), 100);
+  if (wasDashboard && !nowDashboard) setTimeout(resizeActiveMap, 100);
   for (const [k, id] of Object.entries(SECTIONS)) {
     document.getElementById(id).style.display = (k === key) ? "block" : "none";
   }
@@ -2233,9 +3101,11 @@ async function renderHotspotMap(grid) {
   if (!host) return;
   if (_hotspotMap) { _hotspotMap.remove(); _hotspotMap = null; }
   _hotspotMap = L.map(host, { attributionControl: false }).setView([30.4, 69.3], 4);
-  const style = currentTheme() === "dark" ? "dark_all" : "light_all";
-  L.tileLayer(`https://{s}.basemaps.cartocdn.com/${style}/{z}/{x}/{y}{r}.png`,
-    { subdomains: "abcd" }).addTo(_hotspotMap);
+  // Raster OSM only: this inset is a backdrop for the hotspot grid, not an
+  // analytical basemap, so it does not justify pulling MapLibre into the page.
+  // Dark theme dims it through CSS (see .hotspot-map in styles.css).
+  const backdrop = MAP_STYLE_CONFIG.get("OpenStreetMap");
+  L.tileLayer(backdrop.template, MAP_STYLE_CONFIG.leafletOptions(backdrop)).addTo(_hotspotMap);
 
   const cell = 0.25; // GRID_CELL_DEG server-side
   const max = grid.reduce((m, c) => Math.max(m, c.count), 1);
@@ -2387,6 +3257,7 @@ function syncChartTheme() {
 
 function applyTheme(mode) {
   document.documentElement.dataset.theme = mode;
+  publishMapState({ theme: mode });
   try { localStorage.setItem("eqmon-theme", mode); } catch (e) { /* private mode */ }
   const btn = document.getElementById("theme-toggle");
   if (btn) {
@@ -2401,11 +3272,11 @@ function applyTheme(mode) {
   if (eventsEl._allEvents) drawTimeline(eventsEl._allEvents);
 }
 
-// Match the basemap to the theme (Dark Matter for dark, OSM for light) — but only
+// Match the basemap to the theme (Dark for dark, OSM for light) — but only
 // until the user picks a basemap themselves, then we never override their choice.
 function syncBasemapToTheme(mode) {
   if (_userPickedBasemap) return;
-  const want = mode === "dark" ? "Dark (Dark Matter)" : "OpenStreetMap";
+  const want = MAP_STYLE_CONFIG.themeBasemap(mode);
   setBasemap(want);
   if (_basemapRadios[want]) _basemapRadios[want].checked = true;
 }
@@ -2421,89 +3292,158 @@ function syncBasemapToTheme(mode) {
 })();
 
 // --- Aftershock probability section ---
-let _asChart = null;
-let _asExpandedChart = null;
 let _asData = null;
+let _asSelectionMode = "current";
+let _asCatalogEvents = new Map();
+let _asEventsLoaded = false;
+const _asGaugeSelection = { mag: null, day: null };
+let _asGaugeAnimation = null;
+let _asGaugeFrame = null;
 const _AS_DAYS = [1, 3, 5, 7, 14, 30];
-const _AS_TARGETS = [3, 4, 5, 6, 7];
-// Target magnitudes are ordered, so the series read as a warm ramp.
-const _AS_COLORS = ["#9AA4AF", "#D8B22C", "#E08A34", "#DD5730", "#A32226"];
-
-function _asDestroyChart() {
-  if (_asChart) { _asChart.destroy(); _asChart = null; }
-}
-
-function _asDestroyExpandedChart() {
-  if (_asExpandedChart) { _asExpandedChart.destroy(); _asExpandedChart = null; }
-}
 
 async function _asLoadEvents() {
   const sel = document.getElementById("as-event-id");
   if (!sel) return;
+  if (_asEventsLoaded) return;
   sel.innerHTML = '<option value="">Loading…</option>';
   try {
     const resp = await fetch("/events?min_magnitude=4&limit=50&orderby=time");
     const data = await resp.json();
     const events = data.events || [];
-    sel.innerHTML = events.map(e =>
-      `<option value="${e.id}" data-lat="${e.lat}" data-lon="${e.lon}" data-mag="${e.magnitude}">`
-      + `M${e.magnitude.toFixed(1)} · ${e.place || "—"} · ${new Date(e.occurred_at).toLocaleDateString()}`
-      + `</option>`
+    _asCatalogEvents = new Map(events.map(event => [String(event.id), event]));
+    sel.innerHTML = `<option value="">Select a catalog event</option>` + events.map(event =>
+      `<option value="${event.id}">M${event.magnitude.toFixed(1)} · ` +
+      `${escapeHtml(event.place || "Location not named")} · ` +
+      `${new Date(event.occurred_at).toLocaleDateString()}</option>`
     ).join("");
-    if (events.length) _asOnEventSelect();
+    _asEventsLoaded = true;
   } catch (e) {
     sel.innerHTML = '<option value="">Could not load catalog</option>';
   }
 }
 
-function _asOnEventSelect() {
-  const sel = document.getElementById("as-event-id");
-  const opt = sel.options[sel.selectedIndex];
-  if (opt && opt.value) {
-    document.getElementById("as-mag").value = opt.dataset.mag;
-    document.getElementById("as-lat").value = opt.dataset.lat;
-    document.getElementById("as-lon").value = opt.dataset.lon;
-  }
-  _asDetectRegion();
+function _asStartEvent() {
+  return {
+    magnitude: document.getElementById("magnitude")?.valueAsNumber,
+    depth_km: document.getElementById("depth_km")?.valueAsNumber,
+    lat: document.getElementById("lat")?.valueAsNumber,
+    lon: document.getElementById("lon")?.valueAsNumber,
+    _fromStart: true,
+  };
 }
 
-function _asDetectRegion() {
-  const lat = parseFloat(document.getElementById("as-lat").value);
-  const lon = parseFloat(document.getElementById("as-lon").value);
+function _asSelectedEvent() {
+  if (_asSelectionMode === "current") {
+    return _currentEvent && !_currentEvent._fromStart ? _currentEvent : _asStartEvent();
+  }
+  const sel = document.getElementById("as-event-id");
+  return sel ? _asCatalogEvents.get(sel.value) || null : null;
+}
+
+function _asRegionFor(event) {
+  const lat = Number(event?.lat);
+  if (!Number.isFinite(lat)) return null;
+  return lat >= 33.5 ? "northern" : lat >= 28 ? "central" : "southern";
+}
+
+function _asDetectRegion(event = _asSelectedEvent()) {
+  const lat = Number(event?.lat);
+  const lon = Number(event?.lon);
   const badge = document.getElementById("as-region-badge");
-  if (isNaN(lat) || isNaN(lon)) { badge.textContent = ""; return; }
-  let region;
-  if (lat >= 33.5) region = "northern";
-  else if (lat >= 28) region = "central";
-  else region = "southern";
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    badge.textContent = "Waiting for an active event";
+    return;
+  }
+  const region = _asRegionFor(event);
   const names = {
     northern: "Northern Pakistan (Kashmir / Himalayan Thrust)",
     central: "Central Pakistan (Indus Basin / Punjab)",
     southern: "Southern Pakistan (Chaman Fault / Quetta)",
   };
-  badge.innerHTML = `<span class="as-badge-inner as-${region}">${names[region]}</span>`
-    + `<span style="font-size:14.5px;color:var(--text-muted);margin-left:6px">(${lat.toFixed(1)}°N, ${lon.toFixed(1)}°E)</span>`;
+  const ns = lat >= 0 ? "N" : "S", ew = lon >= 0 ? "E" : "W";
+  badge.innerHTML = `<span class="as-badge-inner as-${region}">${names[region]}</span>` +
+    `<span class="as-region-coords">${Math.abs(lat).toFixed(1)}° ${ns} / ${Math.abs(lon).toFixed(1)}° ${ew}</span>`;
+}
+
+function _asRenderSelection() {
+  const event = _asSelectedEvent();
+  const card = document.getElementById("as-event-card");
+  if (!card) return;
+  const calcBtn = document.getElementById("as-calc");
+  const useCurrent = document.getElementById("as-use-current");
+  const isOverride = _asSelectionMode === "catalog";
+  useCurrent.hidden = !isOverride || !_currentEvent;
+
+  if (!event) {
+    card.classList.add("is-empty");
+    document.getElementById("as-event-origin").textContent = "Forecast input";
+    document.getElementById("as-event-source").textContent = "NONE";
+    document.getElementById("as-event-mag").textContent = "—";
+    document.getElementById("as-event-place").textContent = "No active event";
+    document.getElementById("as-event-meta").textContent = "Draw a shaking footprint in START first.";
+    calcBtn.disabled = true;
+    _asDetectRegion(null);
+    return;
+  }
+
+  const mag = Number(event.magnitude), depth = Number(event.depth_km);
+  const lat = Number(event.lat), lon = Number(event.lon);
+  const source = isOverride ? "CATALOG" : (event.source || "START").toUpperCase();
+  const origin = isOverride ? "Catalog override" : event.source ? "Current active event" : "Current START event";
+  const ns = lat >= 0 ? "N" : "S", ew = lon >= 0 ? "E" : "W";
+  const details = [];
+  if (Number.isFinite(depth)) details.push(`${depth.toFixed(0)} km deep`);
+  if (Number.isFinite(lat) && Number.isFinite(lon)) {
+    details.push(`${Math.abs(lat).toFixed(2)}° ${ns} / ${Math.abs(lon).toFixed(2)}° ${ew}`);
+  }
+  card.classList.remove("is-empty");
+  document.getElementById("as-event-origin").textContent = origin;
+  document.getElementById("as-event-source").textContent = source;
+  document.getElementById("as-event-mag").textContent = Number.isFinite(mag) ? `M${mag.toFixed(1)}` : "M?";
+  document.getElementById("as-event-place").textContent = event.place || "Manual earthquake";
+  document.getElementById("as-event-meta").textContent = details.join(" · ") || "Location details unavailable";
+  calcBtn.disabled = !Number.isFinite(mag) || !Number.isFinite(lat) || !Number.isFinite(lon);
+  _asDetectRegion(event);
+}
+
+function _asUseCurrentEvent(closePicker = true) {
+  _asSelectionMode = "current";
+  const sel = document.getElementById("as-event-id");
+  if (sel) sel.value = "";
+  if (closePicker) document.getElementById("as-catalog-picker")?.removeAttribute("open");
+  _asRenderSelection();
+}
+
+function _asOnEventSelect() {
+  const sel = document.getElementById("as-event-id");
+  _asSelectionMode = sel?.value ? "catalog" : "current";
+  _asRenderSelection();
+}
+
+function _asSetCalcIdle() {
+  const calcBtn = document.getElementById("as-calc");
+  calcBtn.textContent = "Run 30-day forecast";
+  const event = _asSelectedEvent();
+  calcBtn.disabled = !event || ![event.magnitude, event.lat, event.lon].every(value =>
+    Number.isFinite(Number(value)));
 }
 
 async function _asCalculate() {
   const calcBtn = document.getElementById("as-calc");
   const resultsEl = document.getElementById("as-results");
+  const event = _asSelectedEvent();
+  if (!event) { toast("Draw a footprint in START or choose a catalog event", "warn"); return; }
+  const mag = Number(event.magnitude), lat = Number(event.lat), lon = Number(event.lon);
+  if (![mag, lat, lon].every(Number.isFinite)) {
+    toast("The selected event needs magnitude and coordinates", "warn");
+    return;
+  }
   calcBtn.disabled = true;
   calcBtn.innerHTML = spinnerHTML() + " Computing…";
-
-  const source = document.getElementById("as-source").value;
-  let body;
-  if (source === "catalog") {
-    const eventId = parseInt(document.getElementById("as-event-id").value);
-    if (!eventId) { toast("Select an event from the catalog", "warn"); calcBtn.disabled = false; calcBtn.textContent = "Calculate aftershock probability"; return; }
-    body = { event_id: eventId };
-  } else {
-    const mag = parseFloat(document.getElementById("as-mag").value);
-    const lat = parseFloat(document.getElementById("as-lat").value);
-    const lon = parseFloat(document.getElementById("as-lon").value);
-    if (isNaN(mag) || isNaN(lat) || isNaN(lon)) { toast("Fill in magnitude, latitude, and longitude", "warn"); calcBtn.disabled = false; calcBtn.textContent = "Calculate aftershock probability"; return; }
-    body = { magnitude: mag, lat, lon };
-  }
+  const eventId = Number(event.id);
+  const body = Number.isInteger(eventId) && eventId > 0
+    ? { event_id: eventId }
+    : { magnitude: mag, lat, lon };
 
   try {
     const resp = await fetch("/aftershock", {
@@ -2514,7 +3454,6 @@ async function _asCalculate() {
     if (!resp.ok) {
       const err = await resp.text().catch(() => "Unknown error");
       toast("Aftershock calculation failed: " + err.slice(0, 120), "error");
-      calcBtn.disabled = false; calcBtn.textContent = "Calculate aftershock probability";
       return;
     }
     const data = await resp.json();
@@ -2522,237 +3461,213 @@ async function _asCalculate() {
     resultsEl.style.display = "block";
   } catch (e) {
     toast("Network error: " + e.message, "error");
+  } finally {
+    _asSetCalcIdle();
   }
-  calcBtn.disabled = false;
-  calcBtn.textContent = "Calculate aftershock probability";
 }
 
 function _asRenderResults(data) {
   _asData = data;
-  const resultsEl = document.getElementById("as-results");
+  const card = document.getElementById("as-result-card");
+  const actions = document.querySelector(".as-result-actions");
   if (!data.probabilities || data.probabilities.length === 0) {
-    document.getElementById("as-summary").innerHTML =
-      `<div class="as-summary-inner" style="color:var(--text-muted)">No supported target magnitudes: forecasts are only shown for M≥3 and below the current M${data.main_mag} event.</div>`;
-    document.getElementById("as-chart-wrap").style.display = "none";
-    document.getElementById("as-table-wrap").innerHTML = "";
-    document.getElementById("as-export").style.display = "none";
+    card.innerHTML = `<div class="as-result-empty"><b>No supported forecast magnitudes</b>` +
+      `<span>Forecasts are shown for M3+ targets below the M${data.main_mag} mainshock.</span></div>`;
+    actions.hidden = true;
     return;
   }
-  document.getElementById("as-chart-wrap").style.display = "";
-  document.getElementById("as-export").style.display = "";
-  const _asMags = data.target_mags;
-  const allTargets = _AS_TARGETS;
-  const excluded = allTargets.filter(m => !_asMags.includes(m));
-  const magsStr = _asMags.map(m => "M≥" + m).join(", ");
-  const excludedStr = excluded.length
-    ? `<span style="color:var(--text-muted);font-size:14.5px"> (${excluded.map(m => "M " + m).join(", ")} excluded: above mainshock)</span>`
-    : "";
-  const extrapolated = _asMags.filter(m => m < data.params.Mmin);
-  const caveat = extrapolated.length
-    ? `<div style="font-size:14.5px;color:var(--copper);margin-top:1px">M≥${extrapolated.join(", M≥")} is extrapolated below catalog completeness Mmin=${data.params.Mmin}.</div>`
-    : "";
-  const summaryEl = document.getElementById("as-summary");
-  const ev = data.event;
-  let eventStr = "";
-  if (ev) {
-    eventStr = `M${ev.magnitude} · ${ev.place || "—"} · ${ev.occurred_at ? new Date(ev.occurred_at).toLocaleDateString() : ""}`;
-  } else {
-    eventStr = `M${data.main_mag} (manual entry)`;
-  }
-  const zoneStr = data.zone_name ? ` · Zone: ${escapeHtml(data.zone_name)}` : "";
-
-  summaryEl.innerHTML = `
-    <div class="as-summary-inner">
-      <strong>${eventStr}</strong>
-      <span class="as-badge-inner as-${data.region}">${escapeHtml(data.region_name)}</span>${zoneStr}
-      <div style="font-size:15px;color:var(--slate);margin-top:2px">
-        ${magsStr}${excludedStr}
+  actions.hidden = false;
+  const mags = data.target_mags;
+  const focusMag = mags.includes(data.params.Mmin) ? data.params.Mmin : mags[0];
+  const rows = data.probabilities.filter(item => item.Mtarget === focusMag);
+  const primary = rows.find(item => item.DaysSince === 1) || rows[0];
+  const checkpoints = [7, 14, 30].map(day => rows.find(item => item.DaysSince === day)).filter(Boolean);
+  const formatProb = value => value > 99.9 ? ">99.9%" : `${value}%`;
+  const extrapolated = mags.filter(mag => mag < data.params.Mmin);
+  card.innerHTML = `
+    <article class="as-result-brief">
+      <header><span>Forecast ready</span><b>M${focusMag}+ model</b></header>
+      <div class="as-result-primary">
+        <span>Day ${primary.DaysSince} probability</span>
+        <strong>${formatProb(primary.AftershockProb)}</strong>
+        <p>Chance of at least one M${focusMag}+ aftershock on this day.</p>
       </div>
-      ${caveat}
-      <div style="font-size:15px;color:var(--text-muted);margin-top:1px">
-        k=${Number(data.params.k).toPrecision(3)} · c=${escapeHtml(data.params.c)} · p=${escapeHtml(data.params.p)} · b=${escapeHtml(data.params.b)} · Mmin=${escapeHtml(data.params.Mmin)}
+      <div class="as-result-checkpoints">
+        ${checkpoints.map(item => `<div><span>Day ${item.DaysSince}</span><b>${formatProb(item.AftershockProb)}</b></div>`).join("")}
       </div>
-    </div>
-  `;
-
-  _asDestroyChart();
-  const probsByMag = {};
-  data.probabilities.forEach(r => {
-    if (!probsByMag[r.Mtarget]) probsByMag[r.Mtarget] = [];
-    probsByMag[r.Mtarget].push(r);
-  });
-
-  const chartWrap = document.getElementById("as-chart-wrap");
-  const expandBtn = document.createElement("button");
-  expandBtn.className = "as-expand-btn";
-  expandBtn.innerHTML = svgIcon("maximize", 14) + " Expand";
-  expandBtn.setAttribute("aria-label", "Expand chart to full screen");
-  expandBtn.addEventListener("click", () => _asShowExpanded());
-  chartWrap.prepend(expandBtn);
-
-  const canvas = document.getElementById("as-chart");
-  syncChartTheme();
-  _asChart = new Chart(canvas, {
-    type: "line",
-    data: {
-      labels: _AS_DAYS,
-      datasets: _asMags.map((mt, i) => ({
-        label: `M ${mt}`,
-        data: probsByMag[mt] ? probsByMag[mt].map(r => r.AftershockProb) : [],
-        borderColor: _AS_COLORS[i],
-        backgroundColor: _AS_COLORS[i] + "18",
-        fill: true,
-        tension: 0.3,
-        borderWidth: 3,
-        borderDash: [[], [8, 4], [4, 4], [2, 3], [6, 2]][i] || [],
-        pointRadius: 4,
-        pointHoverRadius: 7,
-      })),
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: "top", labels: { font: { size: 10 }, boxWidth: 14 } },
-        title: { display: true, text: "Aftershock probability vs. days since mainshock", font: { size: 12, weight: "600" } },
-      },
-      scales: {
-        y: {
-          title: { display: true, text: "Probability (%)", font: { size: 10 } },
-          min: 0, max: 100,
-          ticks: { font: { size: 9 }, callback: v => v + "%" },
-        },
-        x: {
-          title: { display: true, text: "Days since mainshock", font: { size: 10 } },
-          ticks: { font: { size: 9 } },
-        },
-      },
-    },
-  });
-
-  const tableWrap = document.getElementById("as-table-wrap");
-  tableWrap.innerHTML = `
-    <table class="as-table">
-      <thead><tr><th>Days since</th>${_asMags.map(mt => `<th>M≥${mt}</th>`).join("")}</tr></thead>
-      <tbody>${_AS_DAYS.map(d => {
-        const row = data.probabilities.filter(r => r.DaysSince === d);
-        return `<tr><td>${d}</td>${
-          row.map(r => `<td>${r.AftershockProb > 99.9 ? ">99.9" : r.AftershockProb}%</td>`).join("")
-        }</tr>`;
-      }).join("")}</tbody>
-    </table>
-  `;
-
+      ${extrapolated.length ? `<p class="as-result-note">M${extrapolated.join("+, M")}+ estimates are available in the full forecast and are extrapolated below catalog completeness M${data.params.Mmin}.</p>` : ""}
+    </article>`;
+  document.getElementById("as-open-forecast").onclick = _asShowExpanded;
   document.getElementById("as-export").onclick = () => _asExportCsv(data);
 }
 
 function _asShowExpanded() {
   if (!_asData) return;
   const expandedView = document.getElementById("as-expanded-view");
-  const mapEl = document.getElementById("map");
-  mapEl.style.display = "none";
+  window.eqmonMapModes?.setSuspended(true);
   expandedView.classList.add("open");
+  const mags = _asData.target_mags;
+  const days = _asData.days || _AS_DAYS;
+  const selected = { ...(_asSelectedEvent() || {}), ...(_asData.event || {}) };
+  const magnitude = Number(_asData.main_mag);
+  const place = selected.place || "Manual earthquake";
+  const lat = Number(selected.lat), lon = Number(selected.lon), depth = Number(selected.depth_km);
+  const meta = [];
+  if (selected.occurred_at) meta.push(new Date(selected.occurred_at).toLocaleString());
+  if (Number.isFinite(lat) && Number.isFinite(lon)) meta.push(`${lat.toFixed(3)}° / ${lon.toFixed(3)}°`);
+  if (Number.isFinite(depth)) meta.push(`${depth.toFixed(1)} km deep`);
+  const defaultMag = mags.includes(_asData.params.Mmin) ? _asData.params.Mmin : mags[0];
+  _asGaugeSelection.mag = defaultMag;
+  _asGaugeSelection.day = days.includes(30) ? 30 : days[days.length - 1];
+  const extrapolated = mags.filter(mag => mag < _asData.params.Mmin);
+  const tableRows = days.map(day => {
+    const row = _asData.probabilities.filter(item => item.DaysSince === day);
+    return `<tr><td>${day}</td>${row.map(item =>
+      `<td>${item.AftershockProb > 99.9 ? "&gt;99.9" : item.AftershockProb}%</td>`).join("")}</tr>`;
+  }).join("");
+  const params = _asData.params;
 
-  const _asMags = _asData.target_mags;
-  const ev = _asData.event;
-  const summary = document.getElementById("as-expanded-summary");
-  const eventStr = ev
-    ? `M${ev.magnitude} · ${ev.place || "—"} · ${ev.occurred_at ? new Date(ev.occurred_at).toLocaleDateString() : ""}`
-    : `M${_asData.main_mag} (manual entry)`;
-
-  const allTargets = _AS_TARGETS;
-  const excluded = allTargets.filter(m => !_asMags.includes(m));
-  const magsStr = _asMags.map(m => "M≥" + m).join(", ");
-  const excludedStr = excluded.length
-    ? `<span style="color:var(--text-muted);font-size:14.5px"> (${excluded.map(m => "M " + m).join(", ")} excluded: above mainshock)</span>`
-    : "";
-  const extrapolated = _asMags.filter(m => m < _asData.params.Mmin);
-  const caveat = extrapolated.length
-    ? `<div style="font-size:14.5px;color:var(--copper);margin-top:1px">M≥${extrapolated.join(", M≥")} is extrapolated below catalog completeness Mmin=${_asData.params.Mmin}.</div>`
-    : "";
-
-  summary.innerHTML = `
-    <div class="as-summary-inner" style="background:var(--surface);border:1px solid var(--border)">
-      <strong>${escapeHtml(eventStr)}</strong>
-      <span class="as-badge-inner as-${_asData.region}">${escapeHtml(_asData.region_name)}</span>
-      <div style="font-size:15px;color:var(--slate);margin-top:2px">
-        ${magsStr}${excludedStr}
+  document.getElementById("as-expanded-content").innerHTML = `
+    <section class="as-forecast-event" aria-labelledby="as-forecast-event-title">
+      <div><span class="as-kicker">Mainshock / ${_asData.event ? escapeHtml(_asData.event.source) : "manual entry"}</span>
+        <h2 id="as-forecast-event-title">M${magnitude.toFixed(1)} — ${escapeHtml(place)}</h2>
+        <div class="as-forecast-event-meta">${meta.map(value => `<span>${escapeHtml(value)}</span>`).join("") || "<span>Event metadata unavailable</span>"}</div>
       </div>
-      ${caveat}
-      <div style="font-size:15px;color:var(--text-muted);margin-top:1px">
-        k=${Number(_asData.params.k).toPrecision(3)} · c=${_asData.params.c} · p=${_asData.params.p} · b=${_asData.params.b} · Mmin=${_asData.params.Mmin}
+      <div class="as-forecast-region"><span>Regional model</span><b>${escapeHtml(_asData.region_name)}</b></div>
+    </section>
+    <nav class="as-forecast-tabs" aria-label="Aftershock forecast views" role="tablist">
+      <button class="as-forecast-tab active" type="button" role="tab" aria-selected="true" data-as-tab="summary">Summary</button>
+      <button class="as-forecast-tab" type="button" role="tab" aria-selected="false" data-as-tab="commentary">Commentary</button>
+      <button class="as-forecast-tab" type="button" role="tab" aria-selected="false" data-as-tab="table">Forecast table</button>
+      <button class="as-forecast-tab" type="button" role="tab" aria-selected="false" data-as-tab="params">Model parameters</button>
+    </nav>
+    <section class="as-forecast-panel" role="tabpanel" data-as-panel="summary">
+      <p id="as-gauge-sentence" class="as-gauge-sentence"></p>
+      <div id="as-gauge" class="as-gauge" role="img">
+        <svg viewBox="0 0 260 145" aria-hidden="true">
+          <path class="as-gauge-track" pathLength="100" d="M25 125 A105 105 0 0 1 235 125" />
+          <path id="as-gauge-value" class="as-gauge-value" pathLength="100" d="M25 125 A105 105 0 0 1 235 125" />
+        </svg>
+        <div class="as-gauge-readout"><output id="as-gauge-output">—</output><span id="as-gauge-caption"></span></div>
+        <div class="as-gauge-scale"><span>0%</span><span>100%</span></div>
       </div>
-    </div>
-  `;
+      <div class="as-forecast-controls">
+        <fieldset class="as-choice-group"><legend>Aftershock magnitude</legend><div class="as-choice-list">
+          ${mags.map(mag => `<label class="as-choice"><input type="radio" name="as-gauge-mag" value="${mag}" ${mag === defaultMag ? "checked" : ""}><span>M${mag}+</span></label>`).join("")}
+        </div></fieldset>
+        <fieldset class="as-choice-group"><legend>Day since mainshock</legend><div class="as-choice-list">
+          ${days.map(day => `<label class="as-choice"><input type="radio" name="as-gauge-day" value="${day}" ${day === _asGaugeSelection.day ? "checked" : ""}><span>${day === 1 ? "1 day" : day + " days"}</span></label>`).join("")}
+        </div></fieldset>
+      </div>
+    </section>
+    <section class="as-forecast-panel" role="tabpanel" data-as-panel="commentary" hidden>
+      <div class="as-commentary">
+        <article><h3>How to read this</h3><p>Each percentage is the modeled chance of at least one aftershock at or above the selected magnitude on that specific day after the mainshock.</p></article>
+        <article><h3>Model scope</h3><p>The forecast uses a regional Omori-Utsu decay model with Gutenberg-Richter magnitude scaling. Actual sequences can differ from the regional reference.</p></article>
+        <article><h3>Catalog completeness</h3><p>${extrapolated.length ? `M${extrapolated.join("+, M")}+ is extrapolated below the calibrated completeness threshold M${params.Mmin}.` : `All displayed magnitudes are at or above the calibrated completeness threshold M${params.Mmin}.`}</p></article>
+        <article><h3>Operational use</h3><p>Use this estimate for situational awareness and planning. It does not replace reviewed guidance from the responsible seismic authority.</p></article>
+      </div>
+    </section>
+    <section class="as-forecast-panel" role="tabpanel" data-as-panel="table" hidden>
+      <div class="as-forecast-table-wrap"><table class="as-forecast-table">
+        <thead><tr><th>Day since</th>${mags.map(mag => `<th>M${mag}+</th>`).join("")}</tr></thead><tbody>${tableRows}</tbody>
+      </table></div><button id="as-expanded-export" class="btn-secondary as-expanded-export" type="button">Download CSV</button>
+    </section>
+    <section class="as-forecast-panel" role="tabpanel" data-as-panel="params" hidden>
+      <dl class="as-params">
+        ${[["Productivity k", Number(params.k).toPrecision(3)], ["Offset c", params.c], ["Decay p", params.p], ["Magnitude b", params.b], ["Completeness Mmin", params.Mmin], ["Reference M", params.Mref], ["Scaling alpha", params.alpha], ["Productivity scale", Number(params.productivity_scale).toPrecision(3)]].map(([label, value]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join("")}
+      </dl><p class="as-params-note">Parameters are selected by the event's regional model and productivity is scaled to the mainshock magnitude.</p>
+    </section>`;
 
-  _asDestroyExpandedChart();
-  const probsByMag = {};
-  _asData.probabilities.forEach(r => {
-    if (!probsByMag[r.Mtarget]) probsByMag[r.Mtarget] = [];
-    probsByMag[r.Mtarget].push(r);
-  });
+  document.querySelectorAll("[data-as-tab]").forEach(button => button.addEventListener("click", () => {
+    document.querySelectorAll("[data-as-tab]").forEach(tab => {
+      const active = tab === button;
+      tab.classList.toggle("active", active);
+      tab.setAttribute("aria-selected", String(active));
+    });
+    document.querySelectorAll("[data-as-panel]").forEach(panel => {
+      panel.hidden = panel.dataset.asPanel !== button.dataset.asTab;
+    });
+  }));
+  document.querySelectorAll('input[name="as-gauge-mag"]').forEach(input => input.addEventListener("change", () => {
+    _asGaugeSelection.mag = Number(input.value); _asRenderExpandedGauge();
+  }));
+  document.querySelectorAll('input[name="as-gauge-day"]').forEach(input => input.addEventListener("change", () => {
+    _asGaugeSelection.day = Number(input.value); _asRenderExpandedGauge();
+  }));
+  document.getElementById("as-expanded-export").addEventListener("click", () => _asExportCsv(_asData));
+  _asRenderExpandedGauge();
+}
 
-  syncChartTheme();
-  const expandedCanvas = document.getElementById("as-expanded-chart");
-  _asExpandedChart = new Chart(expandedCanvas, {
-    type: "line",
-    data: {
-      labels: _AS_DAYS,
-      datasets: _asMags.map((mt, i) => ({
-        label: `M ${mt}`,
-        data: probsByMag[mt] ? probsByMag[mt].map(r => r.AftershockProb) : [],
-        borderColor: _AS_COLORS[i],
-        backgroundColor: _AS_COLORS[i] + "15",
-        fill: true,
-        tension: 0.3,
-        borderWidth: 3,
-        borderDash: [[], [8, 4], [4, 4], [2, 3], [6, 2]][i] || [],
-        pointRadius: 5,
-        pointHoverRadius: 8,
-      })),
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: "top", labels: { font: { size: 13 }, boxWidth: 18 } },
-        title: { display: true, text: "Aftershock probability vs. days since mainshock", font: { size: 16, weight: "600" } },
+function _asRenderExpandedGauge() {
+  const row = _asData?.probabilities.find(item =>
+    item.Mtarget === _asGaugeSelection.mag && item.DaysSince === _asGaugeSelection.day);
+  if (!row) return;
+  const probability = Number(row.AftershockProb);
+  const display = probability > 99.9 ? ">99.9%" : `${probability}%`;
+  const target = Math.min(probability, 100);
+  const path = document.getElementById("as-gauge-value");
+  const output = document.getElementById("as-gauge-output");
+  const start = Number(output.dataset.value || 0);
+  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  if (_asGaugeAnimation) { _asGaugeAnimation.pause(); _asGaugeAnimation = null; }
+  if (_asGaugeFrame) cancelAnimationFrame(_asGaugeFrame);
+
+  const paint = value => {
+    path.style.strokeDasharray = `${value} 100`;
+    const decimals = probability % 1 ? 2 : 0;
+    output.textContent = `${value.toFixed(decimals)}%`;
+    output.dataset.value = String(value);
+  };
+  paint(start);
+
+  if (reduceMotion) {
+    paint(target);
+    output.textContent = display;
+  } else if (window.anime?.animate) {
+    const state = { value: start };
+    _asGaugeAnimation = anime.animate(state, {
+      value: [{ to: target }],
+      duration: 650,
+      ease: "outCubic",
+      onUpdate: () => paint(state.value),
+      onComplete: () => {
+        paint(target);
+        output.textContent = display;
+        _asGaugeAnimation = null;
       },
-      scales: {
-        y: {
-          title: { display: true, text: "Probability (%)", font: { size: 13 } },
-          min: 0, max: 100,
-          ticks: { font: { size: 12 }, callback: v => v + "%" },
-        },
-        x: {
-          title: { display: true, text: "Days since mainshock", font: { size: 13 } },
-          ticks: { font: { size: 12 } },
-        },
-      },
-    },
-  });
-
-  const table = document.getElementById("as-expanded-table");
-  table.innerHTML = `
-    <table class="as-table">
-      <thead><tr><th>Days since</th>${_asMags.map(mt => `<th>M≥${mt}</th>`).join("")}</tr></thead>
-      <tbody>${_AS_DAYS.map(d => {
-        const row = _asData.probabilities.filter(r => r.DaysSince === d);
-        return `<tr><td>${d}</td>${
-          row.map(r => `<td>${r.AftershockProb > 99.9 ? ">99.9" : r.AftershockProb}%</td>`).join("")
-        }</tr>`;
-      }).join("")}</tbody>
-    </table>
-  `;
+    });
+  } else {
+    const startedAt = performance.now();
+    const duration = 650;
+    const tick = now => {
+      const progress = Math.min(1, (now - startedAt) / duration);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      paint(start + (target - start) * eased);
+      if (progress < 1) {
+        _asGaugeFrame = requestAnimationFrame(tick);
+      } else {
+        _asGaugeFrame = null;
+        paint(target);
+        output.textContent = display;
+      }
+    };
+    _asGaugeFrame = requestAnimationFrame(tick);
+  }
+  document.getElementById("as-gauge-caption").textContent = `M${_asGaugeSelection.mag}+ / day ${_asGaugeSelection.day}`;
+  document.getElementById("as-gauge-sentence").innerHTML =
+    `On day <b>${_asGaugeSelection.day}</b> after the mainshock, there is a <b>${display}</b> chance of at least one M${_asGaugeSelection.mag}+ aftershock.`;
+  document.getElementById("as-gauge").setAttribute("aria-label",
+    `${display} chance of at least one magnitude ${_asGaugeSelection.mag} or larger aftershock on day ${_asGaugeSelection.day}`);
 }
 
 function _asCloseExpanded() {
   const expandedView = document.getElementById("as-expanded-view");
-  const mapEl = document.getElementById("map");
   expandedView.classList.remove("open");
-  mapEl.style.display = "";
-  _asDestroyExpandedChart();
-  setTimeout(() => map.invalidateSize(), 100);
+  window.eqmonMapModes?.setSuspended(false);
+  if (_asGaugeAnimation) { _asGaugeAnimation.pause(); _asGaugeAnimation = null; }
+  if (_asGaugeFrame) { cancelAnimationFrame(_asGaugeFrame); _asGaugeFrame = null; }
+  setTimeout(resizeActiveMap, 100);
 }
 
 function _asExportCsv(data) {
@@ -2772,23 +3687,16 @@ function _asExportCsv(data) {
 
 // Wire up aftershock UI events
 document.addEventListener("DOMContentLoaded", () => {
-  const srcSel = document.getElementById("as-source");
-  const catRow = document.getElementById("as-catalog-row");
-  const manRow = document.getElementById("as-manual-row");
-  if (srcSel) {
-    srcSel.addEventListener("change", () => {
-      const isCat = srcSel.value === "catalog";
-      catRow.style.display = isCat ? "" : "none";
-      manRow.style.display = isCat ? "none" : "";
-      if (isCat) _asOnEventSelect();
-    });
-  }
   const eventSel = document.getElementById("as-event-id");
   if (eventSel) eventSel.addEventListener("change", _asOnEventSelect);
-
-  ["as-mag", "as-lat", "as-lon"].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.addEventListener("input", _asDetectRegion);
+  ["magnitude", "depth_km", "lat", "lon"].forEach(id =>
+    document.getElementById(id)?.addEventListener("input", () => {
+      if (_asSelectionMode === "current") _asRenderSelection();
+    }));
+  document.getElementById("as-use-current")?.addEventListener("click", () =>
+    _asUseCurrentEvent());
+  document.addEventListener("eqmon:current-event", () => {
+    if (_asSelectionMode === "current") _asRenderSelection();
   });
 
   const calcBtn = document.getElementById("as-calc");
@@ -2796,6 +3704,147 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const closeBtn = document.getElementById("as-expanded-close");
   if (closeBtn) closeBtn.addEventListener("click", _asCloseExpanded);
+
+  const chat = document.getElementById("ai-chat");
+  const chatTrigger = document.getElementById("ai-chat-trigger");
+  const chatClose = document.getElementById("ai-chat-close");
+  if (chat && chatTrigger && chatClose) {
+    const lottie = chatTrigger.querySelector("dotlottie-wc");
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const form = document.getElementById("ai-chat-form");
+    const input = document.getElementById("ai-chat-input");
+    const send = document.getElementById("ai-chat-send");
+    const health = document.getElementById("ai-chat-health");
+    const state = document.getElementById("ai-chat-state");
+    const historyEl = document.getElementById("ai-chat-history");
+    const errorEl = document.getElementById("ai-chat-error");
+    const maxHistoryMessages = 20;
+    let history = [];
+    let available = false;
+
+    const playTrigger = () => {
+      if (!reduceMotion.matches) lottie?.dotLottie?.play();
+    };
+    const resetTrigger = () => lottie?.dotLottie?.stop();
+    chatTrigger.addEventListener("pointerenter", playTrigger);
+    chatTrigger.addEventListener("pointerleave", resetTrigger);
+    chatTrigger.addEventListener("focus", playTrigger);
+    chatTrigger.addEventListener("blur", resetTrigger);
+
+    const setChatOpen = open => {
+      chat.hidden = !open;
+      chat.setAttribute("aria-hidden", String(!open));
+      chatTrigger.setAttribute("aria-expanded", String(open));
+      chatTrigger.setAttribute("aria-label", open ? "Close assistant" : "Open assistant");
+      if (open) (available ? input : chatClose).focus();
+      else chatTrigger.focus();
+    };
+    chatTrigger.addEventListener("click", () => {
+      setChatOpen(chatTrigger.getAttribute("aria-expanded") !== "true");
+    });
+    chatClose.addEventListener("click", () => setChatOpen(false));
+    document.addEventListener("keydown", event => {
+      if (event.key === "Escape" && !chat.hidden) setChatOpen(false);
+    });
+
+    const setAiAvailable = available => {
+      input.disabled = !available;
+      send.disabled = !available;
+      health.textContent = available ? "Available" : "Unavailable";
+      state.dataset.state = available ? "ready" : "offline";
+      input.placeholder = available ? "Ask a question" : "Assistant unavailable";
+    };
+    fetch("/ai/health").then(response => {
+      if (!response.ok) throw new Error();
+      return response.json();
+    }).then(status => {
+      available = Boolean(status.enabled && status.inference_available);
+      setAiAvailable(available);
+      if (!available && status.error) errorEl.textContent = status.error;
+    }).catch(() => {
+      available = false;
+      setAiAvailable(false);
+    });
+
+    const addMessage = (role, content, tools = []) => {
+      const message = document.createElement("article");
+      message.className = "ai-chat-message";
+      message.dataset.role = role;
+
+      const label = document.createElement("span");
+      label.className = "ai-chat-message-label";
+      label.textContent = role === "user" ? "You" : "Assistant";
+      message.appendChild(label);
+
+      const text = document.createElement("p");
+      text.className = "ai-chat-message-text";
+      text.textContent = content;
+      message.appendChild(text);
+
+      if (tools.length) {
+        const toolLine = document.createElement("div");
+        toolLine.className = "ai-chat-tools";
+        toolLine.textContent = `Tools: ${tools.join(", ")}`;
+        message.appendChild(toolLine);
+      }
+      historyEl.appendChild(message);
+      while (historyEl.children.length > maxHistoryMessages) {
+        historyEl.firstElementChild.remove();
+      }
+      historyEl.scrollTop = historyEl.scrollHeight;
+      return message;
+    };
+
+    addMessage(
+      "assistant",
+      "Ask about catalog events, modeled impact, exposure, aftershock probability, or seismicity analytics."
+    );
+
+    form?.addEventListener("submit", async event => {
+      event.preventDefault();
+      const message = input.value.trim();
+      if (!message || send.disabled) return;
+      errorEl.textContent = "";
+      input.value = "";
+      send.disabled = true;
+      send.textContent = "Sending";
+      const userMessage = addMessage("user", message);
+      const pendingMessage = addMessage("assistant", "Working");
+      pendingMessage.classList.add("pending");
+      try {
+        const response = await fetch("/ai/chat", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message,
+            history,
+            context: window.eqmonAiContext?.collect?.() || null,
+          }),
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          const detail = payload.detail?.message || payload.detail;
+          throw new Error(typeof detail === "string" ? detail : `Request failed (${response.status})`);
+        }
+        if (typeof payload.message !== "string") throw new Error("Invalid assistant response");
+        const tools = Array.isArray(payload.tools_used)
+          ? payload.tools_used.filter(tool => typeof tool === "string") : [];
+        pendingMessage.remove();
+        addMessage("assistant", payload.message, tools);
+        history = [...history,
+          { role: "user", content: message },
+          { role: "assistant", content: payload.message },
+        ].slice(-maxHistoryMessages);
+      } catch (error) {
+        pendingMessage.remove();
+        userMessage.remove();
+        input.value = message;
+        errorEl.textContent = typeof error.message === "string" ? error.message : "Request failed";
+      } finally {
+        send.disabled = !available;
+        send.textContent = "Send";
+      }
+    });
+  }
 });
 
 // Load catalog events when aftershock section is shown
@@ -2808,9 +3857,21 @@ showSection = function(key) {
   if (key !== "mapEvents" && _mapEventsLayer) {
     map.removeLayer(_mapEventsLayer);
     _mapEventsLayer = null;
+    publishMapState({ mapEvents: null });
   }
-  if (key === "mapEvents" && (!_mapEventsLoaded || !_mapEventsLayer)) loadMapEvents();
-  if (key === "aftershock") _asLoadEvents();
+  const timeControl = document.getElementById("map-time-control");
+  if (timeControl) timeControl.hidden = key !== "mapEvents";
+  if (key !== "mapEvents" && _mapPlateAnnotationsLayer && map.hasLayer(_mapPlateAnnotationsLayer)) {
+    map.removeLayer(_mapPlateAnnotationsLayer);
+  }
+  if (key === "mapEvents") {
+    if (!_mapEventsLoaded || !_mapEventsLayer) loadMapEvents();
+    _syncMapPlateAnnotations();
+  }
+  if (key === "aftershock") {
+    _asUseCurrentEvent();
+    _asLoadEvents();
+  }
 };
 
 // --- Elements at risk (ARC) ---------------------------------------------
@@ -2831,14 +3892,6 @@ const ARC_LAYERS = [
 
 let _arcData = null;
 
-// Compact for the tiles; the exact figure sits underneath. Six-figure counts
-// read as noise at a glance, which is what the tiles are for.
-function _arcCompact(n) {
-  if (!isFinite(n)) return "—";
-  if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 1 : 2) + "M";
-  if (n >= 1e4) return Math.round(n / 1e3) + "k";
-  return Math.round(n).toLocaleString();
-}
 const _arcExact = n => Math.round(n || 0).toLocaleString();
 
 function _arcValue(elements, layer, field) {
@@ -2847,67 +3900,40 @@ function _arcValue(elements, layer, field) {
 }
 
 function _arcOpen() {
-  document.getElementById("map").style.display = "none";
+  window.eqmonMapModes?.setSuspended(true);
   document.getElementById("arc-view").classList.add("open");
 }
 
 function _arcClose() {
   document.getElementById("arc-view").classList.remove("open");
-  document.getElementById("map").style.display = "";
-  setTimeout(() => map.invalidateSize(), 100);
+  window.eqmonMapModes?.setSuspended(false);
+  setTimeout(resizeActiveMap, 100);
 }
 
 function _arcRender(data) {
-  const min = data.min_mmi;
-  const head = data.at_min_mmi || { elements: {}, area_km2: 0 };
-  const roman = (MMI_CLASSES[min] || [String(min)])[0];
-  const empty = !Object.keys(head.elements || {}).length;
-
-  document.getElementById("arc-summary").innerHTML =
-    `<div class="arc-lead">At MMI ${roman} and above` +
-    (head.area_km2 ? ` · ${_arcExact(head.area_km2)} km²` : "") + `</div>` +
-    (empty
-      ? `<div class="arc-tile"><span class="arc-k">No exposure</span>` +
-        `<b>—</b><span class="arc-exact">Shaking does not reach MMI ${roman}.</span></div>`
-      : `<div class="arc-tiles">` + ARC_LAYERS.map(([layer, label, field]) => {
-          const v = _arcValue(head.elements, layer, field);
-          const compact = _arcCompact(v), exact = _arcExact(v);
-          return `<div class="arc-tile"><span class="arc-k">${escapeHtml(label)}</span>` +
-            `<b>${compact}</b>` +
-            // Only when abbreviating actually lost something — "216 / 216"
-            // is noise.
-            (compact === exact ? "" : `<span class="arc-exact">${exact}</span>`) +
-            `</div>`;
-        }).join("") + `</div>`);
-
   const colorOf = Object.fromEntries(MMI_PALETTE);
-  const rows = (data.bands || []).map(b => {
+  const bands = data.bands || [];
+  const maxPeople = Math.max(1, ...bands.map(b =>
+    _arcValue(b.elements, "population", "total")));
+  const rows = bands.map(b => {
     const lo = b.mmi_low;
     const [rm, name] = MMI_CLASSES[lo] || [String(lo), ""];
-    return `<tr class="${lo >= min ? "" : "arc-below"}">` +
-      `<td><span class="arc-band-key"><i style="background:${colorOf[lo] || "#888"}"></i>` +
-      `MMI ${rm}${name ? " · " + name : ""}</span></td>` +
-      `<td>${_arcExact(b.area_km2)}</td>` +
-      ARC_LAYERS.map(([layer, , field]) =>
-        `<td>${_arcExact(_arcValue(b.elements, layer, field))}</td>`).join("") +
-      `</tr>`;
+    const people = _arcValue(b.elements, "population", "total");
+    const share = people ? Math.max(1, people / maxPeople * 100) : 0;
+    const stats = ARC_LAYERS.slice(1).map(([layer, label, field]) =>
+      `<div class="arc-ledger-stat"><span class="arc-ledger-label">${escapeHtml(label)}</span>` +
+      `<b>${_arcExact(_arcValue(b.elements, layer, field))}</b></div>`).join("");
+    return `<article class="arc-ledger-row" style="--arc-band:${colorOf[lo] || "#888"};` +
+      `--arc-share:${share}%">` +
+      `<div class="arc-ledger-band"><h2>MMI ${rm}</h2><span>${escapeHtml(name)}` +
+      `<br>${_arcExact(b.area_km2)} km²</span></div>` +
+      `<div class="arc-ledger-pop"><span class="arc-ledger-label">People</span>` +
+      `<b>${_arcExact(people)}</b><div class="arc-ledger-track" aria-hidden="true"><i></i></div></div>` +
+      `<div class="arc-ledger-grid">${stats}</div></article>`;
   }).join("");
 
   document.getElementById("arc-table").innerHTML =
-    `<div class="arc-table-wrap"><table class="arc-table">` +
-    `<thead><tr><th>Band</th><th>Area km²</th>` +
-    ARC_LAYERS.map(([, label]) => `<th>${escapeHtml(label)}</th>`).join("") +
-    `</tr></thead><tbody>${rows}</tbody></table></div>`;
-
-  // The footprint runs down to MMI 2, which for a large event is most of the
-  // country. Show that total, but say plainly why it is not the headline.
-  const wholePop = _arcValue(data.totals, "population", "total");
-  document.getElementById("arc-foot").innerHTML =
-    `<p>Each element is counted once, in the strongest band it falls in, so bands ` +
-    `never double-count and they sum to the whole-footprint total.</p>` +
-    `<p>Across the whole footprint (down to MMI II): ` +
-    `<b>${_arcExact(wholePop)}</b> people. That reaches far beyond damaging ` +
-    `shaking, which is why the figures above are cut at MMI ${roman}.</p>`;
+    `<div class="arc-ledger" aria-label="Exposure by intensity band">${rows}</div>`;
 }
 
 async function _arcRun() {

@@ -185,6 +185,16 @@ def test_static_serving_returns_404_for_missing_assets():
     assert resp.status_code == 404
 
 
+def test_static_serving_returns_ai_chat_animation():
+    from eqmon import api
+
+    client = TestClient(api.app)
+
+    resp = client.get("/chatbot.lottie")
+    assert resp.status_code == 200
+    assert resp.content.startswith(b"PK")
+
+
 def test_static_serving_keeps_spa_fallback_for_navigation_routes():
     from eqmon import api
 

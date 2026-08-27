@@ -4,8 +4,8 @@ Start the server with `run_server.bat`. It listens on **all interfaces**, so:
 
 | From | Base URL |
 | --- | --- |
-| this machine | `http://172.18.0.12:5002` |
-| another machine on the network | `http://<server-ip>:5000` |
+| this machine | `http://172.18.0.29:5001` |
+| another machine on the network | `http://<server-ip>:5001` |
 
 The server prints its own network address on startup — use the one shown under
 `on network`. If other machines cannot connect, run `allow_firewall.bat` once
@@ -16,13 +16,13 @@ as administrator to open the port.
 
 ```
 [!] Port 5000 is already in use by another program.
-    Using port 5002 instead.
+    Using port 5001 instead.
 ```
 
-The startup banner always shows the real URLs — trust that over the `:5000` in
+The startup banner always shows the real URLs — trust that over the port in
 these examples.
 
-The examples below use `172.18.0.12`; swap in the server's IP when calling from
+The examples below use `172.18.0.29`; swap in the server's IP when calling from
 elsewhere. CORS is enabled, so browser pages on other hosts can call it
 directly.
 
@@ -152,7 +152,7 @@ Optional form fields: `layers` (comma-separated or a JSON array),
 `include_geometry`. Maximum 200 MB.
 
 ```bat
-curl -X POST http://172.18.0.12:5000/api/analyze/upload ^
+curl -X POST http://172.18.0.29:5001/api/analyze/upload ^
   -F "files=@mmi_bands.shp" -F "files=@mmi_bands.shx" ^
   -F "files=@mmi_bands.dbf" -F "files=@mmi_bands.prj" ^
   -F "layers=population,hospitals"
@@ -194,7 +194,7 @@ Always check `ok` before reading `bands`.
 **JavaScript**
 
 ```js
-const res  = await fetch("http://172.18.0.12:5000/api/analyze", {
+const res  = await fetch("http://172.18.0.29:5001/api/analyze", {
   method:  "POST",
   headers: { "Content-Type": "application/json" },
   body:    JSON.stringify({ source: "sample", include_geometry: false })
@@ -215,7 +215,7 @@ for (const b of data.bands) {
 ```python
 import requests
 
-r = requests.post("http://172.18.0.12:5000/api/analyze",
+r = requests.post("http://172.18.0.29:5001/api/analyze",
                   json={"source": "sample", "include_geometry": False})
 data = r.json()
 assert data["ok"], data.get("error")
@@ -230,7 +230,7 @@ for b in data["bands"]:
 **curl**
 
 ```bat
-curl -X POST http://172.18.0.12:5000/api/analyze ^
+curl -X POST http://172.18.0.29:5001/api/analyze ^
   -H "Content-Type: application/json" ^
   -d "{\"source\":\"sample\",\"include_geometry\":false}"
 ```

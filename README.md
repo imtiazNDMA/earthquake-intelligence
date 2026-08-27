@@ -67,6 +67,7 @@ src/eqmon/
   db.py          PostGIS connection pool + schema helpers
   _env.py        loads local .env (DATABASE_URL) into os.environ
   events/        sources.py (USGS + MET stub), ingest.py (dedup), repo.py
+  ai/places.py   spatial-first, duplicate-safe admin place resolution
   impact.py      per-event multi-level impact (province/district/tehsil)
 schema.sql                  PostGIS tables (seismic_event, admin_boundary)
 scripts/rasterize_vs30.py   one-time shapefile -> COG
@@ -79,6 +80,18 @@ web/             Leaflet map + tile overlays + event form + catalog + impact tab
 
 ```bash
 uv run pytest -q
+```
+
+Evaluate deterministic place resolution against the loaded boundary table:
+
+```bash
+uv run python scripts/evaluate_places.py
+```
+
+Run the opt-in live LM Studio search-tool benchmark:
+
+```bash
+uv run python scripts/evaluate_search_tool.py --repeats 3
 ```
 
 DB-backed tests require a PostGIS test database; set `DATABASE_URL_TEST`
@@ -114,6 +127,7 @@ uv run python scripts/build_tiles.py           # one-time: build web/tiles/*.pmt
 | `POST /events` | Manual Event Input (Coverage-Region validated) |
 | `POST /events/ingest` | Pull the USGS feed (Secondary Seismic Source) now |
 | `GET /events` | List canonical catalog events (`since`, `min_magnitude`, `limit`) |
+| `POST /events/search` | Validated catalog search with dates, point/radius, and mainshock state |
 | `GET /events/{id}` | Event detail |
 | `POST /events/{id}/impact` | MMI bands + multi-level impact (province/district/tehsil: max band + representative MMI) |
 
@@ -164,7 +178,7 @@ shaking. They are computed independently, and ARC being down never affects
 impact.
 
 ```
-ARC_URL=http://172.18.0.12:5002    # .env; the service moves with its container
+ARC_URL=http://172.18.0.29:5001    # .env; the service moves with its container
 ARC_TIMEOUT_S=180                  # a full scan is ~12 s, roads is ~375k features
 ```
 
@@ -220,3 +234,24 @@ Its fills come from `data/PGA/PGAstyles.sld`, the style shipped with the data,
 not from a palette chosen here — same rule as the raster breaks. Note the ramp
 is not monotonic in lightness (Zone 2A is darker than Zone 1); that is what the
 source says, and reproducing a published map faithfully beats making it prettier.
+
+## Landslide susceptibility
+
+The Layers panel can lazily render the supplied **Very High** landslide
+susceptibility masks for AJK, Gilgit-Baltistan, Khyber Pakhtunkhwa, and
+Balochistan. The layer is categorical and filtered: transparent pixels are not
+automatically a lower susceptibility class and may be outside assessed coverage.
+
+Raw ArcGIS `RasterToPolygon` exports live locally under
+`data/LS Susceptability Maps/` and are intentionally ignored. Build the layer in
+two stages:
+
+```bash
+uv run python scripts/prepare_landslide_data.py  # categorical regional COGs
+uv run python scripts/build_landslide_tiles.py   # web/landslides/*.pmtiles
+```
+
+Both outputs are reproducible and gitignored. Preparation validates CRS and
+`gridcode = 5`, repairs invalid polygon topology, records source SHA-256 values,
+and uses nearest-neighbor categorical processing. The approved Very High color
+is hazard red `#D73027`; display opacity remains adjustable in the map.

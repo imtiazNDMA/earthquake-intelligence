@@ -8,26 +8,29 @@ import os
 import threading
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from functools import lru_cache
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field, field_validator
 
-from . import aftershock as ashock
-from . import analytics as ana
 from . import buildings, config, db, exposure
+from .ai import client as ai_client
+from .ai import routes as ai_routes
+from .aftershock_service import EventNotFoundError, compute_forecast
+from .analytics_service import EmptyCatalogError, compute_analytics
 from .contours import mmi_to_geojson
 from .export import featurecollection_to_shapefile_zip
 from .events.ingest import ingest
-from .events.repo import (analytics_rows, catalog_max_time, count_events,
+from .events.repo import (catalog_coverage, count_events,
                            create_manual_event, delete_event, get_event,
-                           list_events, update_event, update_usgs_detail)
+                           list_events, source_coverage, update_event,
+                           update_usgs_detail)
+from .events.search import EVENT_SEARCH_SCHEMA_VERSION, EventSearchSpec
 from .events.sources import PMDSource, USGSSource
 from .impact import compute_event_impact
 from .intensity import compute_mmi_grid
-from .vs30 import Grid, load_grid
+from .vs30 import Grid, get_grid, reset_grid_cache
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -139,10 +142,14 @@ def stop_ingest_scheduler() -> None:
 async def _lifespan(_app):
     db.init_schema()
     start_ingest_scheduler()
+    if ai_routes.config.AI_ROUTES_ENABLED:
+        await ai_routes.broker.start()
     yield
     stop_ingest_scheduler()
+    await ai_routes.broker.aclose()
     await buildings.aclose()
     await exposure.aclose()
+    ai_client.close()
 
 
 app = FastAPI(title="Earthquake Intensity Platform", lifespan=_lifespan)
@@ -151,20 +158,7 @@ app = FastAPI(title="Earthquake Intensity Platform", lifespan=_lifespan)
 # of this module, which would otherwise swallow /buildings/* and /exposure/*.
 app.include_router(buildings.router)
 app.include_router(exposure.router)
-
-
-def _vs30_path() -> Path:
-    return Path(os.environ.get("EQMON_VS30_TIF", str(config.VS30_TIF)))
-
-
-@lru_cache(maxsize=1)
-def get_grid() -> Grid:
-    return load_grid(_vs30_path())
-
-
-def reset_grid_cache() -> None:
-    """Test hook: clear the cached grid so an env override takes effect."""
-    get_grid.cache_clear()
+app.include_router(ai_routes.router)
 
 
 class EventRequest(BaseModel):
@@ -348,6 +342,54 @@ def get_events(since: datetime | None = None,
         return {"total": total, "events": events}
 
 
+@app.get("/events/catalog/coverage")
+def get_catalog_source_coverage():
+    with db.get_conn() as conn:
+        sources = source_coverage(conn)
+    return {
+        "coverage_bbox": config.COVERAGE_BBOX,
+        "historical_request_start": "1900-01-01",
+        "completeness": "not_asserted",
+        "sources": sources,
+    }
+
+
+@app.post("/events/search")
+def search_events(spec: EventSearchSpec):
+    """Search the deterministic catalog contract used by UI and future AI."""
+    filters = spec.model_dump()
+    with db.get_conn() as conn:
+        events = list_events(conn, **filters)
+        count_filters = {
+            key: value for key, value in filters.items()
+            if key not in {"limit", "offset", "orderby"}
+        }
+        total = count_events(conn, **count_filters)
+        coverage = catalog_coverage(conn)
+    return {
+        "schema_version": EVENT_SEARCH_SCHEMA_VERSION,
+        "query": spec.model_dump(mode="json"),
+        "distance_semantics": (
+            "geodesic distance from the supplied WGS84 point to each event point"
+            if spec.radius_km is not None else None
+        ),
+        "event_kind_semantics": (
+            "mainshocks and aftershocks include only explicitly classified rows; "
+            "unclassified rows appear only when event_kind is all"
+        ),
+        "source_semantics": (
+            "source filters canonical catalog rows; superseded source observations "
+            "are not returned"
+        ),
+        "catalog_coverage": {
+            **coverage,
+            "completeness": "not_asserted",
+        },
+        "total": total,
+        "events": events,
+    }
+
+
 @app.get("/events/export")
 def export_events(format: str = "csv",
                   min_magnitude: float | None = None,
@@ -418,113 +460,16 @@ def zones():
 @app.get("/analytics")
 def analytics(window: str = "1y", min_mag: str = "mc",
               zone_id: int | None = None, bbox: str | None = None):
+    """Catalog analytics for one slice. The computation lives in
+    `analytics_service` so tools and schedulers can reach it without HTTP."""
     with db.get_conn() as conn:
-        anchor = catalog_max_time(conn)
-        if anchor is None:
-            raise HTTPException(status_code=404, detail="empty catalog")
         try:
-            from_dt, to_dt = ana.parse_window(window, anchor)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-        box = None
-        if bbox:
-            try:
-                box = tuple(float(x) for x in bbox.split(","))
-                assert len(box) == 4
-            except Exception:
-                raise HTTPException(status_code=400, detail="bad bbox")
-
-        # First pass with a floor of -1 (the quality-gate minimum) to
-        # estimate Mc from the full catalog slice; then honour min_mag.
-        rows = analytics_rows(conn, from_dt, to_dt, min_mag=-1,
-                              zone_id=zone_id, bbox=box)
-        mags = [r["magnitude"] for r in rows]
-        mc = ana.mc_maxc(mags)
-        if min_mag == "mc":
-            floor = mc if mc is not None else -1.0
-        else:
-            try:
-                floor = float(min_mag)
-            except ValueError:
-                raise HTTPException(status_code=400, detail="bad min_mag")
-        used = [r for r in rows if r["magnitude"] >= floor]
-
-        b = ana.b_value_aki([r["magnitude"] for r in used], mc) if mc is not None else None
-        n_years = max((to_dt - from_dt).days / 365.25, 1e-9)
-        mains = [r for r in used if r["is_mainshock"]]
-        largest = max(used, key=lambda r: r["magnitude"], default=None)
-        seqs = {r["sequence_id"] for r in used
-                if not r["is_mainshock"] and r.get("sequence_id")}
-        magtypes: dict[str, int] = {}
-        for r in used:
-            key = r.get("mag_type") or "unknown"
-            magtypes[key] = magtypes.get(key, 0) + 1
-
-        # Per-zone rollup (only when not already drilled into one zone).
-        zone_rows = []
-        if zone_id is None:
-            zmap: dict[int, list] = {}
-            for r in used:
-                if r.get("zone_id"):
-                    zmap.setdefault(r["zone_id"], []).append(r)
-            znames = dict(conn.execute("SELECT id, name FROM tectonic_zone").fetchall())
-            for zid, zr in zmap.items():
-                zmags = [x["magnitude"] for x in zr]
-                zmc = ana.mc_maxc(zmags)
-                zb = ana.b_value_aki(zmags, zmc) if zmc is not None else None
-                depths = sorted(x["depth_km"] for x in zr)
-                zone_rows.append({
-                    "zone_id": zid, "name": znames.get(zid, f"Zone {zid}"),
-                    "n": len(zr), "b": zb[0] if zb else None,
-                    "sigma": zb[1] if zb else None,
-                    "mc": zmc, "median_depth": depths[len(depths) // 2],
-                    "max_mag": max(zmags),
-                    "pct_aftershocks": round(
-                        1 - sum(1 for x in zr if x["is_mainshock"]) / len(zr), 2),
-                })
-            zone_rows.sort(key=lambda z: z["n"], reverse=True)
-
-        return {
-            "provenance": {
-                "from": from_dt.isoformat(), "to": to_dt.isoformat(),
-                "n_used": len(used), "n_excluded": len(rows) - len(used),
-                "mag_types": magtypes,
-            },
-            "kpis": {
-                "b": b[0] if b else None, "b_sigma": b[1] if b else None,
-                "b_n": b[2] if b else None, "mc": mc,
-                "background_rate": round(len(mains) / n_years, 1),
-                "total_rate": round(len(used) / n_years, 1),
-                "pct_aftershocks": round(1 - (len(mains) / len(used)), 2) if used else None,
-                "active_sequences": len(seqs),
-                "largest": None if largest is None else {
-                    "magnitude": largest["magnitude"], "place": largest.get("place"),
-                    "occurred_at": largest["occurred_at"].isoformat()},
-            },
-            "grid": ana.spatial_grid(used),
-            "zones": zone_rows,
-            "fmd": _fmd_payload(used, mc),
-            "depth": {"regimes": ana.depth_regime_split(used),
-                      "scatter": [{"mag": r["magnitude"], "depth": r["depth_km"]}
-                                  for r in used[:1000]]},
-            "rate": ana.rate_series(used),
-        }
-
-
-def _fmd_payload(rows, mc):
-    """Cumulative + incremental FMD for the Gutenberg-Richter plot."""
-    import numpy as np
-    if not rows:
-        return {"bins": [], "incremental": [], "cumulative": [], "mc": mc}
-    width = config.MAG_BIN_WIDTH
-    mags = np.asarray([r["magnitude"] for r in rows], dtype=float)
-    lo = np.floor(mags.min() / width) * width
-    edges = np.arange(lo, mags.max() + width, width)
-    inc, _ = np.histogram(mags, bins=edges)
-    cum = inc[::-1].cumsum()[::-1]
-    centers = [round(float(e + width / 2), 2) for e in edges[:-1]]
-    return {"bins": centers, "incremental": inc.tolist(),
-            "cumulative": cum.tolist(), "mc": mc}
+            return compute_analytics(conn, window=window, min_mag=min_mag,
+                                     zone_id=zone_id, bbox=bbox)
+        except EmptyCatalogError:
+            raise HTTPException(status_code=404, detail="empty catalog")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.get("/events/{event_id}")
@@ -647,49 +592,15 @@ def aftershock_endpoint(req: AftershockRequest) -> JSONResponse:
     *magnitude* + *lat* + *lon*.  Region is auto-detected from
     the tectonic-zone spatial lookup, falling back to lat bands.
     """
-    if req.event_id is not None:
-        with db.get_conn() as conn:
-            event = get_event(conn, req.event_id)
-        if event is None:
+    with db.get_conn() as conn:
+        try:
+            result = compute_forecast(conn, event_id=req.event_id,
+                                      magnitude=req.magnitude,
+                                      lat=req.lat, lon=req.lon)
+        except EventNotFoundError:
             raise HTTPException(status_code=404, detail="event not found")
-        main_mag = event["magnitude"]
-        lat = event["lat"]
-        lon = event["lon"]
-        event_info = {
-            "id": event["id"], "magnitude": event["magnitude"],
-            "lat": event["lat"], "lon": event["lon"],
-            "place": event.get("place"),
-            "occurred_at": event["occurred_at"].isoformat() if event.get("occurred_at") else None,
-        }
-    elif req.magnitude is not None and req.lat is not None and req.lon is not None:
-        main_mag = req.magnitude
-        lat = req.lat
-        lon = req.lon
-        event_info = None
-    else:
-        raise HTTPException(status_code=400, detail="provide event_id or magnitude+lat+lon")
-
-    # Detect region — first try tectonic-zone spatial lookup.
-    zone_name: str | None = None
-    try:
-        with db.get_conn() as conn:
-            row = conn.execute(
-                "SELECT name FROM tectonic_zone "
-                "WHERE ST_Contains(geom, ST_SetSRID(ST_MakePoint(%s, %s), 4326)) "
-                "LIMIT 1",
-                (lon, lat),
-            ).fetchone()
-            if row is not None:
-                zone_name = row[0]
-    except Exception:
-        pass  # fall through to lat-band heuristic
-
-    region = ashock.detect_region(lat, lon, zone_name=zone_name)
-    result = ashock.compute_table(main_mag, region)
-
-    result["event"] = event_info
-    if zone_name:
-        result["zone_name"] = zone_name
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
     return JSONResponse(result)
 
 

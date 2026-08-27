@@ -24,12 +24,19 @@ data/Global_Active_Earthquake_Faults-shp/
 data/Tectonic Plate Boundaries/
 data/Tectonic Plates/
 data/_tiles_src/
+# Raw filtered landslide masks and normalized future source drops
+data/LS Susceptability Maps/
+data/landslide_susceptibility_raw/
 
 # Generated vector tiles (regenerate via scripts/build_tiles.py)
 web/tiles/
 
 # Generated PGA hazard overlays (regenerate via scripts/build_pga_overlays.py)
 web/pga/
+
+# Generated landslide COGs, manifests, and raster PMTiles
+data/landslides/
+web/landslides/
 
 # Local secrets / connection strings
 .env

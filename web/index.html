@@ -13,10 +13,33 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet"
         href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=JetBrains+Mono:wght@400;500;700&display=swap" />
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=20260827-phase8-parity" />
 </head>
 <body>
   <div id="map"></div>
+  <div id="map-3d" aria-hidden="true" hidden></div>
+  <div id="map-mode-status" class="map-mode-loading" role="status" aria-live="polite" aria-atomic="true" hidden>
+    2D map active.
+  </div>
+  <div id="map-mode-control" role="group" aria-label="Map view mode">
+    <button type="button" data-map-mode="2d" aria-pressed="true">2D</button>
+    <button type="button" data-map-mode="3d" aria-pressed="false">3D</button>
+  </div>
+  <section id="map-time-control" aria-labelledby="map-time-title" hidden>
+    <div class="map-time-head">
+      <div><span id="map-time-title">Event window</span><strong id="map-time-count">0 events</strong></div>
+      <button id="map-time-reset" type="button">All dates</button>
+    </div>
+    <div class="map-time-values">
+      <label for="map-time-start"><span>From</span><output id="map-time-start-label">No data</output></label>
+      <label for="map-time-end"><span>To</span><output id="map-time-end-label">No data</output></label>
+    </div>
+    <div class="map-time-track" id="map-time-track">
+      <div class="map-time-fill" aria-hidden="true"></div>
+      <input id="map-time-start" type="range" min="0" max="0" value="0" aria-label="Start of earthquake time window" />
+      <input id="map-time-end" type="range" min="0" max="0" value="0" aria-label="End of earthquake time window" />
+    </div>
+  </section>
   <header id="statusbar" aria-label="Operational status">
     <div class="sb-brand">EQ</div>
     <div class="sb-alert" id="alert-chip">
@@ -24,8 +47,6 @@
     </div>
     <div class="sb-live">
       <span>EVENT <b id="sb-event">—</b></span>
-      <span><span id="sb-elapsed-label">ELAPSED</span> <b id="sb-elapsed">—</b></span>
-      <span>FEEDS <b>PMD ✓ &nbsp;USGS ✓</b></span>
     </div>
     <div class="sb-right">
       <div class="alert-demo" role="group" aria-label="Alert level preview">
@@ -52,11 +73,7 @@
         <span id="as-expanded-title">Aftershock Probability</span>
         <button id="as-expanded-close" class="as-exp-close-btn" aria-label="Close expanded view">&#10005;</button>
       </div>
-      <div id="as-expanded-body">
-        <div id="as-expanded-summary"></div>
-        <div id="as-expanded-chart-wrap"><canvas id="as-expanded-chart"></canvas></div>
-        <div id="as-expanded-table"></div>
-      </div>
+      <div id="as-expanded-body"><div id="as-expanded-content"></div></div>
     </div>
   </div>
   <div id="sidebar">
@@ -65,6 +82,7 @@
       <button class="rail-ic" data-section="catalog" title="Events" data-icon="list" data-label="Events"></button>
       <button class="rail-ic" data-section="mapEvents" title="Map" data-icon="pin" data-label="Map"></button>
       <button class="rail-ic" data-section="aftershock" title="Forecast" data-icon="target" data-label="Forecast"></button>
+      <button class="rail-ic" data-section="landslide" title="Landslide" data-icon="mountain" data-label="Landslide"></button>
       <button class="rail-ic" data-section="infra" title="Infrastructure" data-icon="building" data-label="Infra"></button>
       <button class="rail-ic" data-section="dashboard" title="Insights" data-icon="chart" data-label="Insights"></button>
       <button class="rail-ic" data-section="config" title="Layers" data-icon="settings" data-label="Layers"></button>
@@ -146,7 +164,7 @@
       </section>
       <section id="sec-map-events">
         <h4>Earthquake Map</h4>
-        <div class="map-events-note">Recent USGS and PMD catalog events rendered directly on the map.</div>
+        <div class="map-events-note">Explore recent catalog events by magnitude, depth, and time.</div>
         <div class="map-events-controls">
           <label class="map-events-check"><input id="map-src-usgs" type="checkbox" checked /> USGS</label>
           <label class="map-events-check"><input id="map-src-pmd" type="checkbox" checked /> PMD</label>
@@ -154,56 +172,82 @@
         <div class="grid2">
           <div><span class="field-label">Min mag</span>
             <input id="map-minmag" type="number" value="2.5" step="0.5" min="0" /></div>
-          <div><span class="field-label">Limit</span>
+          <div><span class="field-label">Max bubbles</span>
             <input id="map-limit" type="number" value="250" step="50" min="1" max="1000" /></div>
+        </div>
+        <div class="map-date-range" role="group" aria-labelledby="map-date-range-label">
+          <span class="field-label" id="map-date-range-label">Catalog period</span>
+          <div class="grid2">
+            <label><span>From</span><input id="map-date-from" type="date" value="1900-01-01" min="1900-01-01" /></label>
+            <label><span>To</span><input id="map-date-to" type="date" min="1900-01-01" /></label>
+          </div>
         </div>
         <button id="map-events-refresh" class="btn-primary">Show earthquakes</button>
         <div id="map-events-status" role="status" aria-live="polite"></div>
+        <div class="map-catalog-coverage" id="map-catalog-coverage">Observed source coverage; completeness not asserted.</div>
         <div class="map-events-legend" id="map-events-legend">
-          <div style="font-size:15px;font-weight:600;color:var(--slate);margin-bottom:4px">Magnitude</div>
-          <div style="display:flex;flex-direction:column;gap:3px">
-            <div style="display:flex;align-items:center;gap:6px"><span class="quake-legend-swatch" style="background:#6E7B85"></span><span style="font-size:15px;color:var(--text-muted)">≤ 3.0</span></div>
-            <div style="display:flex;align-items:center;gap:6px"><span class="quake-legend-swatch" style="background:#9AA4AF"></span><span style="font-size:15px;color:var(--text-muted)">3.1 – 4.0</span></div>
-            <div style="display:flex;align-items:center;gap:6px"><span class="quake-legend-swatch" style="background:#D8B22C"></span><span style="font-size:15px;color:var(--text-muted)">4.1 – 5.0</span></div>
-            <div style="display:flex;align-items:center;gap:6px"><span class="quake-legend-swatch" style="background:#E08A34"></span><span style="font-size:15px;color:var(--text-muted)">5.1 – 6.0</span></div>
-            <div style="display:flex;align-items:center;gap:6px"><span class="quake-legend-swatch" style="background:#DD5730"></span><span style="font-size:15px;color:var(--text-muted)">6.1 – 7.0</span></div>
-            <div style="display:flex;align-items:center;gap:6px"><span class="quake-legend-swatch" style="background:#A32226"></span><span style="font-size:15px;color:var(--text-muted)">≥ 7.1</span></div>
+          <div class="map-events-legend-title">Depth</div>
+          <div class="depth-legend-list">
+            <div><span class="quake-legend-swatch" style="background:#E15A43"></span><span><b>Shallow</b> 0-35 km</span></div>
+            <div><span class="quake-legend-swatch" style="background:#D9A52E"></span><span><b>Upper crust</b> 35-70 km</span></div>
+            <div><span class="quake-legend-swatch" style="background:#8DAA73"></span><span><b>Intermediate</b> 70-150 km</span></div>
+            <div><span class="quake-legend-swatch" style="background:#668FA3"></span><span><b>Deep</b> 150-300 km</span></div>
+            <div><span class="quake-legend-swatch" style="background:#756C9D"></span><span><b>Very deep</b> 300+ km</span></div>
+            <div><span class="quake-legend-swatch" style="background:#6E7B85"></span><span><b>Unknown</b> Not reported</span></div>
           </div>
-          <div class="map-events-hint">Bubble size & color reflect magnitude. Click a point for event details.</div>
+          <div class="map-events-hint">Bubble size shows magnitude. Color shows depth.</div>
+        </div>
+        <div class="map-events-display">
+          <label class="map-events-check map-plates-check"><input id="map-plates-toggle" type="checkbox" /> Plate annotations</label>
+          <label class="map-opacity-control" for="map-bubble-opacity">
+            <span>Bubble opacity</span>
+            <span><input id="map-bubble-opacity" class="ov-opacity" type="range" min="0.2" max="1" step="0.05" value="0.85" /><output id="map-bubble-opacity-value">85%</output></span>
+          </label>
         </div>
       </section>
       <section id="sec-aftershock">
         <h4>Aftershock Probability</h4>
         <div class="as-form">
-          <div><span class="field-label">Event source</span>
-            <select id="as-source" class="as-select">
-              <option value="catalog">From catalog</option>
-              <option value="manual">Manual entry</option>
-            </select></div>
-          <div id="as-catalog-row"><span class="field-label">Select event</span>
-            <select id="as-event-id" class="as-select"></select></div>
-          <div id="as-manual-row" style="display:none">
-            <div class="grid2">
-              <div><span class="field-label">Magnitude</span>
-                <input id="as-mag" type="number" value="6.5" step="0.1" /></div>
-              <div><span class="field-label">Depth (km)</span>
-                <input id="as-depth" type="number" value="10" step="1" /></div>
+          <article id="as-event-card" class="as-event-card" aria-live="polite">
+            <div class="as-event-head">
+              <span id="as-event-origin">Current START event</span>
+              <span id="as-event-source" class="as-event-source">START</span>
             </div>
-            <div class="grid2">
-              <div><span class="field-label">Latitude</span>
-                <input id="as-lat" type="number" value="30.4" step="0.01" /></div>
-              <div><span class="field-label">Longitude</span>
-                <input id="as-lon" type="number" value="69.3" step="0.01" /></div>
+            <div class="as-event-main">
+              <strong id="as-event-mag">—</strong>
+              <div><b id="as-event-place">No active event</b><span id="as-event-meta">Draw a shaking footprint in START first.</span></div>
             </div>
+          </article>
+          <details id="as-catalog-picker" class="as-catalog-picker">
+            <summary>Use another catalog event</summary>
+            <div class="as-catalog-body">
+              <label for="as-event-id">Catalog event</label>
+              <select id="as-event-id" class="as-select"><option value="">Loading catalog…</option></select>
+              <button id="as-use-current" class="as-use-current" type="button" hidden>Return to current START event</button>
+            </div>
+          </details>
+          <div class="as-model">
+            <span class="as-model-label">Forecast model</span>
+            <div id="as-region-badge" class="as-badge">Waiting for an active event</div>
           </div>
-          <div id="as-region-badge" class="as-badge"></div>
-          <button id="as-calc" class="btn-primary">Calculate aftershock probability</button>
+          <button id="as-calc" class="btn-primary" disabled>Run 30-day forecast</button>
         </div>
         <div id="as-results" style="display:none">
-          <div id="as-summary"></div>
-          <div id="as-chart-wrap"><canvas id="as-chart"></canvas></div>
-          <div id="as-table-wrap"></div>
-          <button id="as-export" class="btn-secondary">Download CSV</button>
+          <div id="as-result-card"></div>
+          <div class="as-result-actions">
+            <button id="as-open-forecast" class="btn-primary" type="button">Open full forecast</button>
+            <button id="as-export" class="btn-secondary" type="button">Download CSV</button>
+          </div>
+        </div>
+      </section>
+      <section id="sec-landslide">
+        <header class="landslide-panel-head">
+          <span>Terrain hazard</span>
+          <h4>Landslide susceptibility</h4>
+          <p>Display the supplied Very High susceptibility masks independently by region.</p>
+        </header>
+        <div id="landslide-layer-list" aria-live="polite">
+          <div class="landslide-panel-loading">Loading regional coverage...</div>
         </div>
       </section>
       <!-- Building footprints. Filled by buildings.js, which owns the whole
@@ -217,16 +261,47 @@
         <div id="dash-sidebar"><div style="font-size:15px;color:var(--text-muted)">Open national overview in main view</div></div>
       </section>
       <section id="sec-config">
-        <h4>Map configuration</h4>
-        <div class="cfg-group"><div class="field-label">Current earthquake</div>
-          <label class="cfg-row"><input id="current-mmi-toggle" type="checkbox" checked />
-            <span class="ov-name">Show MMI polygons</span></label>
-          <div class="cfg-note">Epicenter stays visible; toggle the shaking footprint when you need a cleaner map.</div>
+        <header class="cfg-panel-head">
+          <h4>Map configuration</h4>
+          <div class="cfg-visible-summary">
+            <strong id="cfg-visible-count">4</strong><span>Visible layers</span>
+          </div>
+          <p>Open only the group you need. Active settings remain one step away.</p>
+        </header>
+        <label class="cfg-current-toggle cfg-row">
+          <input id="current-mmi-toggle" type="checkbox" checked />
+          <span><strong>Earthquake footprint</strong>
+            <small>MMI polygons and epicenter</small></span>
+          <b id="current-mmi-state">On</b>
+        </label>
+        <div class="cfg-accordion open">
+          <button class="cfg-accordion-head" type="button" aria-expanded="true" aria-controls="cfg-reference-body">
+            <strong>Reference overlays</strong><span id="cfg-overlay-active">3 active</span>
+          </button>
+          <div class="cfg-accordion-body" id="cfg-reference-body">
+            <div class="cfg-group"><div id="overlay-list"></div></div>
+          </div>
         </div>
-        <div class="cfg-group"><div class="field-label">Overlays</div>
-          <div id="overlay-list"></div></div>
-        <div class="cfg-group"><div class="field-label">Basemap</div>
-          <div id="basemap-list"></div></div>
+        <div class="cfg-accordion" id="cfg-hazard-group">
+          <button class="cfg-accordion-head" type="button" aria-expanded="false" aria-controls="cfg-hazard-layers">
+            <strong>Hazard layers</strong><span id="cfg-hazard-active">0 active</span>
+          </button>
+          <div class="cfg-accordion-body" id="cfg-hazard-layers"></div>
+        </div>
+        <div class="cfg-accordion open">
+          <button class="cfg-accordion-head" type="button" aria-expanded="true" aria-controls="cfg-basemap-body">
+            <strong>Basemap</strong><span id="cfg-basemap-active">Dark</span>
+          </button>
+          <div class="cfg-accordion-body" id="cfg-basemap-body">
+            <div class="cfg-group"><div id="basemap-list"></div></div>
+          </div>
+        </div>
+        <div class="cfg-accordion">
+          <button class="cfg-accordion-head" type="button" aria-expanded="false" aria-controls="cfg-display-settings">
+            <strong>Display settings</strong><span id="cfg-display-value">50%</span>
+          </button>
+          <div class="cfg-accordion-body" id="cfg-display-settings"></div>
+        </div>
       </section>
     </div>
   </div>
@@ -266,9 +341,7 @@
         <button id="arc-close" class="as-exp-close-btn" aria-label="Close elements at risk">&#10005;</button>
       </div>
       <div id="arc-body">
-        <div id="arc-summary"></div>
         <div id="arc-table"></div>
-        <div id="arc-foot" class="arc-foot"></div>
       </div>
     </div>
   </div>
@@ -282,14 +355,54 @@
       </div>
     </div>
   </div>
+
+  <aside id="ai-chat" class="ai-chat" role="dialog" aria-labelledby="ai-chat-title" hidden>
+    <header class="ai-chat-head">
+      <h2 id="ai-chat-title">Assistant</h2>
+      <div id="ai-chat-state" class="ai-chat-state" role="status" aria-live="polite">
+        <span class="ai-chat-state-dot" aria-hidden="true"></span>
+        <span id="ai-chat-health">Checking</span>
+      </div>
+      <button id="ai-chat-close" class="ai-chat-close" type="button"
+              aria-label="Close assistant">&#10005;</button>
+    </header>
+    <div id="ai-chat-history" class="ai-chat-history" role="log"
+         aria-live="polite" aria-relevant="additions"></div>
+    <form id="ai-chat-form" class="ai-chat-compose" aria-label="Assistant message">
+      <label for="ai-chat-input">Message</label>
+      <div class="ai-chat-input-row">
+        <textarea id="ai-chat-input" rows="2" disabled maxlength="1000"
+                  placeholder="Assistant unavailable"></textarea>
+        <button id="ai-chat-send" type="submit" disabled>Send</button>
+      </div>
+      <div id="ai-chat-error" class="ai-chat-error" role="status" aria-live="polite"></div>
+    </form>
+  </aside>
+  <button id="ai-chat-trigger" class="ai-chat-trigger" type="button"
+           aria-label="Open assistant" aria-controls="ai-chat" aria-expanded="false">
+    <span class="ai-chat-orbit" aria-hidden="true">
+      <dotlottie-wc src="/chatbot.lottie?v=20260827-open-basemaps" loop></dotlottie-wc>
+      <span class="ai-chat-fallback">AI</span>
+    </span>
+  </button>
+
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
           integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
           crossorigin="anonymous"></script>
   <script src="https://unpkg.com/protomaps-leaflet@5.1.0/dist/protomaps-leaflet.js"
-          integrity="sha384-pAKrddYWxjFAIJwatOtmmtq9ebz3ZwluHCEg3pqOMpOporUofLqz/l5hs+0LAWaH"
+           integrity="sha384-pAKrddYWxjFAIJwatOtmmtq9ebz3ZwluHCEg3pqOMpOporUofLqz/l5hs+0LAWaH"
+           crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/pmtiles@4.3.0/dist/pmtiles.js"
+          integrity="sha384-sbRi6hoEcyvy8Ae92XrinfKW1tLhIVWAeyb4DMQF50X4w93ICW9vjK0bHudXP/dJ"
           crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"
           integrity="sha384-vsrfeLOOY6KuIYKDlmVH5UiBmgIdB1oEf7p01YgWHuqmOHfZr374+odEv96n9tNC"
+          crossorigin="anonymous"></script>
+  <!-- anime.js drives the epicenter loader's grid stagger (showMmiLoader in
+       app.js). UMD build, so it lands on a global `anime`. If this fails to
+       load the loader falls back to an equivalent CSS ripple. -->
+  <script src="https://cdn.jsdelivr.net/npm/animejs@4.5.0/dist/bundles/anime.umd.min.js"
+          integrity="sha384-InMmvD3VoYcY7hGjSC80aLb2bNNE4CzpX+Eq6FVDlmB0IKgDvmfPw4UY8L/M++iG"
           crossorigin="anonymous"></script>
   <!-- Lordicon web component loader (animated icons). Icons render via <lord-icon>
        once a CDN url is set in the ICONS registry in app.js; until then a crisp
@@ -300,9 +413,20 @@
        self-host a pinned copy for stricter control. -->
   <script src="https://cdn.lordicon.com/lordicon.js"
           integrity="sha384-bf8L80dNwjBEi4FgXyW4kkgy4Xtjb/N7jrRuTHK5aE230r3JU+18czMr9VEtEc2F"
-          crossorigin="anonymous" defer></script>
-  <script src="app.js"></script>
+           crossorigin="anonymous" defer></script>
+  <script type="module"
+          src="https://unpkg.com/@lottiefiles/dotlottie-wc@0.8.1/dist/dotlottie-wc.js"></script>
+  <script src="map-style-config.js?v=20260827-open-basemaps"></script>
+  <script src="overlay-format.js?v=20260827-open-basemaps"></script>
+  <script src="buildings-config.js?v=20260827-open-basemaps"></script>
+  <script src="ai-context.js?v=20260827-ai-context-v1"></script>
+  <script src="app.js?v=20260827-ai-context-v1"></script>
+  <!-- Loads after app.js so it can reuse the map and config panel. Data stays
+       lazy: no landslide archive is requested until the operator enables it. -->
+  <script src="landslides.js?v=20260827-phase7-hazards"></script>
   <!-- Must load after app.js: reuses its `map` global and appends into #sec-config. -->
-  <script src="buildings.js"></script>
+  <script src="buildings.js?v=20260827-open-basemaps"></script>
+  <script src="maplibre-3d.js?v=20260827-phase9-hardening"></script>
+  <script src="map-modes.js?v=20260827-phase9-hardening"></script>
 </body>
 </html>

@@ -10,47 +10,16 @@
 (function () {
   "use strict";
 
-  const TILE_URL = (id) => `/buildings/tiles/${id}/{z}/{x}/{y}.pbf`;
-  const DATA_MAXZOOM = 17;   // matches tippecanoe -z 17; beyond this we overzoom
+  const cfg = window.eqmonBuildingsConfig;
+  const { BANDS, UNKNOWN, heightBand, visibleDistricts } = cfg;
   const PANE = "buildingsPane";
-
-  // Height bands, metres. `height` is the only usable attribute in these tiles —
-  // it stands in for vulnerability, it is not a risk score. The legend says so.
-  const BANDS = [
-    { max: 3,        label: "Low-rise (≤3 m)",    color: "#C8C1B2" },
-    { max: 8,        label: "2–3 storey (3–8 m)", color: "#D8B22C" },
-    { max: 15,       label: "Mid-rise (8–15 m)",  color: "#E08A34" },
-    { max: Infinity, label: "High-rise (>15 m)",  color: "#DD5730" },
-  ];
-  const UNKNOWN = { label: "Unknown height", color: "#5A6570" };
-
-  /* ---- pure decision functions (no DOM, no map) ---- */
-
-  // Upstream uses -1 for "no height data"; treat 0/negative/non-finite alike.
-  function heightBand(h) {
-    if (typeof h !== "number" || !isFinite(h) || h <= 0) return UNKNOWN;
-    return BANDS.find(b => h <= b.max);
-  }
-
-  function intersects(bounds, view) {
-    // bounds = [minLon, minLat, maxLon, maxLat] from the catalog
-    return !(bounds[0] > view.getEast() || bounds[2] < view.getWest() ||
-             bounds[1] > view.getNorth() || bounds[3] < view.getSouth());
-  }
-
-  // The whole point of the layer: never more than a few sources live at once.
-  function visibleDatasets(catalog, view, zoom, minZoom, selectedId) {
-    if (zoom < minZoom) return [];
-    const pool = selectedId ? catalog.filter(d => d.id === selectedId) : catalog;
-    return pool.filter(d => intersects(d.bounds, view)).map(d => d.id);
-  }
 
   /* ---- rendering ---- */
 
   // Same shape as NamedPolySymbolizer in app.js: draw(ctx, geom, z, feature).
   class HeightSymbolizer {
     constructor(opts) {
-      this.alpha = opts.opacity ?? 0.75;
+      this.alpha = opts.opacity ?? cfg.OPACITY;
       this.stroke = opts.stroke ?? "rgba(30,41,59,0.35)";
       this.width = opts.width ?? 0.4;
     }
@@ -98,21 +67,21 @@
 
   function makeLayer(id) {
     return protomapsL.leafletLayer({
-      url: TILE_URL(id),
+      url: cfg.tileUrl(id),
       paintRules: [{
         dataLayer: "buildings",
-        symbolizer: new HeightSymbolizer({ opacity: 0.75 }),
+        symbolizer: new HeightSymbolizer({ opacity: cfg.OPACITY }),
       }],
       backgroundColor: "rgba(0,0,0,0)",
-      maxDataZoom: DATA_MAXZOOM,
+      maxDataZoom: cfg.DATA_MAXZOOM,
       pane: PANE,
     });
   }
 
   function reconcile() {
     const want = state.enabled
-      ? visibleDatasets(state.catalog, map.getBounds(), map.getZoom(),
-                        state.minZoom, state.selected)
+      ? visibleDistricts(state.catalog, map.getBounds(), map.getZoom(),
+                         state.minZoom, state.selected)
       : [];
     const wanted = new Set(want);
 
@@ -130,6 +99,34 @@
       }
     }
     updateHint(want.length);
+    publishBuildingState(want);
+  }
+
+  // Settings and the district catalog only — the live protomaps layers are this
+  // renderer's business and never leave it. The 3D renderer re-runs the same
+  // viewport decision against its own camera, which 2D cannot see.
+  function publishBuildingState(districts) {
+    publishMapState({
+      buildings: {
+        enabled: state.enabled,
+        selected: state.selected,
+        minZoom: state.minZoom,
+        catalog: state.catalog,
+        districts: [...(districts || state.active.keys())],
+        opacity: cfg.OPACITY,
+        maxSources: cfg.MAX_LIVE_SOURCES,
+      },
+    });
+  }
+
+  // Framing goes through the coordinator so the other renderer inherits the
+  // move instead of being left behind at the previous district.
+  function frameDistrict(center, zoom) {
+    if (window.eqmonMapModes) {
+      window.eqmonMapModes.setCamera({ center: [center.lng, center.lat], zoom });
+    } else {
+      map.setView(center, zoom);
+    }
   }
 
   function setEnabled(enabled) {
@@ -147,10 +144,8 @@
 
   function updateHint(activeCount) {
     if (!els.hint) return;
-    if (!state.enabled) { els.hint.textContent = "Layer off."; return; }
-    if (map.getZoom() < state.minZoom) {
-      els.hint.textContent =
-        `Zoom to ${state.minZoom}+ to render buildings (currently ${map.getZoom()}).`;
+    if (!state.enabled || map.getZoom() < state.minZoom) {
+      els.hint.textContent = "";
       return;
     }
     els.hint.textContent = activeCount
@@ -167,7 +162,8 @@
     group.innerHTML = `
       <label class="cfg-row">
         <input id="bld-toggle" type="checkbox" checked />
-        <span class="ov-name">Infra Vulnerability</span>
+        <span class="ov-name">Building height bands</span>
+        <span id="bld-minzoom" class="bld-zoom-badge">Z${state.minZoom}+</span>
       </label>
       <div id="bld-controls">
         <span class="field-label">District</span>
@@ -184,15 +180,14 @@
     els.controls = group.querySelector("#bld-controls");
     els.legend = group.querySelector("#bld-legend");
     els.hint = group.querySelector("#bld-hint");
+    els.minZoom = group.querySelector("#bld-minzoom");
 
     const swatch = (c, label) =>
       `<div class="bld-legend-row"><span class="bld-swatch" style="background:${c}"></span>` +
       `<span>${label}</span></div>`;
     els.legend.innerHTML =
       BANDS.map(b => swatch(b.color, b.label)).join("") +
-      swatch(UNKNOWN.color, UNKNOWN.label) +
-      `<div class="bld-legend-note">Banded by building height (Google/OSM
-        footprints) as a proxy — not a calculated risk score.</div>`;
+      swatch(UNKNOWN.color, UNKNOWN.label);
 
     els.toggle.addEventListener("change", () => setEnabled(els.toggle.checked));
 
@@ -206,9 +201,9 @@
         // trade the full extent for a centre view that actually renders.
         const box = L.latLngBounds([d.bounds[1], d.bounds[0]], [d.bounds[3], d.bounds[2]]);
         if (map.getBoundsZoom(box) < state.minZoom) {
-          map.setView(box.getCenter(), state.minZoom);
+          frameDistrict(box.getCenter(), state.minZoom);
         } else {
-          map.fitBounds(box);
+          frameDistrict(box.getCenter(), map.getBoundsZoom(box));
         }
       }
       reconcile();
@@ -243,6 +238,7 @@
       const data = await resp.json();
       state.catalog = data.districts || [];
       state.minZoom = data.min_zoom ?? 12;
+      els.minZoom.textContent = `Z${state.minZoom}+`;
     } catch (err) {
       // Fail loudly in the panel: an empty map with a live-looking toggle is
       // worse than an honest "unavailable".

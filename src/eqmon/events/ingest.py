@@ -10,12 +10,15 @@ from dataclasses import dataclass
 from datetime import datetime
 
 import psycopg
+from psycopg.types.json import Jsonb
 
-from .sources import RawEvent, SeismicSource
+from .sources import ParserReject, RawEvent, SeismicSource
 from ..analytics import decluster_gardner_knopoff
 
 DEDUP_SECONDS = 60
 DEDUP_METERS = 50_000
+INGEST_ADVISORY_LOCK = 0x45514D4F  # "EQMO", shared across API and CLI processes
+DECLUSTER_MAX_EVENTS = 5_000
 
 
 @dataclass
@@ -25,6 +28,7 @@ class IngestResult:
     inserted: int
     errors: list[str]
     watermark: datetime | None = None
+    rejected: int = 0
 
 
 def _upsert(conn: psycopg.Connection, e: RawEvent) -> bool:
@@ -70,6 +74,28 @@ def _upsert(conn: psycopg.Connection, e: RawEvent) -> bool:
     return bool(row and row[0])
 
 
+def _record_reject(conn: psycopg.Connection, reject: ParserReject) -> None:
+    conn.execute(
+        "INSERT INTO ingest_reject "
+        "(source, source_event_id, reason_code, parser_version, payload_sha256, "
+        " source_record, retrieval_metadata) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s) "
+        "ON CONFLICT (source, parser_version, reason_code, payload_sha256) "
+        "DO UPDATE SET source_event_id = EXCLUDED.source_event_id, "
+        "retrieval_metadata = EXCLUDED.retrieval_metadata, "
+        "last_seen_at = now(), seen_count = ingest_reject.seen_count + 1",
+        (
+            reject.source,
+            reject.source_event_id,
+            reject.reason_code.value,
+            reject.parser_version,
+            reject.payload_sha256,
+            Jsonb(reject.source_record),
+            Jsonb(reject.retrieval_metadata),
+        ),
+    )
+
+
 def _recluster(conn: psycopg.Connection) -> None:
     # cluster_id = smallest id of any feed event within the space-time window
     conn.execute(
@@ -80,13 +106,15 @@ def _recluster(conn: psycopg.Connection) -> None:
           FROM seismic_event a
           JOIN seismic_event b
             ON a.source <> 'MANUAL' AND b.source <> 'MANUAL'
-           AND abs(extract(epoch FROM (a.occurred_at - b.occurred_at))) <= %s
+           AND b.occurred_at BETWEEN
+               a.occurred_at - (%s * INTERVAL '1 second') AND
+               a.occurred_at + (%s * INTERVAL '1 second')
            AND ST_DWithin(a.geom::geography, b.geom::geography, %s)
           GROUP BY a.id
         ) sub
         WHERE s.id = sub.id AND s.source <> 'MANUAL'
         """,
-        (DEDUP_SECONDS, DEDUP_METERS),
+        (DEDUP_SECONDS, DEDUP_SECONDS, DEDUP_METERS),
     )
     # canonical = best (lowest) priority within each cluster, tie-broken by id
     conn.execute("UPDATE seismic_event SET is_canonical = FALSE WHERE source <> 'MANUAL'")
@@ -135,15 +163,50 @@ def _assign_zones(conn: psycopg.Connection) -> None:
     )
 
 
+def finalize_ingest(conn: psycopg.Connection, *, classify_sequences: bool = True) -> None:
+    """Apply catalog-wide relationships after one or more source loads.
+
+    Historical backfills defer this work until every source has been upserted so
+    source priority is resolved once. Sequence classification is optional because
+    the current Gardner-Knopoff implementation is quadratic and is not suitable
+    for a century-scale catalog.
+    """
+    _recluster(conn)
+    event_count = conn.execute(
+        "SELECT COUNT(*) FROM seismic_event WHERE is_canonical = TRUE"
+    ).fetchone()[0]
+    if classify_sequences and event_count <= DECLUSTER_MAX_EVENTS:
+        _decluster(conn)
+    _assign_zones(conn)
+
+
 def ingest(conn: psycopg.Connection, source: SeismicSource,
            since: datetime | None = None,
-           updatedafter: datetime | None = None) -> IngestResult:
+           updatedafter: datetime | None = None,
+           postprocess: bool = True) -> IngestResult:
     errors: list[str] = []
     try:
-        raw = source.fetch(since, updatedafter=updatedafter)
+        fetch_batch = getattr(source, "fetch_batch", None)
+        if callable(fetch_batch):
+            batch = fetch_batch(since, updatedafter=updatedafter)
+            raw = batch.events
+            rejects = batch.rejects
+        else:
+            raw = source.fetch(since, updatedafter=updatedafter)
+            rejects = []
     except Exception as exc:  # network/parse failure is non-fatal
         return IngestResult(source.name, 0, 0, [f"fetch failed: {exc!r}"])
     watermark = max((e.updated_at or e.occurred_at for e in raw), default=None)
+    # The API's threading lock cannot coordinate a separate backfill process.
+    # A transaction-scoped PostgreSQL lock serializes every catalog writer.
+    conn.execute("SELECT pg_advisory_xact_lock(%s)", (INGEST_ADVISORY_LOCK,))
+    for reject in rejects:
+        try:
+            with conn.transaction():
+                _record_reject(conn, reject)
+        except Exception as exc:
+            errors.append(
+                f"reject {reject.source_event_id or reject.payload_sha256}: {exc!r}")
     inserted = 0
     for e in raw:
         try:
@@ -151,7 +214,7 @@ def ingest(conn: psycopg.Connection, source: SeismicSource,
                 inserted += 1
         except Exception as exc:
             errors.append(f"{e.source_event_id}: {exc!r}")
-    _recluster(conn)
-    _decluster(conn)
-    _assign_zones(conn)
-    return IngestResult(source.name, len(raw), inserted, errors, watermark)
+    if postprocess:
+        finalize_ingest(conn)
+    return IngestResult(
+        source.name, len(raw), inserted, errors, watermark, len(rejects))

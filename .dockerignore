@@ -4,3 +4,7 @@ __pycache__/
 .git/
 .gitignore
 data/Boundaries_Data/
+data/LS Susceptability Maps/
+data/landslide_susceptibility_raw/
+data/landslides/
+web/landslides/
