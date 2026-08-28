@@ -73,7 +73,7 @@ class BrokerClosedError(BrokerError):
 
 @dataclass
 class BrokerStats:
-    """Counters for the queue-health signals named in ai.md section 10."""
+    """Counters for the queue-health signals named in docs/planning/ai.md section 10."""
     submitted: int = 0
     completed: int = 0
     failed: int = 0

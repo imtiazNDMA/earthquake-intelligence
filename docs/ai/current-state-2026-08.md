@@ -1,8 +1,8 @@
 # AI Current-State Baseline - August 2026
 
 **Date:** 2026-08-27
-**Purpose:** Phase 0 baseline for `roadmap.md`
-**Sources:** working tree, `ai.md`, and `ai_implementation.md`
+**Purpose:** Phase 0 baseline for `docs/planning/roadmap.md`
+**Sources:** working tree, `docs/planning/ai.md`, and `docs/planning/ai_implementation.md`
 
 ## Current Capability
 

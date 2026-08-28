@@ -6,7 +6,7 @@ because the roster is machine-specific: it depends on what is loaded in LM
 Studio and how much VRAM the box has.
 
 Measured on the reference machine (RTX 6000 Ada, 48 GB) 2026-08-13 — see
-ai_implementation.md section 2 for the full probe results.
+docs/planning/ai_implementation.md section 2 for the full probe results.
 """
 from __future__ import annotations
 

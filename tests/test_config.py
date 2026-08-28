@@ -2,7 +2,7 @@ from eqmon import config
 
 
 def test_default_site_condition_is_760():
-    # CONTEXT.md: Default Site Condition uses fixed Vs30 760 m/s
+    # docs/reference/CONTEXT.md: Default Site Condition uses fixed Vs30 760 m/s
     assert config.DEFAULT_VS30 == 760.0
 
 

@@ -952,7 +952,7 @@ const MMI_PALETTE = [
 ];
 
 // MMI class -> [Roman numeral, perceived-shaking descriptor]. Mirrors MMI_CLASSES
-// in src/eqmon/config.py (the classification_range.md scheme). Class I is "Not
+// in src/eqmon/config.py (the docs/reference/classification_range.md scheme). Class I is "Not
 // Felt": never contoured, shown only as the un-shaded-background reference row.
 const MMI_CLASSES = {
   1: ["I", "Not Felt"], 2: ["II", "Weak"], 3: ["III", "Weak"], 4: ["IV", "Light"],

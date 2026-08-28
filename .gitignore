@@ -59,5 +59,8 @@ eqapi.json
 # Editor settings / auto-generated IDE files
 .vscode/
 
+# Runtime logs (directory is created on demand, never tracked)
+logs/
+
 # Local scratch / debug scripts
 tmp_check_plates.py

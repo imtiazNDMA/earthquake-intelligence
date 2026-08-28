@@ -1,4 +1,4 @@
-"""Shared constants. Domain language follows CONTEXT.md."""
+"""Shared constants. Domain language follows docs/reference/CONTEXT.md."""
 import os
 from pathlib import Path
 
@@ -35,7 +35,7 @@ ARC_DATA_VERSION = os.getenv("ARC_DATA_VERSION", "").strip()
 # and matches the framing the exposure strip already uses for admin units.
 EXPOSURE_MIN_MMI = 6
 
-# Default Site Condition (CONTEXT.md): used where the Vs30 grid has no value.
+# Default Site Condition (docs/reference/CONTEXT.md): used where the Vs30 grid has no value.
 DEFAULT_VS30 = 760.0
 
 # Coverage Region bounding box (minx, miny, maxx, maxy) in WGS84 degrees:
@@ -51,7 +51,7 @@ MMI_BAND_LEVELS = [2, 3, 4, 5, 6, 7, 8, 9, 10]
 
 # Modified Mercalli intensity classes: MMI integer -> (Roman numeral, perceived-
 # shaking descriptor). Source of truth for classification/labels, mirroring
-# classification_range.md (the USGS ShakeMap scheme). Class I is "not felt" and
+# docs/reference/classification_range.md (the USGS ShakeMap scheme). Class I is "not felt" and
 # is never contoured (surface shaking below MMI 2 is left unshaded); it is listed
 # here so consumers can label the un-shaded background consistently.
 MMI_CLASSES = {

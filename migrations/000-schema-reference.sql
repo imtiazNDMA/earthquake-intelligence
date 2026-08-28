@@ -1,3 +1,3 @@
--- schema.sql — kept for reference; migrations live in migrations/*.sql
+-- 000-schema-reference.sql — kept for reference; migrations live in migrations/*.sql
 -- Use `uv run python -c "from eqmon.db import init_schema; init_schema()"`
 -- to apply the migration-runner-managed schema.

@@ -3,7 +3,7 @@
 These tests never contact a live LM Studio: the point is that the client's
 handling of *measured* local-model quirks is pinned in CI, on a machine with no
 GPU. The quirks are real and were observed on this project's own models —
-see ai_implementation.md section 2.
+see docs/planning/ai_implementation.md section 2.
 """
 from __future__ import annotations
 

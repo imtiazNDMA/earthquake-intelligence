@@ -22,12 +22,12 @@ def test_filled_bands_produce_valid_featurecollection():
         assert feat["geometry"]["type"] in ("Polygon", "MultiPolygon")
         assert "mmi_lower" in feat["properties"]
         assert "color" in feat["properties"]
-        # Each band carries its classification label (classification_range.md).
+        # Each band carries its classification label (docs/reference/classification_range.md).
         assert feat["properties"]["label"] == mmi_class_label(feat["properties"]["mmi_lower"])
 
 
 def test_band_labels_follow_classification_scheme():
-    # Roman numeral + perceived-shaking descriptor per classification_range.md.
+    # Roman numeral + perceived-shaking descriptor per docs/reference/classification_range.md.
     assert mmi_class_label(1) == "I (Not Felt)"
     assert mmi_class_label(2) == "II (Weak)"
     assert mmi_class_label(3) == "III (Weak)"
