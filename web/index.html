@@ -164,7 +164,6 @@
       </section>
       <section id="sec-map-events">
         <h4>Earthquake Map</h4>
-        <div class="map-events-note">Explore recent catalog events by magnitude, depth, and time.</div>
         <div class="map-events-controls">
           <label class="map-events-check"><input id="map-src-usgs" type="checkbox" checked /> USGS</label>
           <label class="map-events-check"><input id="map-src-pmd" type="checkbox" checked /> PMD</label>
@@ -184,24 +183,24 @@
         </div>
         <button id="map-events-refresh" class="btn-primary">Show earthquakes</button>
         <div id="map-events-status" role="status" aria-live="polite"></div>
-        <div class="map-catalog-coverage" id="map-catalog-coverage">Observed source coverage; completeness not asserted.</div>
         <div class="map-events-legend" id="map-events-legend">
-          <div class="map-events-legend-title">Depth</div>
-          <div class="depth-legend-list">
-            <div><span class="quake-legend-swatch" style="background:#E15A43"></span><span><b>Shallow</b> 0-35 km</span></div>
-            <div><span class="quake-legend-swatch" style="background:#D9A52E"></span><span><b>Upper crust</b> 35-70 km</span></div>
-            <div><span class="quake-legend-swatch" style="background:#8DAA73"></span><span><b>Intermediate</b> 70-150 km</span></div>
-            <div><span class="quake-legend-swatch" style="background:#668FA3"></span><span><b>Deep</b> 150-300 km</span></div>
-            <div><span class="quake-legend-swatch" style="background:#756C9D"></span><span><b>Very deep</b> 300+ km</span></div>
-            <div><span class="quake-legend-swatch" style="background:#6E7B85"></span><span><b>Unknown</b> Not reported</span></div>
-          </div>
-          <div class="map-events-hint">Bubble size shows magnitude. Color shows depth.</div>
+          <div class="map-events-legend-title">Magnitude</div>
+          <div class="mag-legend" id="map-mag-legend"></div>
+          <div class="map-events-legend-title legend-title-spaced">Depth</div>
+          <ul class="depth-legend-list">
+            <li><span class="quake-legend-swatch" style="--swatch:#E15A43"></span><span class="depth-legend-text"><b>Shallow</b>0-35 km</span></li>
+            <li><span class="quake-legend-swatch" style="--swatch:#D9A52E"></span><span class="depth-legend-text"><b>Upper crust</b>35-70 km</span></li>
+            <li><span class="quake-legend-swatch" style="--swatch:#8DAA73"></span><span class="depth-legend-text"><b>Intermediate</b>70-150 km</span></li>
+            <li><span class="quake-legend-swatch" style="--swatch:#668FA3"></span><span class="depth-legend-text"><b>Deep</b>150-300 km</span></li>
+            <li><span class="quake-legend-swatch" style="--swatch:#756C9D"></span><span class="depth-legend-text"><b>Very deep</b>300+ km</span></li>
+            <li><span class="quake-legend-swatch" style="--swatch:#6E7B85"></span><span class="depth-legend-text"><b>Unknown</b>Not reported</span></li>
+          </ul>
         </div>
         <div class="map-events-display">
           <label class="map-events-check map-plates-check"><input id="map-plates-toggle" type="checkbox" /> Plate annotations</label>
           <label class="map-opacity-control" for="map-bubble-opacity">
             <span>Bubble opacity</span>
-            <span><input id="map-bubble-opacity" class="ov-opacity" type="range" min="0.2" max="1" step="0.05" value="0.85" /><output id="map-bubble-opacity-value">85%</output></span>
+            <span><input id="map-bubble-opacity" class="ov-opacity" type="range" min="0.2" max="1" step="0.05" value="0.72" /><output id="map-bubble-opacity-value">72%</output></span>
           </label>
         </div>
       </section>

@@ -582,7 +582,6 @@ input:focus-visible { border-color: var(--brand); }
 .evt-del:hover { color: var(--danger); background: #FBEAE7; }
 
 /* Earthquake map tab */
-.map-events-note { font-size: var(--fs-sm); color: var(--text-muted); line-height: 1.45; margin-bottom: 10px; }
 .map-events-controls { display: flex; gap: 8px; margin: 6px 0 2px; }
 .map-events-check {
   flex: 1; display: flex; align-items: center; gap: 5px;
@@ -602,30 +601,43 @@ input:focus-visible { border-color: var(--brand); }
   color-scheme: light dark;
 }
 #panel-body .map-date-range input[type="date"]:focus-visible { border-color: var(--brand); }
-.map-catalog-coverage {
-  margin-top: 3px; color: var(--text-muted); font-size: 12px; line-height: 1.35;
-}
 .map-events-legend {
-  margin-top: 10px; padding: 11px 12px 12px; border: 1px solid var(--border); border-radius: var(--r-md);
-  background: var(--surface-2); color: var(--slate-muted); font-size: var(--fs-xs);
+  margin-top: 10px; padding: 12px 13px 13px; border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--surface-2); color: var(--text-muted); font-size: var(--fs-xs);
 }
 .map-events-legend-title {
   margin-bottom: 8px; color: var(--text); font-family: var(--font-mono);
   font-size: 12px; letter-spacing: .1em; text-transform: uppercase;
 }
-.depth-legend-list { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
-.depth-legend-list > div { display: flex; align-items: center; gap: 7px; min-width: 0; }
-.depth-legend-list span:last-child { color: var(--text-muted); font-size: 13px; line-height: 1.2; }
-.depth-legend-list b { display: block; color: var(--text); font-size: 13px; }
+.legend-title-spaced { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+
+/* Nested circles at the radii the map draws. Stroke only: a filled legend would
+   imply a depth, and size here says nothing about depth. */
+.mag-legend { padding: 2px 0 4px 2px; }
+.mag-legend svg { display: block; max-width: 100%; height: auto; overflow: visible; }
+.mag-legend circle { fill: none; stroke: var(--text); stroke-width: 1.1; opacity: .75; }
+.mag-legend text { fill: var(--text-muted); font-family: var(--font-mono); font-size: 11px; }
+
+/* One per row: the two-column grid clipped the longer band names and left the
+   swatches too small to match against a bubble on the map. */
+.depth-legend-list { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.depth-legend-list > li { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.depth-legend-text {
+  display: flex; align-items: baseline; gap: 7px; min-width: 0;
+  color: var(--text-muted); font-size: 12.5px; line-height: 1.25;
+}
+.depth-legend-text b { color: var(--text); font-size: 13px; font-weight: 600; white-space: nowrap; }
+/* Circles, not squares, so a swatch is the same shape as the thing it labels. */
 .quake-legend-swatch {
   display: inline-block;
-  width: 14px;
-  height: 14px;
-  border-radius: 3px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
   flex-shrink: 0;
-  border: 1px solid rgba(0,0,0,.1);
+  background: var(--swatch);
+  border: 1px solid rgba(255, 255, 255, .28);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .35);
 }
-.map-events-hint { margin-top: 5px; color: var(--text-muted); line-height: 1.35; }
 .map-events-display { display: grid; gap: 8px; margin-top: 10px; }
 .map-plates-check { min-height: 34px; }
 .map-opacity-control {
@@ -2048,9 +2060,9 @@ body.has-strip .ai-chat { bottom: 274px; }
 #panel-body .field-label { margin-top: 11px; font-size: 16px; }
 #panel-body .feed-row small,
 #panel-body .map-date-range label,
-#panel-body .map-catalog-coverage,
-#panel-body .depth-legend-list span:last-child,
+#panel-body .depth-legend-text,
 #panel-body .depth-legend-list b { font-size: 16px; }
+#panel-body .mag-legend text { font-size: 14px; }
 
 /* Dedicated layer panels previously carried 10-13px instrument labels. */
 #panel-body .landslide-panel-head > span,

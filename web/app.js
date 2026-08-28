@@ -2472,15 +2472,21 @@ let _mapEventsLayer = null;
 let _mapEventsLoaded = false;
 let _mapPlateAnnotationsLayer = null;
 const _mapEventState = {
-  events: [], timeOrdered: [], startIndex: 0, endIndex: 0, opacity: 0.85,
+  events: [], timeOrdered: [], startIndex: 0, endIndex: 0, opacity: 0.72,
   totalMatches: 0,
 };
 
+// Radius rises linearly with magnitude, so area rises with its square. The
+// old radius ~ M^1.5 curve put area at roughly M^3 and drove everything above
+// M6 into the same clamped blob, which is precisely the range this map is for.
+// Magnitude is already logarithmic in energy; a further exponent buys nothing
+// but overplotting.
+const MAG_RADIUS_MIN = 3.5;
+const MAG_RADIUS_MAX = 20;
+
 function _magRadius(mag) {
-  // Quadratic scaling for area proportional to energy release (~10^(1.5*M))
-  // Area scales with magnitude^3 roughly, so radius ~ magnitude^1.5
   const m = Math.max(0, mag || 0);
-  return Math.max(3, Math.min(24, 2.5 + Math.pow(m, 1.5) * 1.1));
+  return Math.max(MAG_RADIUS_MIN, Math.min(MAG_RADIUS_MAX, MAG_RADIUS_MIN + (m - 2) * 2.6));
 }
 
 // Bubble geometry, colour, popup, and label for one catalog event. Computed
@@ -2492,10 +2498,45 @@ function quakeSymbol(event) {
     radius: _magRadius(Math.max(0, event.magnitude || 0)),
     color: _depthColor(depth),
     fillOpacity: _mapEventState.opacity,
-    strokeWidth: 1.4,
-    strokeOpacity: 0.95,
+    // Enough edge to tell two overlapping bubbles apart, not so much that a
+    // dense cluster reads as a mesh of rings.
+    strokeWidth: 1,
+    strokeOpacity: 0.6,
   };
 }
+
+// Circles at the radii the map actually draws, so magnitude can be read off the
+// map instead of guessed. Generated rather than written into the markup for one
+// reason: a hand-drawn legend goes stale the moment _magRadius changes.
+const MAG_LEGEND_STOPS = [3, 5, 7];
+
+function renderMagnitudeLegend() {
+  const host = document.getElementById("map-mag-legend");
+  if (!host) return;
+  const radii = MAG_LEGEND_STOPS.map(_magRadius);
+  const largest = Math.max(...radii);
+  const pad = 2;
+  const gap = 14;
+  const labelGap = 13;
+  const baseline = pad + largest * 2;
+  const height = baseline + labelGap;
+
+  // Side by side and standing on one baseline. Nested circles need more size
+  // contrast than these radii have; at this scale their labels collide.
+  let cursor = pad;
+  const parts = radii.map((r, i) => {
+    const cx = cursor + r;
+    cursor += r * 2 + gap;
+    return `<circle cx="${cx.toFixed(1)}" cy="${(baseline - r).toFixed(1)}" r="${r.toFixed(1)}" />` +
+      `<text x="${cx.toFixed(1)}" y="${height}" text-anchor="middle">M${MAG_LEGEND_STOPS[i]}</text>`;
+  });
+  const width = cursor - gap + pad;
+  host.innerHTML =
+    `<svg viewBox="0 0 ${width.toFixed(1)} ${height}" width="${width.toFixed(1)}" height="${height}" ` +
+    `role="img" aria-label="Bubble size shows magnitude: ${MAG_LEGEND_STOPS.map(m => `M${m}`).join(", ")}">` +
+    parts.join("") + "</svg>";
+}
+renderMagnitudeLegend();
 
 function quakeStrokeColor() {
   return getComputedStyle(document.documentElement).getPropertyValue("--text").trim() || "#F4F6F8";
@@ -2657,7 +2698,10 @@ function _renderMapEvents({ fit = false } = {}) {
     },
   });
   if (_mapEventsLayer) map.removeLayer(_mapEventsLayer);
-  _mapEventsLayer = L.layerGroup(events.map(_quakeMarker)).addTo(map);
+  // Drawn largest first so the small ones land on top: a magnitude 3 inside the
+  // footprint of a magnitude 7 is still an event someone has to be able to see.
+  const drawOrder = [...events].sort((a, b) => quakeSymbol(b).radius - quakeSymbol(a).radius);
+  _mapEventsLayer = L.layerGroup(drawOrder.map(_quakeMarker)).addTo(map);
   const status = document.getElementById("map-events-status");
   const count = document.getElementById("map-time-count");
   const label = `${events.length} of ${_mapEventState.events.length} events`;
@@ -2761,7 +2805,10 @@ async function loadMapEvents({ fit = true } = {}) {
   }
 
   try {
-    const common = new URLSearchParams({ limit: String(limit), orderby: "time" });
+    // Strongest first, so the bubbles are drawn from the whole catalog period
+    // rather than its most recent weeks. They are re-sorted into time order for
+    // the window slider once they arrive.
+    const common = new URLSearchParams({ limit: String(limit), orderby: "magnitude" });
     if (minmag) common.set("min_magnitude", minmag);
     if (dateFrom) common.set("occurred_after", dateFrom + "T00:00:00Z");
     if (dateTo) common.set("occurred_before", dateTo + "T23:59:59.999Z");
@@ -2772,10 +2819,13 @@ async function loadMapEvents({ fit = true } = {}) {
       if (!response.ok) throw new Error("HTTP " + response.status);
       return response.json();
     }));
+    // Trimmed on the same rule the sources were queried on. Trimming by time
+    // instead would throw away every strong historic event the query just went
+    // and found, and leave the window back on the recent weeks.
     const events = responses
       .flatMap(data => data.events || data)
       .filter(event => event.lat != null && event.lon != null)
-      .sort((a, b) => _mapEventTime(b) - _mapEventTime(a))
+      .sort((a, b) => (Number(b.magnitude) || 0) - (Number(a.magnitude) || 0))
       .slice(0, limit);
 
     _mapEventState.totalMatches = responses.reduce(
@@ -2813,26 +2863,6 @@ if (mapDateTo) {
   loadMapEvents({ fit: false });
 }));
 
-async function loadMapCatalogCoverage() {
-  const element = document.getElementById("map-catalog-coverage");
-  if (!element) return;
-  try {
-    const response = await fetch("/events/catalog/coverage");
-    if (!response.ok) return;
-    const payload = await response.json();
-    const summaries = (payload.sources || []).map(source => {
-      const earliest = source.earliest_occurred_at?.slice(0, 10) || "none";
-      const latest = source.latest_occurred_at?.slice(0, 10) || "none";
-      return `${source.source}: ${earliest} to ${latest}`;
-    });
-    element.textContent = summaries.length
-      ? `Stored coverage. ${summaries.join("; ")}. Completeness not asserted.`
-      : "No source records stored yet. Completeness not asserted.";
-  } catch {
-    // The map remains usable if coverage metadata is temporarily unavailable.
-  }
-}
-loadMapCatalogCoverage();
 document.getElementById("map-plates-toggle")?.addEventListener("change", _syncMapPlateAnnotations);
 document.getElementById("map-bubble-opacity")?.addEventListener("input", event => {
   _mapEventState.opacity = Number(event.target.value);
