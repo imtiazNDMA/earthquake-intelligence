@@ -539,23 +539,30 @@ let _userPickedBasemap = false;   // once true, theme no longer auto-switches th
 const _basemapRadios = {};        // name -> radio input, for keeping the config panel in sync
 async function setBasemap(name) {
   if (name === currentBasemap || !MAP_STYLE_CONFIG.names().includes(name)) return;
+  const previous = currentBasemap;
+  // Published before the layer is fetched, because the choice is made here and
+  // the fetch only carries it out. A renderer starting up during that fetch
+  // would otherwise build its style on the basemap we are leaving, then have to
+  // tear the whole thing down when this lands.
+  currentBasemap = name;
+  publishMapState({ basemap: name });
   if (!BASEMAPS[name]) {
     try {
       BASEMAPS[name] = await lazyBasemapLayer(name);
     } catch (error) {
+      currentBasemap = previous;
+      publishMapState({ basemap: previous });
       console.error("basemap unavailable", name, error);
-      toast(`${name} could not be loaded; keeping ${currentBasemap}.`, "warn", 6000);
-      if (_basemapRadios[currentBasemap]) _basemapRadios[currentBasemap].checked = true;
+      toast(`${name} could not be loaded; keeping ${previous}.`, "warn", 6000);
+      if (_basemapRadios[previous]) _basemapRadios[previous].checked = true;
       return;
     }
   }
-  if (BASEMAPS[currentBasemap] && map.hasLayer(BASEMAPS[currentBasemap])) {
-    map.removeLayer(BASEMAPS[currentBasemap]);
+  if (BASEMAPS[previous] && map.hasLayer(BASEMAPS[previous])) {
+    map.removeLayer(BASEMAPS[previous]);
   }
   BASEMAPS[name].addTo(map);
   if (typeof BASEMAPS[name].bringToBack === "function") BASEMAPS[name].bringToBack();
-  currentBasemap = name;
-  publishMapState({ basemap: name });
 }
 
 // The footprint, its visibility, and the styling that both renderers derive

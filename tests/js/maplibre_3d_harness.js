@@ -85,7 +85,8 @@ function makeMap(options) {
     querySourceFeatures(sourceId, options) {
       return this.sourceFeatures[`${sourceId}:${options.sourceLayer}`] || [];
     },
-    setTerrain(value) { this.terrain = value; },
+    setTerrain(value) { this.terrain = value || null; },
+    getTerrain() { return this.terrain; },
     setSky(value) { this.sky = value; },
     getStyle() { return { layers: this.layerDefs }; },
     getLayer(id) { return this.layerDefs.find(layer => layer.id === id); },
@@ -232,6 +233,14 @@ const MMI_FC = {
   assert.deepStrictEqual(JSON.stringify(fill.layout["fill-sort-key"]), JSON.stringify(["get", "mmi_lower"]));
   // Terrain came up at true scale.
   assert.strictEqual(map.terrain.exaggeration, 1);
+  assert.strictEqual(adapter.hasTerrain(), true);
+  // MapLibre clears terrain itself whenever a style is installed, so the answer
+  // has to be read from the map. A remembered flag drifts and reports a mesh
+  // that is not there.
+  map.setTerrain(null);
+  assert.strictEqual(adapter.hasTerrain(), false,
+    "hasTerrain() must follow the map, not a remembered flag");
+  map.setTerrain({ source: "terrain-dem", exaggeration: 1 });
   assert.strictEqual(adapter.hasTerrain(), true);
   // Gestures: touch drag stays a pan.
   assert.strictEqual(map.options.touchPitch, false);
@@ -635,7 +644,12 @@ const MMI_FC = {
 
   map.moveTo(13, [66.9, 24.8, 67.3, 25.0]);
   adapter.applyState(FULL_STATE);
-  for (let i = 0; i < 5; i++) await settle();
+  // A style swap tears the mesh down and puts it back. Callers need a way to
+  // know that finished; spinning the event loop a fixed number of times only
+  // hides the race that a real renderer loses.
+  await adapter.whenSettled();
+  assert.strictEqual(adapter.hasTerrain(), true,
+    "terrain must be back once the style swap has settled");
 
   assert.strictEqual(adapter.getBasemap(), "Dark");
   const vectorOrder = map.layerDefs.map(layer => layer.id);
@@ -657,7 +671,7 @@ const MMI_FC = {
 
   // Going back to a raster basemap rebuilds the style the other way.
   adapter.applyState({ ...FULL_STATE, basemap: "OpenStreetMap", theme: "light" });
-  for (let i = 0; i < 5; i++) await settle();
+  await adapter.whenSettled();
   assert.strictEqual(adapter.getBasemap(), "OpenStreetMap");
   assert.strictEqual(map.layerDefs[0].id, "basemap");
   assert.strictEqual(map.rasterSpecs.openmaptiles, undefined);
@@ -668,7 +682,7 @@ const MMI_FC = {
   // Imagery carries the vector style's place names and nothing else, with the
   // relief between them.
   adapter.applyState({ ...FULL_STATE, basemap: "Satellite + labels", theme: "light" });
-  for (let i = 0; i < 5; i++) await settle();
+  await adapter.whenSettled();
   assert.strictEqual(adapter.getBasemap(), "Satellite + labels");
   const hybridOrder = map.layerDefs.map(layer => layer.id);
   assert.deepStrictEqual(JSON.stringify(hybridOrder.slice(0, 3)),

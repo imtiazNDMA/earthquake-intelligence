@@ -50,8 +50,10 @@
   let styleReloadToken = 0;
   let lastState = null;
   let stateApplyPending = false;
-  let terrainEnabled = false;
   let terrainAnnounced = false;
+  // Style installs, and only style installs, are the work a caller has to wait
+  // out: the mesh and every analysis layer are gone until one finishes.
+  let pendingStyleWork = null;
   const hazardErrors = new Set();
   let rendererFailureListener = null;
   let renderingPaused = false;
@@ -188,9 +190,12 @@
 
   function initialBasemapName() {
     const config = styleConfig();
-    // Start on whatever 2D is showing, falling back to the theme's basemap.
-    const published = window.eqmonMapModes?.getState?.().basemap;
-    return published || config.themeBasemap(document.documentElement.dataset.theme);
+    // Resolved exactly as applyState resolves it, from the same published
+    // state: disagree with it and the map is built twice, once on a basemap
+    // that is replaced the moment state arrives.
+    const published = window.eqmonMapModes?.getState?.() || {};
+    return published.basemap
+      || config.themeBasemap(published.theme || document.documentElement.dataset.theme);
   }
 
   function analysisSources() {
@@ -354,7 +359,7 @@
   function reloadStyle(name) {
     const previous = currentBasemap;
     const token = ++styleReloadToken;
-    return styleFor(name)
+    const work = styleFor(name)
       .then(style => {
         mapInstance.setStyle(style);
         // The old layers are gone as of this call, so nothing may claim they
@@ -377,7 +382,14 @@
         currentBasemap = previous;
         console.error("basemap unavailable", name, error);
         if (typeof toast === "function") toast(`${name} could not be loaded.`, "warn", 6000);
+      })
+      .finally(() => {
+        // Only the newest swap clears the gate; an older one finishing late
+        // must not report a rebuild that is still running as settled.
+        if (token === styleReloadToken) pendingStyleWork = null;
       });
+    pendingStyleWork = work;
+    return work;
   }
 
   // Terrain is an enhancement, never a precondition: if the DEM does not arrive
@@ -402,7 +414,6 @@
 
       try {
         mapInstance.setTerrain({ source: DEM_SOURCE, exaggeration: terrain.exaggeration });
-        terrainEnabled = true;
         // A DEM tile has to land before the mesh means anything; idle is the
         // first point at which we know it did.
         mapInstance.once("idle", () => finish(true));
@@ -416,7 +427,6 @@
   }
 
   function dropTerrain() {
-    terrainEnabled = false;
     try { mapInstance?.setTerrain(null); } catch (error) { /* already gone */ }
   }
 
@@ -951,7 +961,6 @@
       const canvas = mapInstance.getCanvas();
       canvas.addEventListener?.("webglcontextlost", event => {
         event.preventDefault?.();
-        terrainEnabled = false;
         rendererFailureListener?.(new Error("WebGL context lost"));
       });
     });
@@ -1039,7 +1048,8 @@
     if (initializationPromise) return initializationPromise;
     if (mapInstance) {
       mapInstance.resize();
-      return Promise.resolve(mapInstance);
+      // An existing map may be mid-swap; hand it back with its mesh restored.
+      return Promise.resolve(pendingStyleWork).then(() => mapInstance);
     }
     initializationPromise = initializeMapLibre3d(camera).finally(() => {
       initializationPromise = null;
@@ -1068,6 +1078,11 @@
     setBasemap,
     getBasemap: () => currentBasemap,
     liveBuildingDistricts: () => [...liveDistricts],
-    hasTerrain: () => terrainEnabled,
+    // Read from the map, never remembered: MapLibre drops the mesh on every
+    // style install, and a flag of our own would go on claiming it is there.
+    hasTerrain: () => Boolean(mapInstance?.getTerrain()),
+    // Resolves once no style install is in flight, so callers read a renderer
+    // that has its mesh and layers back rather than one mid-rebuild.
+    whenSettled: () => Promise.resolve(pendingStyleWork),
   };
 })();

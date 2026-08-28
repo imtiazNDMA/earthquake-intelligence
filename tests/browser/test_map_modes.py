@@ -70,6 +70,9 @@ def _activate_3d(page):
     page.evaluate(
         """async () => { window.__map3d = await window.eqmonMapLibre3d.ensureMapLibre3d(); }"""
     )
+    # Activation publishes state, which can swap the basemap; until that install
+    # finishes the map has no mesh and no analysis layers.
+    page.evaluate("async () => { await window.eqmonMapLibre3d.whenSettled(); }")
     page.evaluate(WAIT_FOR_IDLE)
 
 
@@ -79,6 +82,45 @@ def _set_view(page, view):
         view,
     )
     page.evaluate(WAIT_FOR_IDLE)
+
+
+# A vector basemap in 2D builds a MapLibre map of its own, so installs are
+# counted per map: only the 3D renderer's own count means anything here.
+COUNT_STYLE_INSTALLS = """
+window.__installsByMap = new Map();
+const wrapSetStyle = () => {
+  if (window.__wrappedSetStyle || !window.maplibregl || !window.maplibregl.Map) return;
+  window.__wrappedSetStyle = true;
+  const proto = window.maplibregl.Map.prototype;
+  const original = proto.setStyle;
+  proto.setStyle = function (...args) {
+    window.__installsByMap.set(this, (window.__installsByMap.get(this) || 0) + 1);
+    return original.apply(this, args);
+  };
+};
+setInterval(wrapSetStyle, 20);
+"""
+
+
+def test_first_activation_installs_the_style_once(page, app_server, console_errors):
+    """Each install drops the mesh and every analysis layer and builds them
+    again, so activation must settle on the basemap it started with rather than
+    correcting itself once published state arrives.
+
+    This pins the settled result, not the race that can produce a second one:
+    that window is opened by how long the MapLibre bundle takes to reach 2D, and
+    a test cannot hold it open from the outside.
+    """
+    page.add_init_script(COUNT_STYLE_INSTALLS)
+    _open(page, app_server, console_errors)
+    _activate_3d(page)
+    page.wait_for_function(
+        "() => window.eqmonMapModes.getState().basemap === 'Dark'", timeout=30000
+    )
+    page.evaluate("async () => { await window.eqmonMapLibre3d.whenSettled(); }")
+
+    installs = page.evaluate("() => window.__installsByMap.get(window.__map3d)")
+    assert installs == 1, f"first activation installed the 3D style {installs} times"
 
 
 def test_terrain_has_real_relief_at_regional_and_district_scale(page, app_server, console_errors):
