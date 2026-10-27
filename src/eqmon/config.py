@@ -74,9 +74,10 @@ def mmi_class_label(level: int) -> str:
     return f"{roman} ({name})" if name else roman
 
 # Automated ingest intervals. Base tick runs every 1 min; PMD (full-catalog)
-# is ingested every 5th tick since it has no incremental API.
-INGEST_INTERVAL_MINUTES = 1
-PMD_INTERVAL_MULTIPLIER = 5
+# is ingested every 5th tick since it has no incremental API. Hosted deploys
+# raise the tick so a serverless database (Neon) can auto-suspend between runs.
+INGEST_INTERVAL_MINUTES = int(os.getenv("EQMON_INGEST_INTERVAL_MINUTES", "1"))
+PMD_INTERVAL_MULTIPLIER = int(os.getenv("EQMON_PMD_INTERVAL_MULTIPLIER", "5"))
 
 # --- Seismicity analytics tunables ---
 GRID_CELL_DEG = 0.25              # hotspot grid cell size (degrees)
