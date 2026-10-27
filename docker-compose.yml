@@ -22,9 +22,17 @@ services:
     environment:
       DATABASE_URL: postgres://eqmon:eqmon@db:5432/eqmon
       EQMON_VS30_TIF: /app/data/Vs30.tif
+      ARC_URL: http://arc:5000
     depends_on:
       db:
         condition: service_healthy
+      arc:
+        condition: service_started
+
+  arc:
+    build: ./eq_arc
+    volumes:
+      - ./eq_arc/data/cache:/app/data/cache:ro
 
 volumes:
   pgdata:

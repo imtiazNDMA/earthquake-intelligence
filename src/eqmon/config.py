@@ -15,11 +15,13 @@ BUILDINGS_TILE_URL = os.getenv("BUILDINGS_TILE_URL", "http://172.19.112.1:8081")
 # is millions of polygons; this floor is the load-bearing guard against it.
 BUILDINGS_MIN_ZOOM = 12
 
-# ARC — the external elements-at-risk service (population, settlements,
-# hospitals, schools, roads, bridges, airports under each MMI band). Same
-# reasoning as BUILDINGS_TILE_URL: it lives on a container IP that can move.
-# See src/eqmon/exposure.py.
-ARC_URL = os.getenv("ARC_URL", "http://172.18.0.29:5001").rstrip("/")
+# ARC — the elements-at-risk service in eq_arc/ (population, settlements,
+# hospitals, schools, roads, bridges, airports under each MMI band). Defaults to
+# eq_arc/run_server.bat on this machine (and inside the HF Space container); a
+# bare host:port gets an http scheme. See src/eqmon/exposure.py.
+ARC_URL = os.getenv("ARC_URL", "http://127.0.0.1:5000").rstrip("/")
+if "://" not in ARC_URL:
+    ARC_URL = f"http://{ARC_URL}"
 
 # A full analysis scans every element layer — roads alone is ~375k features —
 # and measured ~11 s for a M7 footprint. This is a job timeout, not a hop.

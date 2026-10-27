@@ -64,3 +64,8 @@ logs/
 
 # Local scratch / debug scripts
 tmp_check_plates.py
+
+# eq_arc source layers (2.3 GB) and their derived caches — caches ship via R2
+eq_arc/data/layers/
+eq_arc/data/cache/
+eq_arc/data/uploads/
