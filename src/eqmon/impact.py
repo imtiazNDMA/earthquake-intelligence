@@ -4,6 +4,7 @@ surface, then for each admin level:
 - representative-point MMI per unit by sampling the MMI grid at each unit's
   point-on-surface."""
 from __future__ import annotations
+import hashlib
 import json
 
 import numpy as np
@@ -11,12 +12,15 @@ import psycopg
 from psycopg.rows import dict_row
 
 from .config import MMI_BAND_LEVELS
+from .analysis_artifacts import (AnalysisKind, ArtifactResolution,
+                                 get_or_compute_artifact)
 from .contours import mmi_to_geojson
 from .intensity import compute_mmi_grid
 from .vs30 import Grid
 
 # Levels rolled up per event (national is overlay-only, not aggregated).
 ROLLUP_LEVELS = ("province", "district", "tehsil")
+EVENT_IMPACT_CALCULATION_VERSION = "1.0"
 
 
 def sample_grid_at(grid_array: np.ndarray, transform, lons: np.ndarray,
@@ -75,6 +79,7 @@ def compute_event_impact(conn: psycopg.Connection, event: dict, grid: Grid) -> d
 
     # Build the band surface once; reused across every level's spatial join.
     with conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS pg_temp._bands")
         cur.execute("CREATE TEMP TABLE _bands (mmi int, geom geometry(Geometry,4326)) "
                     "ON COMMIT DROP")
         for f in bands["features"]:
@@ -89,3 +94,58 @@ def compute_event_impact(conn: psycopg.Connection, event: dict, grid: Grid) -> d
     # setup immediately before this fan-out so the coupling stays visible.
     rollups = {lvl: _rollup_for_level(conn, lvl, mmi, grid) for lvl in ROLLUP_LEVELS}
     return {"bands": bands, "rollups": rollups}
+
+
+def get_or_compute_event_impact(conn: psycopg.Connection, event: dict,
+                                grid: Grid) -> ArtifactResolution:
+    """Persist or reuse the deterministic impact result for one event state."""
+    computation_input = {
+        "event_id": event["id"],
+        "magnitude": event["magnitude"],
+        "depth_km": event["depth_km"],
+        "lon": event["lon"],
+        "lat": event["lat"],
+    }
+    data_fingerprint = {
+        "vs30_sha256": grid.source_sha256,
+        "default_vs30": grid.default_vs30,
+        "admin_boundaries_sha256": _admin_boundaries_sha256(conn),
+    }
+    provenance = {
+        "event": {
+            "id": event["id"],
+            "source": event.get("source"),
+            "source_event_id": event.get("source_event_id"),
+            "occurred_at": event.get("occurred_at"),
+            "place": event.get("place"),
+        },
+        "data": data_fingerprint,
+    }
+    return get_or_compute_artifact(
+        conn,
+        kind=AnalysisKind.IMPACT,
+        calculation_version=EVENT_IMPACT_CALCULATION_VERSION,
+        computation_input=computation_input,
+        data_fingerprint=data_fingerprint,
+        provenance=provenance,
+        compute=lambda: compute_event_impact(conn, event, grid),
+    )
+
+
+def _admin_boundaries_sha256(conn: psycopg.Connection) -> str:
+    rows = conn.execute(
+        "SELECT id, level, name, parent, ST_AsEWKB(geom) "
+        "FROM admin_boundary "
+        "WHERE level IN ('province', 'district', 'tehsil') ORDER BY id"
+    ).fetchall()
+    digest = hashlib.sha256()
+    for artifact_id, level, name, parent, geometry in rows:
+        metadata = json.dumps(
+            [artifact_id, level, name, parent],
+            ensure_ascii=True, separators=(",", ":"),
+        ).encode("utf-8")
+        geometry_bytes = bytes(geometry)
+        for value in (metadata, geometry_bytes):
+            digest.update(len(value).to_bytes(8, byteorder="big"))
+            digest.update(value)
+    return digest.hexdigest()

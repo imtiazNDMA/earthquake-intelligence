@@ -1,4 +1,4 @@
-"""Shared constants. Domain language follows CONTEXT.md."""
+"""Shared constants. Domain language follows docs/reference/CONTEXT.md."""
 import os
 from pathlib import Path
 
@@ -15,15 +15,21 @@ BUILDINGS_TILE_URL = os.getenv("BUILDINGS_TILE_URL", "http://172.19.112.1:8081")
 # is millions of polygons; this floor is the load-bearing guard against it.
 BUILDINGS_MIN_ZOOM = 12
 
-# ARC — the external elements-at-risk service (population, settlements,
-# hospitals, schools, roads, bridges, airports under each MMI band). Same
-# reasoning as BUILDINGS_TILE_URL: it lives on a container IP that moves, and
-# its own docs disagree with its runtime port. See src/eqmon/exposure.py.
-ARC_URL = os.getenv("ARC_URL", "http://172.18.0.12:5002").rstrip("/")
+# ARC — the elements-at-risk service in eq_arc/ (population, settlements,
+# hospitals, schools, roads, bridges, airports under each MMI band). Defaults to
+# eq_arc/run_server.bat on this machine (and inside the HF Space container); a
+# bare host:port gets an http scheme. See src/eqmon/exposure.py.
+ARC_URL = os.getenv("ARC_URL", "http://127.0.0.1:5000").rstrip("/")
+if "://" not in ARC_URL:
+    ARC_URL = f"http://{ARC_URL}"
 
 # A full analysis scans every element layer — roads alone is ~375k features —
 # and measured ~11 s for a M7 footprint. This is a job timeout, not a hop.
 ARC_TIMEOUT_S = float(os.getenv("ARC_TIMEOUT_S", "180"))
+# Stable identity of the ARC element datasets/caches. Exposure artifacts are
+# unsafe to reuse without this: a moving service can otherwise return different
+# facts under the same artifact key after a cache refresh.
+ARC_DATA_VERSION = os.getenv("ARC_DATA_VERSION", "").strip()
 
 # Headline exposure threshold. Our bands run down to MMI 2, which for a large
 # event covers most of the country: the honest whole-footprint total is a
@@ -31,7 +37,7 @@ ARC_TIMEOUT_S = float(os.getenv("ARC_TIMEOUT_S", "180"))
 # and matches the framing the exposure strip already uses for admin units.
 EXPOSURE_MIN_MMI = 6
 
-# Default Site Condition (CONTEXT.md): used where the Vs30 grid has no value.
+# Default Site Condition (docs/reference/CONTEXT.md): used where the Vs30 grid has no value.
 DEFAULT_VS30 = 760.0
 
 # Coverage Region bounding box (minx, miny, maxx, maxy) in WGS84 degrees:
@@ -47,7 +53,7 @@ MMI_BAND_LEVELS = [2, 3, 4, 5, 6, 7, 8, 9, 10]
 
 # Modified Mercalli intensity classes: MMI integer -> (Roman numeral, perceived-
 # shaking descriptor). Source of truth for classification/labels, mirroring
-# classification_range.md (the USGS ShakeMap scheme). Class I is "not felt" and
+# docs/reference/classification_range.md (the USGS ShakeMap scheme). Class I is "not felt" and
 # is never contoured (surface shaking below MMI 2 is left unshaded); it is listed
 # here so consumers can label the un-shaded background consistently.
 MMI_CLASSES = {
@@ -70,9 +76,10 @@ def mmi_class_label(level: int) -> str:
     return f"{roman} ({name})" if name else roman
 
 # Automated ingest intervals. Base tick runs every 1 min; PMD (full-catalog)
-# is ingested every 5th tick since it has no incremental API.
-INGEST_INTERVAL_MINUTES = 1
-PMD_INTERVAL_MULTIPLIER = 5
+# is ingested every 5th tick since it has no incremental API. Hosted deploys
+# raise the tick so a serverless database (Neon) can auto-suspend between runs.
+INGEST_INTERVAL_MINUTES = int(os.getenv("EQMON_INGEST_INTERVAL_MINUTES", "1"))
+PMD_INTERVAL_MULTIPLIER = int(os.getenv("EQMON_PMD_INTERVAL_MULTIPLIER", "5"))
 
 # --- Seismicity analytics tunables ---
 GRID_CELL_DEG = 0.25              # hotspot grid cell size (degrees)

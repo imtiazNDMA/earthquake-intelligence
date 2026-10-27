@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Prototype E — MMI Motion Studies</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+:root{
+  --steel-900:#101418; --steel-850:#141A20; --steel-800:#19212A; --steel-700:#232D38; --steel-600:#33404E;
+  --sand:#E8E2D6; --sand-dim:#9AA4AF; --sand-faint:#69737E;
+  --accent:#DD5730;
+  --disp:"Archivo",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--steel-900);color:var(--sand);font-family:var(--disp);
+  -webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+header{position:sticky;top:0;z-index:50;background:var(--steel-850);
+  border-bottom:1px solid var(--steel-700);padding:14px 22px;
+  display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+h1{margin:0;font-size:19px;font-variation-settings:"wdth" 82,"wght" 700;letter-spacing:-.01em}
+.sub{font-family:var(--mono);font-size:12.5px;color:var(--sand-faint);max-width:60ch;line-height:1.5}
+.controls{margin-left:auto;display:flex;align-items:center;gap:14px}
+.ctl{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:12.5px;color:var(--sand-dim)}
+.btn{background:var(--steel-800);border:1px solid var(--steel-600);border-radius:5px;
+  padding:6px 13px;font-family:var(--mono);font-size:12.5px;letter-spacing:.06em;text-transform:uppercase}
+.btn:hover{border-color:var(--sand-faint)}
+.btn[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#160A06}
+input[type=range]{accent-color:var(--accent);width:104px}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(390px,1fr));gap:1px;
+  background:var(--steel-700);border-bottom:1px solid var(--steel-700)}
+.cell{background:var(--steel-900);display:flex;flex-direction:column}
+.cap{padding:12px 16px 13px;border-bottom:1px solid var(--steel-700);background:var(--steel-850)}
+.cap h2{margin:0 0 3px;font-size:15px;font-variation-settings:"wdth" 88,"wght" 650}
+.cap .tag{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--accent);display:block;margin-bottom:5px}
+.cap p{margin:0;font-family:var(--mono);font-size:12px;line-height:1.55;color:var(--sand-faint)}
+.cap .verdict{margin-top:7px;font-family:var(--mono);font-size:11.5px;color:var(--sand-dim)}
+.cap .verdict b{color:var(--sand);font-weight:500}
+.map{height:340px;background:var(--steel-800)}
+.leaflet-container{background:var(--steel-800)}
+.leaflet-control-attribution{font-size:9px!important;background:rgba(16,20,24,.7)!important;color:var(--sand-faint)!important}
+.leaflet-control-attribution a{color:var(--sand-dim)!important}
+
+/* ============================================================
+   A — TRAVELING CONTOURS
+   Animates stroke-dashoffset only. Fill untouched, so the MMI
+   colour encoding is never altered. Cheapest option here.
+   ============================================================ */
+.fx-contours path.band{stroke-dasharray:9 7;animation:dashDrift calc(2.4s / var(--sp,1)) linear infinite}
+@keyframes dashDrift{to{stroke-dashoffset:-16}}
+
+/* ============================================================
+   B — RADAR SWEEP
+   An expanding ring clipped to the footprint. The bands keep
+   their exact colour; this is a highlight passing over them.
+   ============================================================ */
+.sweep-ring{fill:none;stroke:#fff;stroke-width:14;opacity:0;
+  filter:drop-shadow(0 0 7px rgba(255,255,255,.85))}
+
+/* ============================================================
+   C — EPICENTER RIPPLES
+   Pure overlay: concentric rings emanating from the epicenter.
+   Touches no polygon property at all.
+   ============================================================ */
+.ripple-wrap{background:none;border:0;pointer-events:none}
+.ripple-wrap i{position:absolute;inset:0;border:2px solid var(--accent);border-radius:50%;
+  opacity:0;animation:rippleOut calc(3.2s / var(--sp,1)) cubic-bezier(.22,.61,.36,1) infinite;
+  animation-delay:var(--rd)}
+@keyframes rippleOut{
+  0%{transform:scale(.04);opacity:0}
+  12%{opacity:.85}
+  100%{transform:scale(1);opacity:0}
+}
+
+/* ============================================================
+   D — PEAK-BAND GLOW
+   Breathes the stroke of the strongest band only. Every fill
+   stays fixed; the eye is pulled to the severe core.
+   ============================================================ */
+.fx-glow path.band-peak{animation:peakBreathe calc(2.6s / var(--sp,1)) ease-in-out infinite}
+@keyframes peakBreathe{
+  0%,100%{stroke-width:1.5;filter:drop-shadow(0 0 1px rgba(255,0,0,.5))}
+  50%{stroke-width:4.5;filter:drop-shadow(0 0 9px rgba(255,60,30,.95))}
+}
+
+/* ============================================================
+   E — DRIFTING HATCH
+   A pattern overlay per band, drifting outward. Hatch density
+   rises with intensity, so the motion carries real information
+   and survives greyscale / colour-blind viewing.
+   ============================================================ */
+.hatch-fill{stroke:none;pointer-events:none}
+
+.paused *{animation-play-state:paused!important}
+@media (prefers-reduced-motion:reduce){
+  .cell *{animation:none!important}
+}
+.rm-note{padding:10px 22px;font-family:var(--mono);font-size:11.5px;color:var(--sand-faint);
+  background:var(--steel-850);line-height:1.6}
+.rm-note b{color:var(--sand-dim);font-weight:500}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>MMI Motion Studies</h1>
+    <div class="sub">Continuous animation for a static intensity footprint. Same synthetic bands, same view, in every panel — only the animated channel differs.</div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><label for="sp">Speed</label><input id="sp" type="range" min=".25" max="2.5" step=".05" value="1" /><span id="spv">1.0×</span></div>
+    <button class="btn" id="pause" aria-pressed="false">Pause</button>
+  </div>
+</header>
+
+<div class="grid" id="grid"></div>
+
+<div class="rm-note">
+  <b>Reading these:</b> fill colour and fill opacity encode MMI, so nothing here animates them — a band that breathes its fill reads as a changing intensity. Every technique below moves only a channel that carries no data (stroke pattern, an overlay, or a texture). <b>Note:</b> panels have map interaction disabled so all six stay pixel-comparable.
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+        crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/animejs@4.5.0/dist/bundles/anime.umd.min.js"
+        integrity="sha384-InMmvD3VoYcY7hGjSC80aLb2bNNE4CzpX+Eq6FVDlmB0IKgDvmfPw4UY8L/M++iG"
+        crossorigin="anonymous"></script>
+<script>
+/* ------------------------------------------------------------------
+   Synthetic footprint. Nested filled discs, largest first, so the
+   stack reads as the isoseismal map the real /intensity endpoint
+   returns. Colours are the production palette (MMI_PALETTE in app.js,
+   which mirrors _MMI_COLORS in src/eqmon/contours.py).
+   ------------------------------------------------------------------ */
+const EPI = [34.0, 72.5];
+const BANDS = [
+  { mmi: 4, r: 2.75, color: "#80ffff" },
+  { mmi: 5, r: 2.00, color: "#7aff93" },
+  { mmi: 6, r: 1.42, color: "#ffff00" },
+  { mmi: 7, r: 0.96, color: "#ffc800" },
+  { mmi: 8, r: 0.60, color: "#ff9100" },
+  { mmi: 9, r: 0.33, color: "#ff0000" },
+];
+
+// Seeded so every panel draws an identical footprint — the comparison is
+// only meaningful if the geometry is held constant.
+function lcg(seed) { let s = seed; return () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; }
+
+function discRing(cx, cy, r, seed) {
+  const rand = lcg(seed);
+  const pts = [];
+  const N = 72, squash = 0.66, tilt = -0.42;      // elongated + rotated, as real footprints are
+  // Two low-frequency lobes plus a little jitter: enough irregularity to look
+  // surveyed rather than drawn with a compass.
+  const l1 = rand() * Math.PI * 2, l2 = rand() * Math.PI * 2;
+  for (let i = 0; i <= N; i++) {
+    const t = (i / N) * Math.PI * 2;
+    const wob = 1 + 0.11 * Math.sin(t * 2 + l1) + 0.06 * Math.sin(t * 3 + l2) + (rand() - 0.5) * 0.015;
+    const rr = r * wob;
+    const x = Math.cos(t) * rr, y = Math.sin(t) * rr * squash;
+    const xr = x * Math.cos(tilt) - y * Math.sin(tilt);
+    const yr = x * Math.sin(tilt) + y * Math.cos(tilt);
+    pts.push([cx + xr / Math.cos(cy * Math.PI / 180), cy + yr]);
+  }
+  return pts;
+}
+
+function footprint() {
+  return {
+    type: "FeatureCollection",
+    features: BANDS.map((b, i) => ({
+      type: "Feature",
+      properties: { mmi: b.mmi, color: b.color, peak: i === BANDS.length - 1 },
+      geometry: { type: "Polygon", coordinates: [discRing(EPI[1], EPI[0], b.r, 991 + i * 37)] },
+    })),
+  };
+}
+
+const PANELS = [
+  { id: "baseline", tag: "Reference", title: "No animation",
+    body: "The footprint exactly as it renders today. Keep this in view — it is the thing every panel has to beat without distorting.",
+    verdict: "Cost <b>none</b> · Encoding <b>untouched</b>" },
+  { id: "contours", tag: "Option A", title: "Traveling contours",
+    body: "stroke-dashoffset drifts continuously around each band edge. Fills are never touched, and dash offset is a compositor-friendly property.",
+    verdict: "Cost <b>very low</b> · Encoding <b>untouched</b>" },
+  { id: "sweep", tag: "Option B", title: "Radar sweep",
+    body: "A bright ring expands from the epicenter every few seconds, clipped to the outer band so it only lights up real footprint. Re-asserts where the epicenter is.",
+    verdict: "Cost <b>low</b> · Encoding <b>untouched</b>" },
+  { id: "ripples", tag: "Option C", title: "Epicenter ripples",
+    body: "Concentric rings emanate from the epicenter, over the top of the bands. Shares its visual language with the calculating-intensity loader.",
+    verdict: "Cost <b>very low</b> · Encoding <b>untouched</b>" },
+  { id: "glow", tag: "Option D", title: "Peak-band glow",
+    body: "Only the strongest band breathes, and only on its stroke and drop-shadow. Directs attention to the severe core without altering a single fill.",
+    verdict: "Cost <b>low</b> · Encoding <b>untouched</b>" },
+  { id: "hatch", tag: "Option E", title: "Drifting hatch",
+    body: "A line pattern per band drifts outward, its density rising with intensity. The only option here that <i>adds</i> information: it survives greyscale and colour-blind viewing.",
+    verdict: "Cost <b>medium</b> · Encoding <b>reinforced</b>" },
+];
+
+const grid = document.getElementById("grid");
+const maps = {};
+
+for (const p of PANELS) {
+  const cell = document.createElement("section");
+  cell.className = "cell";
+  cell.innerHTML =
+    `<div class="cap"><span class="tag">${p.tag}</span><h2>${p.title}</h2>` +
+    `<p>${p.body}</p><div class="verdict">${p.verdict}</div></div>` +
+    `<div class="map" id="map-${p.id}"></div>`;
+  grid.appendChild(cell);
+}
+
+function buildMap(id) {
+  const map = L.map(`map-${id}`, {
+    center: EPI, zoom: 6, zoomControl: false, attributionControl: true,
+    // Interaction off: the panels must stay pixel-comparable.
+    dragging: false, scrollWheelZoom: false, doubleClickZoom: false,
+    boxZoom: false, keyboard: false, touchZoom: false,
+  });
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+    attribution: "© OpenStreetMap, © CARTO", maxZoom: 19,
+  }).addTo(map);
+  const layer = L.geoJSON(footprint(), {
+    style: f => ({ color: f.properties.color, weight: 1.5, opacity: 0.95,
+                   fillColor: f.properties.color, fillOpacity: 0.45 }),
+  }).addTo(map);
+  // Tagging happens after addTo, not in onEachFeature: Leaflet does not create
+  // the <path> until the layer joins a map, so getElement() is null until here.
+  layer.eachLayer((l) => {
+    const el = l.getElement();
+    if (!el) return;
+    el.classList.add("band");
+    if (l.feature.properties.peak) el.classList.add("band-peak");
+    el.dataset.mmi = l.feature.properties.mmi;
+  });
+  maps[id] = { map, layer };
+  return { map, layer };
+}
+
+// Leaflet's overlay <svg> is the natural host for defs, clip paths and any
+// extra geometry — anything appended there pans and zooms with the map.
+function overlaySvg(map) { return map.getPanes().overlayPane.querySelector("svg"); }
+function svgEl(name) { return document.createElementNS("http://www.w3.org/2000/svg", name); }
+
+/* --- Reference ------------------------------------------------------ */
+buildMap("baseline");
+
+/* --- A: traveling contours ------------------------------------------ */
+{
+  const { map } = buildMap("contours");
+  overlaySvg(map).classList.add("fx-contours");
+}
+
+/* --- B: radar sweep -------------------------------------------------- */
+{
+  const { map, layer } = buildMap("sweep");
+  const svg = overlaySvg(map);
+  const outer = layer.getLayers()[0].getElement();   // MMI 4 — the footprint edge
+
+  const defs = svgEl("defs");
+  const clip = svgEl("clipPath");
+  clip.setAttribute("id", "sweep-clip");
+  const clipPath = svgEl("path");
+  clip.appendChild(clipPath);
+  defs.appendChild(clip);
+  svg.appendChild(defs);
+
+  const g = svgEl("g");
+  g.setAttribute("clip-path", "url(#sweep-clip)");
+  const ring = svgEl("circle");
+  ring.setAttribute("class", "sweep-ring");
+  g.appendChild(ring);
+  svg.appendChild(g);
+
+  // The clip has to track the band it is cut from: Leaflet rewrites `d` on
+  // every zoom, and a stale clip would crop the sweep against old geometry.
+  const syncClip = () => clipPath.setAttribute("d", outer.getAttribute("d"));
+  syncClip();
+  map.on("zoomend moveend", syncClip);
+
+  const state = { r: 0, o: 0 };
+  const centre = () => map.latLngToLayerPoint(EPI);
+  anime.animate(state, {
+    r: [{ to: 260 }], o: [{ to: 0.95, duration: 260 }, { to: 0, duration: 1900 }],
+    duration: 2200, loop: true, ease: "outSine", delay: 700,
+    onUpdate: () => {
+      const c = centre();
+      ring.setAttribute("cx", c.x); ring.setAttribute("cy", c.y);
+      ring.setAttribute("r", state.r);
+      ring.style.opacity = state.o;
+    },
+  });
+}
+
+/* --- C: epicenter ripples -------------------------------------------- */
+{
+  const { map } = buildMap("ripples");
+  const SIZE = 320, RINGS = 3;
+  const icon = L.divIcon({
+    className: "ripple-wrap",
+    html: Array.from({ length: RINGS },
+      (_, i) => `<i style="--rd:${(i * 3.2 / RINGS).toFixed(2)}s"></i>`).join(""),
+    iconSize: [SIZE, SIZE], iconAnchor: [SIZE / 2, SIZE / 2],
+  });
+  L.marker(EPI, { icon, interactive: false, keyboard: false }).addTo(map);
+}
+
+/* --- D: peak-band glow ------------------------------------------------ */
+{
+  const { map } = buildMap("glow");
+  overlaySvg(map).classList.add("fx-glow");
+}
+
+/* --- E: drifting hatch ------------------------------------------------ */
+{
+  const { map, layer } = buildMap("hatch");
+  const svg = overlaySvg(map);
+  const defs = svgEl("defs");
+  svg.appendChild(defs);
+  const patterns = [];
+
+  layer.getLayers().forEach((l, i) => {
+    const f = l.feature.properties;
+    const el = l.getElement();
+    if (!el) return;
+    // Spacing tightens as intensity rises, so hatch density is a second,
+    // redundant encoding of the same value the fill already carries.
+    const gap = 16 - i * 1.9;
+    const pat = svgEl("pattern");
+    const pid = `hatch-${f.mmi}`;
+    pat.setAttribute("id", pid);
+    pat.setAttribute("width", gap); pat.setAttribute("height", gap);
+    pat.setAttribute("patternUnits", "userSpaceOnUse");
+    const line = svgEl("path");
+    line.setAttribute("d", `M0,${gap} L${gap},0`);
+    line.setAttribute("stroke", f.color);
+    line.setAttribute("stroke-width", 1.6);
+    line.setAttribute("opacity", 0.9);
+    pat.appendChild(line);
+    defs.appendChild(pat);
+    patterns.push({ pat, gap });
+
+    // A clone carries the pattern, so the band's own fill stays exactly as it
+    // renders today and the texture is a pure addition on top of it.
+    const clone = svgEl("path");
+    clone.setAttribute("class", "hatch-fill");
+    clone.setAttribute("fill", `url(#${pid})`);
+    const sync = () => clone.setAttribute("d", el.getAttribute("d"));
+    sync();
+    map.on("zoomend moveend", sync);
+    el.parentNode.insertBefore(clone, el.nextSibling);
+  });
+
+  const drift = { t: 0 };
+  anime.animate(drift, {
+    t: [{ to: 1 }], duration: 2600, loop: true, ease: "linear",
+    onUpdate: () => patterns.forEach(({ pat, gap }) =>
+      pat.setAttribute("patternTransform", `translate(${drift.t * gap} ${drift.t * gap})`)),
+  });
+}
+
+/* --- Controls --------------------------------------------------------- */
+const sp = document.getElementById("sp"), spv = document.getElementById("spv");
+sp.addEventListener("input", () => {
+  document.documentElement.style.setProperty("--sp", sp.value);
+  spv.textContent = `${Number(sp.value).toFixed(1)}×`;
+  // CSS-driven panels read --sp directly; the anime.js ones need telling.
+  anime.engine.speed = Number(sp.value);
+});
+
+const pause = document.getElementById("pause");
+pause.addEventListener("click", () => {
+  const on = pause.getAttribute("aria-pressed") !== "true";
+  pause.setAttribute("aria-pressed", String(on));
+  pause.textContent = on ? "Play" : "Pause";
+  document.body.classList.toggle("paused", on);
+  if (on) anime.engine.pause(); else anime.engine.resume();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MMI Exposure Analysis</title>
+<style>
+  :root{
+    --bg:#0f1419; --panel:#171d24; --panel-2:#1e252e; --line:#2c353f;
+    --text:#e6edf3; --muted:#8b98a5; --accent:#4a9eff; --err:#f85149;
+  }
+  @media (prefers-color-scheme: light){
+    :root{
+      --bg:#f4f6f8; --panel:#fff; --panel-2:#f0f3f6; --line:#d7dee6;
+      --text:#1a222c; --muted:#5c6773; --accent:#0969da; --err:#cf222e;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:28px 20px;background:var(--bg);color:var(--text);
+       font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+  main{max-width:1080px;margin:0 auto}
+  h1{margin:0 0 4px;font-size:19px;font-weight:650;letter-spacing:-.2px}
+  p.sub{margin:0 0 20px;color:var(--muted);font-size:13px}
+
+  button{font:inherit;font-weight:600;cursor:pointer;color:#fff;
+         background:var(--accent);border:none;border-radius:7px;padding:11px 22px}
+  button:disabled{opacity:.55;cursor:not-allowed}
+
+  .msg{margin-top:18px;padding:11px 13px;border-radius:8px;font-size:13px;
+       background:rgba(248,81,73,.12);border:1px solid var(--err);color:var(--err)}
+
+  .wrap{margin-top:22px;background:var(--panel);border:1px solid var(--line);
+        border-radius:10px;overflow:hidden}
+  .scroll{overflow-x:auto}
+  table{border-collapse:collapse;width:100%;font-size:13px;white-space:nowrap}
+  th,td{padding:9px 13px;text-align:right;border-bottom:1px solid var(--line)}
+  th{font-size:11px;text-transform:uppercase;letter-spacing:.5px;
+     color:var(--muted);font-weight:600;background:var(--panel-2)}
+  th:first-child,td:first-child{text-align:left}
+  td.num{font-variant-numeric:tabular-nums}
+  tbody tr:last-child td{border-bottom:none}
+  tfoot td{font-weight:700;background:var(--panel-2);border-top:2px solid var(--line);
+           border-bottom:none}
+  .swatch{display:inline-block;width:11px;height:11px;border-radius:3px;
+          margin-right:8px;vertical-align:-1px;border:1px solid rgba(128,128,128,.45)}
+  .note{color:var(--muted);font-size:12px;margin-top:12px}
+</style>
+</head>
+<body>
+<main>
+  <h1>MMI Exposure Analysis</h1>
+  <p class="sub">Elements underneath each shaking-intensity band.</p>
+
+  <button id="run">Run analysis</button>
+
+  <div id="out"></div>
+</main>
+
+<script>
+const fmt = n => Math.round(n || 0).toLocaleString("en-US");
+
+document.getElementById("run").addEventListener("click", async () => {
+  const btn = document.getElementById("run");
+  const out = document.getElementById("out");
+  btn.disabled = true;
+  btn.textContent = "Analysing…";
+  out.innerHTML = "";
+
+  try {
+    const res = await fetch("/api/analyze", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({source: "sample", include_geometry: false})
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || ("HTTP " + res.status));
+    out.innerHTML = table(data);
+  } catch (e) {
+    out.innerHTML = '<div class="msg"></div>';
+    out.querySelector(".msg").textContent = e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Run analysis";
+  }
+});
+
+function table(data){
+  const head = ["Band", "Area km²", "Population", "Male", "Female",
+                "Settlements", "Hospitals", "Schools", "Roads", "Bridges", "Airports"];
+  const keys = ["settlements", "hospitals", "schools", "roads", "bridges", "airports"];
+
+  const row = (label, colour, area, el) => {
+    const p = el.population || {};
+    const cells = [
+      "<td>" + (colour ? '<span class="swatch" style="background:' + colour + '"></span>' : "") + label + "</td>",
+      '<td class="num">' + fmt(area) + "</td>",
+      '<td class="num">' + fmt(p.total) + "</td>",
+      '<td class="num">' + fmt(p.male) + "</td>",
+      '<td class="num">' + fmt(p.female) + "</td>"
+    ];
+    for (const k of keys) cells.push('<td class="num">' + fmt((el[k] || {}).count) + "</td>");
+    return "<tr>" + cells.join("") + "</tr>";
+  };
+
+  const body = data.bands.map(b =>
+    row("MMI " + b.mmi_low + "–" + b.mmi_high, b.color, b.area_km2, b.elements)).join("");
+  const area = data.bands.reduce((a, b) => a + b.area_km2, 0);
+  const foot = row("Total", null, area, data.totals);
+
+  return '<div class="wrap"><div class="scroll"><table>'
+       + "<thead><tr>" + head.map(h => "<th>" + h + "</th>").join("") + "</tr></thead>"
+       + "<tbody>" + body + "</tbody>"
+       + "<tfoot>" + foot + "</tfoot>"
+       + "</table></div></div>"
+       + '<div class="note">Population is the sum of the male and female age columns; '
+       + "every other layer is a feature count. Each element is counted once, in the "
+       + "highest MMI band it falls in.</div>";
+}
+</script>
+</body>
+</html>

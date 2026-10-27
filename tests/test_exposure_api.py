@@ -4,7 +4,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from eqmon import exposure
+from eqmon import config, exposure
 
 BANDS = {
     "type": "FeatureCollection",
@@ -168,7 +168,8 @@ def test_summary_keeps_bands_strongest_first_and_totals():
 def test_analyze_sends_geojson_and_suppresses_arc_geometry():
     client, fake = make_client(ok_handler)
     client.post("/exposure/analyze", json={"bands": BANDS})
-    _, payload = fake.posts[0]
+    url, payload = fake.posts[0]
+    assert url == f"{config.ARC_URL}/api/analyze"
     assert payload["source"] == "geojson"
     # We render our own bands; ARC's smoothed copy would be a second, subtly
     # different footprint on the same map.

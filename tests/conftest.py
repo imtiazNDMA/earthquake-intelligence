@@ -29,3 +29,15 @@ def db_conn():
     finally:
         conn.rollback()
         conn.close()
+
+
+def pytest_collection_modifyitems(session, config, items):
+    """Run the browser matrix last.
+
+    Playwright's sync API keeps an asyncio loop running in the main thread for
+    the rest of the session, and any test that later calls ``asyncio.run()``
+    fails against it. ``tests/browser`` otherwise sorts first, so the ordering is
+    what keeps both halves of the suite honest -- neither one has to be changed
+    to accommodate the other.
+    """
+    items.sort(key=lambda item: "tests/browser" in item.path.as_posix())

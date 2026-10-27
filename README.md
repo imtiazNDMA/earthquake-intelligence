@@ -36,7 +36,7 @@ never crosses the wire.
 
 ## Intensity model
 
-Ported from the original ArcGIS field calculator (`Expression.cal`):
+Ported from the original ArcGIS field calculator (`docs/reference/legacy/Expression.cal`):
 
 ```
 r        = sqrt(haversine_dist(epi, cell)^2 + depth^2) / 1000  # km
@@ -50,7 +50,7 @@ arcpy used a GEODESIC call; haversine is fully vectorized (the request stays
 interactive over a 24M-cell grid) and the difference is sub-metre in the near
 field where high intensities are decided — at most a few km at the grid's far
 corners, where MMI is already at its floor. Where the Vs30 grid has no value,
-the Default Site Condition (Vs30 = 760 m/s) is used. See `CONTEXT.md` for the
+the Default Site Condition (Vs30 = 760 m/s) is used. See `docs/reference/CONTEXT.md` for the
 domain language.
 
 ## Layout
@@ -67,18 +67,37 @@ src/eqmon/
   db.py          PostGIS connection pool + schema helpers
   _env.py        loads local .env (DATABASE_URL) into os.environ
   events/        sources.py (USGS + MET stub), ingest.py (dedup), repo.py
+  ai/places.py   spatial-first, duplicate-safe admin place resolution
   impact.py      per-event multi-level impact (province/district/tehsil)
-schema.sql                  PostGIS tables (seismic_event, admin_boundary)
+migrations/       ordered PostGIS DDL; 000-schema-reference.sql is the
+                  baseline table reference (seismic_event, admin_boundary)
 scripts/rasterize_vs30.py   one-time shapefile -> COG
 scripts/load_boundaries.py  one-time admin-boundary load into PostGIS (simplified)
 scripts/build_tiles.py      one-time overlay .pmtiles via tippecanoe-in-Docker
-web/             Leaflet map + tile overlays + event form + catalog + impact table
+web/              Leaflet map + tile overlays + event form + catalog + impact table
+tests/            pytest suite; browser/ (Playwright), js/ (harnesses), fixtures/
+data/             geospatial source data (faults, PGA, pakistan_infra/, ...)
+docs/reference/   API.md, CONTEXT.md glossary, classification_range.md, legacy/
+docs/planning/    roadmap, todos, and the ai/ui design write-ups
+docs/superpowers/ dated specs, plans, and roadmaps
 ```
 
 ## Tests
 
 ```bash
 uv run pytest -q
+```
+
+Evaluate deterministic place resolution against the loaded boundary table:
+
+```bash
+uv run python scripts/evaluate_places.py
+```
+
+Run the opt-in live LM Studio search-tool benchmark:
+
+```bash
+uv run python scripts/evaluate_search_tool.py --repeats 3
 ```
 
 DB-backed tests require a PostGIS test database; set `DATABASE_URL_TEST`
@@ -114,6 +133,7 @@ uv run python scripts/build_tiles.py           # one-time: build web/tiles/*.pmt
 | `POST /events` | Manual Event Input (Coverage-Region validated) |
 | `POST /events/ingest` | Pull the USGS feed (Secondary Seismic Source) now |
 | `GET /events` | List canonical catalog events (`since`, `min_magnitude`, `limit`) |
+| `POST /events/search` | Validated catalog search with dates, point/radius, and mainshock state |
 | `GET /events/{id}` | Event detail |
 | `POST /events/{id}/impact` | MMI bands + multi-level impact (province/district/tehsil: max band + representative MMI) |
 
@@ -156,7 +176,7 @@ viewport — typically 1–4 live sources instead of all 161.
 `POST /events/{id}/exposure` and `POST /exposure/analyze` report what sits under
 each MMI band — population, settlements, hospitals, schools, roads, bridges,
 airports — by handing our band layer to **ARC**, an external elements-at-risk
-service (`API.md` documents ARC's own API).
+service (`docs/reference/API.md` documents ARC's own API).
 
 This complements `/events/{id}/impact` rather than replacing it: impact rolls up
 *which admin units* shake from PostGIS, exposure counts *what is inside* the
@@ -164,7 +184,7 @@ shaking. They are computed independently, and ARC being down never affects
 impact.
 
 ```
-ARC_URL=http://172.18.0.12:5002    # .env; the service moves with its container
+ARC_URL=http://172.18.0.29:5001    # .env; the service moves with its container
 ARC_TIMEOUT_S=180                  # a full scan is ~12 s, roads is ~375k features
 ```
 
@@ -220,3 +240,24 @@ Its fills come from `data/PGA/PGAstyles.sld`, the style shipped with the data,
 not from a palette chosen here — same rule as the raster breaks. Note the ramp
 is not monotonic in lightness (Zone 2A is darker than Zone 1); that is what the
 source says, and reproducing a published map faithfully beats making it prettier.
+
+## Landslide susceptibility
+
+The Layers panel can lazily render the supplied **Very High** landslide
+susceptibility masks for AJK, Gilgit-Baltistan, Khyber Pakhtunkhwa, and
+Balochistan. The layer is categorical and filtered: transparent pixels are not
+automatically a lower susceptibility class and may be outside assessed coverage.
+
+Raw ArcGIS `RasterToPolygon` exports live locally under
+`data/LS Susceptability Maps/` and are intentionally ignored. Build the layer in
+two stages:
+
+```bash
+uv run python scripts/prepare_landslide_data.py  # categorical regional COGs
+uv run python scripts/build_landslide_tiles.py   # web/landslides/*.pmtiles
+```
+
+Both outputs are reproducible and gitignored. Preparation validates CRS and
+`gridcode = 5`, repairs invalid polygon topology, records source SHA-256 values,
+and uses nearest-neighbor categorical processing. The approved Very High color
+is hazard red `#D73027`; display opacity remains adjustable in the map.

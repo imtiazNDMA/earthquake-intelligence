@@ -1,0 +1,1492 @@
+{
+  "evaluator_version": "1.2",
+  "caseset_version": "1.0",
+  "created_at": "2026-08-13T09:43:41.907571+00:00",
+  "model_requested": "google/gemma-4-26b-a4b",
+  "model_metadata": {
+    "lm_studio_version": null,
+    "artifact_checksum": null,
+    "model": {
+      "id": "google/gemma-4-26b-a4b",
+      "object": "model",
+      "type": "vlm",
+      "publisher": "google",
+      "arch": "gemma4",
+      "compatibility_type": "gguf",
+      "quantization": "Q4_K_M",
+      "state": "loaded",
+      "max_context_length": 262144,
+      "loaded_context_length": 262144,
+      "capabilities": [
+        "tool_use"
+      ]
+    }
+  },
+  "environment": {
+    "python": "3.12.12",
+    "platform": "Windows-11-10.0.26200-SP0"
+  },
+  "repeats": 3,
+  "hashes": {
+    "system_prompt_sha256": "f64d4b4ddc4db591f509c08fba9934bfcffe35f9f315381cf3a1e3a8d4cd4d02",
+    "tool_schema_sha256": "2b93492615e1c59f51ae03b6035c741506567156acabeedd6fe2694bf7c1d536",
+    "cases_sha256": "39a8bd65a9588cfba725c7b8ca477b4cc0e030ee897e7bf46e34870dd0fe6e36"
+  },
+  "snapshots": {
+    "system_prompt": "You translate earthquake catalog requests into tool calls.\nCall search_events only for earthquake catalog searches. Extract only constraints\nthe user explicitly states. Use ISO 8601 datetimes with a timezone offset. Do\nnot infer coordinates for place names. Source values are uppercase PMD, USGS,\nand MANUAL; \"manual\" or \"manually entered\" means MANUAL. For a catalog search,\ncall the tool immediately without explaining your reasoning. If the request is\nnot an earthquake catalog search, answer normally and do not call a tool.",
+    "tool_schema": {
+      "type": "function",
+      "function": {
+        "name": "search_events",
+        "description": "Search the earthquake event catalog when the user asks for earthquakes filtered by magnitude, source, time, coordinates, radius, or mainshock/aftershock state. Do not call this tool for general knowledge, writing, weather, or non-earthquake tasks. Domain contract 1.0; model schema 1.2.",
+        "parameters": {
+          "additionalProperties": false,
+          "description": "Complete deterministic input surface for catalog search.\n\nRadius is geodesic distance from ``center_lon``/``center_lat`` to each\nevent point. Named-place interpretation happens before this contract.",
+          "properties": {
+            "min_magnitude": {
+              "anyOf": [
+                {
+                  "maximum": 10.0,
+                  "minimum": -1.0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Inclusive minimum magnitude.",
+              "title": "Min Magnitude"
+            },
+            "max_magnitude": {
+              "anyOf": [
+                {
+                  "maximum": 10.0,
+                  "minimum": -1.0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Inclusive maximum magnitude.",
+              "title": "Max Magnitude"
+            },
+            "source": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "PMD",
+                    "USGS",
+                    "MANUAL"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Canonical event source. Use uppercase PMD, USGS, or MANUAL exactly. Manually entered events map to MANUAL.",
+              "title": "Source"
+            },
+            "search": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Case-insensitive substring of event place.",
+              "title": "Search"
+            },
+            "occurred_after": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Inclusive lower event-time bound; ISO 8601 with timezone.",
+              "title": "Occurred After"
+            },
+            "occurred_before": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Inclusive upper event-time bound; ISO 8601 with timezone.",
+              "title": "Occurred Before"
+            },
+            "center_lon": {
+              "anyOf": [
+                {
+                  "maximum": 180.0,
+                  "minimum": -180.0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "WGS84 longitude in decimal degrees; east is positive.",
+              "title": "Center Lon"
+            },
+            "center_lat": {
+              "anyOf": [
+                {
+                  "maximum": 90.0,
+                  "minimum": -90.0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "WGS84 latitude in decimal degrees; north is positive.",
+              "title": "Center Lat"
+            },
+            "radius_km": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0.0,
+                  "maximum": 5000.0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Geodesic search radius in kilometers; requires center coordinates.",
+              "title": "Radius Km"
+            },
+            "event_kind": {
+              "default": "all",
+              "description": "Use mainshocks or aftershocks only when explicitly requested.",
+              "enum": [
+                "all",
+                "mainshocks",
+                "aftershocks"
+              ],
+              "title": "Event Kind",
+              "type": "string"
+            },
+            "limit": {
+              "default": 20,
+              "description": "Maximum events to return.",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            },
+            "offset": {
+              "default": 0,
+              "description": "Pagination offset.",
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            },
+            "orderby": {
+              "default": "time",
+              "description": "Sort order: time is newest first, time-asc is oldest first, and magnitude is largest first.",
+              "enum": [
+                "time",
+                "time-asc",
+                "magnitude"
+              ],
+              "title": "Orderby",
+              "type": "string"
+            }
+          },
+          "title": "EventSearchSpec",
+          "type": "object"
+        }
+      }
+    },
+    "cases": [
+      {
+        "id": "minimum-magnitude-date",
+        "query": "Find earthquakes of magnitude 5 or above since January 1, 2025 UTC.",
+        "expected": {
+          "min_magnitude": 5.0,
+          "occurred_after": "2025-01-01T00:00:00Z"
+        }
+      },
+      {
+        "id": "magnitude-range-source",
+        "query": "Show USGS earthquakes from magnitude 4 through 6.",
+        "expected": {
+          "min_magnitude": 4.0,
+          "max_magnitude": 6.0,
+          "source": "USGS"
+        }
+      },
+      {
+        "id": "radius-mainshocks",
+        "query": "Find mainshocks within 100 km of longitude 66.9 east, latitude 30.2 north, with magnitude at least 5.",
+        "expected": {
+          "min_magnitude": 5.0,
+          "center_lon": 66.9,
+          "center_lat": 30.2,
+          "radius_km": 100.0,
+          "event_kind": "mainshocks"
+        }
+      },
+      {
+        "id": "aftershocks-window",
+        "query": "List aftershocks between 2026-01-01 00:00 UTC and 2026-02-01 00:00 UTC.",
+        "expected": {
+          "occurred_after": "2026-01-01T00:00:00Z",
+          "occurred_before": "2026-02-01T00:00:00Z",
+          "event_kind": "aftershocks"
+        }
+      },
+      {
+        "id": "largest-limit",
+        "query": "Return the 25 largest earthquakes in the catalog.",
+        "expected": {
+          "limit": 25,
+          "orderby": "magnitude"
+        }
+      },
+      {
+        "id": "oldest-manual",
+        "query": "Show the oldest 10 manually entered earthquake events.",
+        "expected": {
+          "source": "MANUAL",
+          "limit": 10,
+          "orderby": "time-asc"
+        }
+      },
+      {
+        "id": "place-substring",
+        "query": "Search the earthquake catalog for events whose place contains Quetta.",
+        "expected": {
+          "search": "Quetta"
+        }
+      },
+      {
+        "id": "abstain-general-knowledge",
+        "query": "What is the capital of France?",
+        "expected": null
+      },
+      {
+        "id": "abstain-writing",
+        "query": "Write a short poem about mountains.",
+        "expected": null
+      },
+      {
+        "id": "abstain-weather",
+        "query": "Will it rain in Islamabad tomorrow?",
+        "expected": null
+      }
+    ]
+  },
+  "summary": {
+    "passed": 30,
+    "total": 30,
+    "accuracy": 1.0,
+    "tool_accuracy": 1.0,
+    "expected_field_accuracy": 1.0,
+    "unexpected_fields": 0,
+    "abstention_accuracy": 1.0,
+    "malformed_or_invalid": 0,
+    "latency_s": {
+      "min": 0.453,
+      "median": 1.046,
+      "p95": 1.938,
+      "max": 3.39
+    }
+  },
+  "case_summary": [
+    {
+      "case_id": "minimum-magnitude-date",
+      "passed": 3,
+      "total": 3,
+      "outcomes": [
+        "exact"
+      ]
+    },
+    {
+      "case_id": "magnitude-range-source",
+      "passed": 3,
+      "total": 3,
+      "outcomes": [
+        "exact"
+      ]
+    },
+    {
+      "case_id": "radius-mainshocks",
+      "passed": 3,
+      "total": 3,
+      "outcomes": [
+        "exact"
+      ]
+    },
+    {
+      "case_id": "aftershocks-window",
+      "passed": 3,
+      "total": 3,
+      "outcomes": [
+        "exact"
+      ]
+    },
+    {
+      "case_id": "largest-limit",
+      "passed": 3,
+      "total": 3,
+      "outcomes": [
+        "exact"
+      ]
+    },
+    {
+      "case_id": "oldest-manual",
+      "passed": 3,
+      "total": 3,
+      "outcomes": [
+        "exact"
+      ]
+    },
+    {
+      "case_id": "place-substring",
+      "passed": 3,
+      "total": 3,
+      "outcomes": [
+        "exact"
+      ]
+    },
+    {
+      "case_id": "abstain-general-knowledge",
+      "passed": 3,
+      "total": 3,
+      "outcomes": [
+        "abstained"
+      ]
+    },
+    {
+      "case_id": "abstain-writing",
+      "passed": 3,
+      "total": 3,
+      "outcomes": [
+        "abstained"
+      ]
+    },
+    {
+      "case_id": "abstain-weather",
+      "passed": 3,
+      "total": 3,
+      "outcomes": [
+        "abstained"
+      ]
+    }
+  ],
+  "repeatability": {
+    "stable_cases": 10,
+    "total_cases": 10,
+    "rate": 1.0,
+    "cases": [
+      {
+        "case_id": "minimum-magnitude-date",
+        "stable": true,
+        "distinct_outputs": 1
+      },
+      {
+        "case_id": "magnitude-range-source",
+        "stable": true,
+        "distinct_outputs": 1
+      },
+      {
+        "case_id": "radius-mainshocks",
+        "stable": true,
+        "distinct_outputs": 1
+      },
+      {
+        "case_id": "aftershocks-window",
+        "stable": true,
+        "distinct_outputs": 1
+      },
+      {
+        "case_id": "largest-limit",
+        "stable": true,
+        "distinct_outputs": 1
+      },
+      {
+        "case_id": "oldest-manual",
+        "stable": true,
+        "distinct_outputs": 1
+      },
+      {
+        "case_id": "place-substring",
+        "stable": true,
+        "distinct_outputs": 1
+      },
+      {
+        "case_id": "abstain-general-knowledge",
+        "stable": true,
+        "distinct_outputs": 1
+      },
+      {
+        "case_id": "abstain-writing",
+        "stable": true,
+        "distinct_outputs": 1
+      },
+      {
+        "case_id": "abstain-weather",
+        "stable": true,
+        "distinct_outputs": 1
+      }
+    ]
+  },
+  "trials": [
+    {
+      "case_id": "minimum-magnitude-date",
+      "repeat": 1,
+      "query": "Find earthquakes of magnitude 5 or above since January 1, 2025 UTC.",
+      "expected_kind": "tool",
+      "expected": {
+        "min_magnitude": 5.0,
+        "occurred_after": "2025-01-01T00:00:00Z"
+      },
+      "passed": true,
+      "outcome": "exact",
+      "actual": {
+        "min_magnitude": 5.0,
+        "occurred_after": "2025-01-01T00:00:00Z"
+      },
+      "actual_raw": {
+        "min_magnitude": 5,
+        "occurred_after": "2025-01-01T00:00:00Z"
+      },
+      "field_results": {
+        "min_magnitude": true,
+        "occurred_after": true
+      },
+      "unexpected_fields": [],
+      "error": null,
+      "latency_s": 3.39,
+      "model_returned": "google/gemma-4-26b-a4b",
+      "usage": {
+        "prompt_tokens": 581,
+        "completion_tokens": 139,
+        "total_tokens": 720,
+        "completion_tokens_details": {
+          "reasoning_tokens": 93
+        }
+      }
+    },
+    {
+      "case_id": "minimum-magnitude-date",
+      "repeat": 2,
+      "query": "Find earthquakes of magnitude 5 or above since January 1, 2025 UTC.",
+      "expected_kind": "tool",
+      "expected": {
+        "min_magnitude": 5.0,
+        "occurred_after": "2025-01-01T00:00:00Z"
+      },
+      "passed": true,
+      "outcome": "exact",
+      "actual": {
+        "min_magnitude": 5.0,
+        "occurred_after": "2025-01-01T00:00:00Z"
+      },
+      "actual_raw": {
+        "min_magnitude": 5,
+        "occurred_after": "2025-01-01T00:00:00Z"
+      },
+      "field_results": {
+        "min_magnitude": true,
+        "occurred_after": true
+      },
+      "unexpected_fields": [],
+      "error": null,
+      "latency_s": 1.094,
+      "model_returned": "google/gemma-4-26b-a4b",
+      "usage": {
+        "prompt_tokens": 581,
+        "completion_tokens": 139,
+        "total_tokens": 720,
+        "completion_tokens_details": {
+          "reasoning_tokens": 93
+        }
+      }
+    },
+    {
+      "case_id": "minimum-magnitude-date",
+      "repeat": 3,
+      "query": "Find earthquakes of magnitude 5 or above since January 1, 2025 UTC.",
+      "expected_kind": "tool",
+      "expected": {
+        "min_magnitude": 5.0,
+        "occurred_after": "2025-01-01T00:00:00Z"
+      },
+      "passed": true,
+      "outcome": "exact",
+      "actual": {
+        "min_magnitude": 5.0,
+        "occurred_after": "2025-01-01T00:00:00Z"
+      },
+      "actual_raw": {
+        "min_magnitude": 5,
+        "occurred_after": "2025-01-01T00:00:00Z"
+      },
+      "field_results": {
+        "min_magnitude": true,
+        "occurred_after": true
+      },
+      "unexpected_fields": [],
+      "error": null,
+      "latency_s": 1.078,
+      "model_returned": "google/gemma-4-26b-a4b",
+      "usage": {
+        "prompt_tokens": 581,
+        "completion_tokens": 139,
+        "total_tokens": 720,
+        "completion_tokens_details": {
+          "reasoning_tokens": 93
+        }
+      }
+    },
+    {
+      "case_id": "magnitude-range-source",
+      "repeat": 1,
+      "query": "Show USGS earthquakes from magnitude 4 through 6.",
+      "expected_kind": "tool",
+      "expected": {
+        "min_magnitude": 4.0,
+        "max_magnitude": 6.0,
+        "source": "USGS"
+      },
+      "passed": true,
+      "outcome": "exact",
+      "actual": {
+        "min_magnitude": 4.0,
+        "max_magnitude": 6.0,
+        "source": "USGS"
+      },
+      "actual_raw": {
+        "max_magnitude": 6,
+        "min_magnitude": 4,
+        "source": "USGS"
+      },
+      "field_results": {
+        "min_magnitude": true,
+        "max_magnitude": true,
+        "source": true
+      },
+      "unexpected_fields": [],
+      "error": null,
+      "latency_s": 1.094,
+      "model_returned": "google/gemma-4-26b-a4b",
+      "usage": {
+        "prompt_tokens": 572,
+        "completion_tokens": 139,
+        "total_tokens": 711,
+        "completion_tokens_details": {
+          "reasoning_tokens": 108
+        }
+      }
+    },
+    {
+      "case_id": "magnitude-range-source",
+      "repeat": 2,
+      "query": "Show USGS earthquakes from magnitude 4 through 6.",
+      "expected_kind": "tool",
+      "expected": {
+        "min_magnitude": 4.0,
+        "max_magnitude": 6.0,
+        "source": "USGS"
+      },
+      "passed": true,
+      "outcome": "exact",
+      "actual": {
+        "min_magnitude": 4.0,
+        "max_magnitude": 6.0,
+        "source": "USGS"
+      },
+      "actual_raw": {
+        "max_magnitude": 6,
+        "min_magnitude": 4,
+        "source": "USGS"
+      },
+      "field_results": {
+        "min_magnitude": true,
+        "max_magnitude": true,
+        "source": true
+      },
+      "unexpected_fields": [],
+      "error": null,
+      "latency_s": 1.062,
+      "model_returned": "google/gemma-4-26b-a4b",
+      "usage": {
+        "prompt_tokens": 572,
+        "completion_tokens": 136,
+        "total_tokens": 708,
+        "completion_tokens_details": {
+          "reasoning_tokens": 105
+        }
+      }
+    },
+    {
+      "case_id": "magnitude-range-source",
+      "repeat": 3,
+      "query": "Show USGS earthquakes from magnitude 4 through 6.",
+      "expected_kind": "tool",
+      "expected": {
+        "min_magnitude": 4.0,
+        "max_magnitude": 6.0,
+        "source": "USGS"
+      },
+      "passed": true,
+      "outcome": "exact",
+      "actual": {
+        "min_magnitude": 4.0,
+        "max_magnitude": 6.0,
+        "source": "USGS"
+      },
+      "actual_raw": {
+        "max_magnitude": 6,
+        "min_magnitude": 4,
+        "source": "USGS"
+      },
+      "field_results": {
+        "min_magnitude": true,
+        "max_magnitude": true,
+        "source": true
+      },
+      "unexpected_fields": [],
+      "error": null,
+      "latency_s": 1.063,
+      "model_returned": "google/gemma-4-26b-a4b",
+      "usage": {
+        "prompt_tokens": 572,
+        "completion_tokens": 136,
+        "total_tokens": 708,
+        "completion_tokens_details": {
+          "reasoning_tokens": 105
+        }
+      }
+    },
+    {
+      "case_id": "radius-mainshocks",
+      "repeat": 1,
+      "query": "Find mainshocks within 100 km of longitude 66.9 east, latitude 30.2 north, with magnitude at least 5.",
+      "expected_kind": "tool",
+      "expected": {
+        "min_magnitude": 5.0,
+        "center_lon": 66.9,
+        "center_lat": 30.2,
+        "radius_km": 100.0,
+        "event_kind": "mainshocks"
+      },
+      "passed": true,
+      "outcome": "exact",
+      "actual": {
+        "min_magnitude": 5.0,
+        "center_lon": 66.9,
+        "center_lat": 30.2,
+        "radius_km": 100.0,
+        "event_kind": "mainshocks"
+      },
+      "actual_raw": {
+        "center_lat": 30.2,
+        "center_lon": 66.9,
+        "event_kind": "mainshocks",
+        "min_magnitude": 5,
+        "radius_km": 100
+      },
+      "field_results": {
+        "min_magnitude": true,
+        "center_lon": true,
+        "center_lat": true,
+        "radius_km": true,
+        "event_kind": true
+      },
+      "unexpected_fields": [],
+      "error": null,
+      "latency_s": 1.156,
+      "model_returned": "google/gemma-4-26b-a4b",
+      "usage": {
+        "prompt_tokens": 595,
+        "completion_tokens": 145,
+        "total_tokens": 740,
+        "completion_tokens_details": {
+          "reasoning_tokens": 91
+        }
+      }
+    },
+    {
+      "case_id": "radius-mainshocks",
+      "repeat": 2,
+      "query": "Find mainshocks within 100 km of longitude 66.9 east, latitude 30.2 north, with magnitude at least 5.",
+      "expected_kind": "tool",
+      "expected": {
+        "min_magnitude": 5.0,
+        "center_lon": 66.9,
+        "center_lat": 30.2,
+        "radius_km": 100.0,
+        "event_kind": "mainshocks"
+      },
+      "passed": true,
+      "outcome": "exact",
+      "actual": {
+        "min_magnitude": 5.0,
+        "center_lon": 66.9,
+        "center_lat": 30.2,
+        "radius_km": 100.0,
+        "event_kind": "mainshocks"
+      },
+      "actual_raw": {
+        "center_lat": 30.2,
+        "center_lon": 66.9,
+        "event_kind": "mainshocks",
+        "min_magnitude": 5,
+        "radius_km": 100
+      },
+      "field_results": {
+        "min_magnitude": true,
+        "center_lon": true,
+        "center_lat": true,
+        "radius_km": true,
+        "event_kind": true
+      },
+      "unexpected_fields": [],
+      "error": null,
+      "latency_s": 1.125,
+      "model_returned": "google/gemma-4-26b-a4b",
+      "usage": {
+        "prompt_tokens": 595,
+        "completion_tokens": 145,
+        "total_tokens": 740,
+        "completion_tokens_details": {
+          "reasoning_tokens": 91
+        }
+      }
+    },
+    {
+      "case_id": "radius-mainshocks",
+      "repeat": 3,
+      "query": "Find mainshocks within 100 km of longitude 66.9 east, latitude 30.2 north, with magnitude at least 5.",
+      "expected_kind": "tool",
+      "expected": {
+        "min_magnitude": 5.0,
+        "center_lon": 66.9,
+        "center_lat": 30.2,
+        "radius_km": 100.0,
+        "event_kind": "mainshocks"
+      },
+      "passed": true,
+      "outcome": "exact",
+      "actual": {
+        "min_magnitude": 5.0,
+        "center_lon": 66.9,
+        "center_lat": 30.2,
+        "radius_km": 100.0,
+        "event_kind": "mainshocks"
+      },
+      "actual_raw": {
+        "center_lat": 30.2,
+        "center_lon": 66.9,
+        "event_kind": "mainshocks",
+        "min_magnitude": 5,
+        "radius_km": 100
+      },
+      "field_results": {
+        "min_magnitude": true,
+        "center_lon": true,
+        "center_lat": true,
+        "radius_km": true,
+        "event_kind": true
+      },
+      "unexpected_fields": [],
+      "error": null,
+      "latency_s": 1.11,
+      "model_returned": "google/gemma-4-26b-a4b",
+      "usage": {
+        "prompt_tokens": 595,
+        "completion_tokens": 145,
+        "total_tokens": 740,
+        "completion_tokens_details": {
+          "reasoning_tokens": 91
+        }
+      }
+    },
+    {
+      "case_id": "aftershocks-window",
+      "repeat": 1,
+      "query": "List aftershocks between 2026-01-01 00:00 UTC and 2026-02-01 00:00 UTC.",
+      "expected_kind": "tool",
+      "expected": {
+        "occurred_after": "2026-01-01T00:00:00Z",
+        "occurred_before": "2026-02-01T00:00:00Z",
+        "event_kind": "aftershocks"
+      },
+      "passed": true,
+      "outcome": "exact",
+      "actual": {
+        "occurred_after": "2026-01-01T00:00:00Z",
+        "occurred_before": "2026-02-01T00:00:00Z",
+        "event_kind": "aftershocks"
+      },
+      "actual_raw": {
+        "event_kind": "aftershocks",
+        "occurred_after": "2026-01-01T00:00:00Z",
+        "occurred_before": "2026-02-01T00:00:00Z"
+      },
+      "field_results": {
+        "occurred_after": true,
+        "occurred_before": true,
+        "event_kind": true
+      },
+      "unexpected_fields": [],
+      "error": null,
+      "latency_s": 1.875,
+      "model_returned": "google/gemma-4-26b-a4b",
+      "usage": {
+        "prompt_tokens": 604,
+        "completion_tokens": 246,
+        "total_tokens": 850,
+        "completion_tokens_details": {
+          "reasoning_tokens": 168
+        }
+      }
+    },
+    {
+      "case_id": "aftershocks-window",
+      "repeat": 2,
+      "query": "List aftershocks between 2026-01-01 00:00 UTC and 2026-02-01 00:00 UTC.",
+      "expected_kind": "tool",
+      "expected": {
+        "occurred_after": "2026-01-01T00:00:00Z",
+        "occurred_before": "2026-02-01T00:00:00Z",
+        "event_kind": "aftershocks"
+      },
+      "passed": true,
+      "outcome": "exact",
+      "actual": {
+        "occurred_after": "2026-01-01T00:00:00Z",
+        "occurred_before": "2026-02-01T00:00:00Z",
+        "event_kind": "aftershocks"
+      },
+      "actual_raw": {
+        "event_kind": "aftershocks",
+        "occurred_after": "2026-01-01T00:00:00Z",
+        "occurred_before": "2026-02-01T00:00:00Z"
+      },
+      "field_results": {
+        "occurred_after": true,
+        "occurred_before": true,
+        "event_kind": true
+      },
+      "unexpected_fields": [],
+      "error": null,
+      "latency_s": 1.937,
+      "model_returned": "google/gemma-4-26b-a4b",
+      "usage": {
+        "prompt_tokens": 604,
+        "completion_tokens": 253,
+        "total_tokens": 857,
+        "completion_tokens_details": {
+          "reasoning_tokens": 175
+        }
+      }
+    },
+    {
+      "case_id": "aftershocks-window",
+      "repeat": 3,
+      "query": "List aftershocks between 2026-01-01 00:00 UTC and 2026-02-01 00:00 UTC.",
+      "expected_kind": "tool",
+      "expected": {
+        "occurred_after": "2026-01-01T00:00:00Z",
+        "occurred_before": "2026-02-01T00:00:00Z",
+        "event_kind": "aftershocks"
+      },
+      "passed": true,
+      "outcome": "exact",
+      "actual": {
+        "occurred_after": "2026-01-01T00:00:00Z",
+        "occurred_before": "2026-02-01T00:00:00Z",
+        "event_kind": "aftershocks"
+      },
+      "actual_raw": {
+        "event_kind": "aftershocks",
+        "occurred_after": "2026-01-01T00:00:00Z",
+        "occurred_before": "2026-02-01T00:00:00Z"
+      },
+      "field_results": {
+        "occurred_after": true,
+        "occurred_before": true,
+        "event_kind": true
+      },
+      "unexpected_fields": [],
+      "error": null,
+      "latency_s": 1.938,
+      "model_returned": "google/gemma-4-26b-a4b",
+      "usage": {
+        "prompt_tokens": 604,
+        "completion_tokens": 253,
+        "total_tokens": 857,
+        "completion_tokens_details": {
+          "reasoning_tokens": 175
+        }
+      }
+    },
+    {
+      "case_id": "largest-limit",
+      "repeat": 1,
+      "query": "Return the 25 largest earthquakes in the catalog.",
+      "expected_kind": "tool",
+      "expected": {
+        "limit": 25,
+        "orderby": "magnitude"
+      },
+      "passed": true,
+      "outcome": "exact",
+      "actual": {
+        "limit": 25,
+        "orderby": "magnitude"
+      },
+      "actual_raw": {
+        "limit": 25,
+        "orderby": "magnitude"
+      },
+      "field_results": {
+        "limit": true,
+        "orderby": true
+      },
+      "unexpected_fields": [],
+      "error": null,
+      "latency_s": 0.921,
+      "model_returned": "google/gemma-4-26b-a4b",
+      "usage": {
+        "prompt_tokens": 572,
+        "completion_tokens": 112,
+        "total_tokens": 684,
+        "completion_tokens_details": {
+          "reasoning_tokens": 89
+        }
+      }
+    },
+    {
+      "case_id": "largest-limit",
+      "repeat": 2,
+      "query": "Return the 25 largest earthquakes in the catalog.",
+      "expected_kind": "tool",
+      "expected": {
+        "limit": 25,
+        "orderby": "magnitude"
+      },
+      "passed": true,
+      "outcome": "exact",
+      "actual": {
+        "limit": 25,
+        "orderby": "magnitude"
+      },
+      "actual_raw": {
+        "limit": 25,
+        "orderby": "magnitude"
+      },
+      "field_results": {
+        "limit": true,
+        "orderby": true
+      },
+      "unexpected_fields": [],
+      "error": null,
+      "latency_s": 1.313,
+      "model_returned": "google/gemma-4-26b-a4b",
+      "usage": {
+        "prompt_tokens": 572,
+        "completion_tokens": 168,
+        "total_tokens": 740,
+        "completion_tokens_details": {
+          "reasoning_tokens": 145
+        }
+      }
+    },
+    {
+      "case_id": "largest-limit",
+      "repeat": 3,
+      "query": "Return the 25 largest earthquakes in the catalog.",
+      "expected_kind": "tool",
+      "expected": {
+        "limit": 25,
+        "orderby": "magnitude"
+      },
+      "passed": true,
+      "outcome": "exact",
+      "actual": {
+        "limit": 25,
+        "orderby": "magnitude"
+      },
+      "actual_raw": {
+        "limit": 25,
+        "orderby": "magnitude"
+      },
+      "field_results": {
+        "limit": true,
+        "orderby": true
+      },
+      "unexpected_fields": [],
+      "error": null,
+      "latency_s": 1.312,
+      "model_returned": "google/gemma-4-26b-a4b",
+      "usage": {
+        "prompt_tokens": 572,
+        "completion_tokens": 168,
+        "total_tokens": 740,
+        "completion_tokens_details": {
+          "reasoning_tokens": 145
+        }
+      }
+    },
+    {
+      "case_id": "oldest-manual",
+      "repeat": 1,
+      "query": "Show the oldest 10 manually entered earthquake events.",
+      "expected_kind": "tool",
+      "expected": {
+        "source": "MANUAL",
+        "limit": 10,
+        "orderby": "time-asc"
+      },
+      "passed": true,
+      "outcome": "exact",
+      "actual": {
+        "source": "MANUAL",
+        "limit": 10,
+        "orderby": "time-asc"
+      },
+      "actual_raw": {
+        "limit": 10,
+        "orderby": "time-asc",
+        "source": "MANUAL"
+      },
+      "field_results": {
+        "source": true,
+        "limit": true,
+        "orderby": true
+      },
+      "unexpected_fields": [],
+      "error": null,
+      "latency_s": 1.063,
+      "model_returned": "google/gemma-4-26b-a4b",
+      "usage": {
+        "prompt_tokens": 572,
+        "completion_tokens": 128,
+        "total_tokens": 700,
+        "completion_tokens_details": {
+          "reasoning_tokens": 96
+        }
+      }
+    },
+    {
+      "case_id": "oldest-manual",
+      "repeat": 2,
+      "query": "Show the oldest 10 manually entered earthquake events.",
+      "expected_kind": "tool",
+      "expected": {
+        "source": "MANUAL",
+        "limit": 10,
+        "orderby": "time-asc"
+      },
+      "passed": true,
+      "outcome": "exact",
+      "actual": {
+        "source": "MANUAL",
+        "limit": 10,
+        "orderby": "time-asc"
+      },
+      "actual_raw": {
+        "limit": 10,
+        "orderby": "time-asc",
+        "source": "MANUAL"
+      },
+      "field_results": {
+        "source": true,
+        "limit": true,
+        "orderby": true
+      },
+      "unexpected_fields": [],
+      "error": null,
+      "latency_s": 1.016,
+      "model_returned": "google/gemma-4-26b-a4b",
+      "usage": {
+        "prompt_tokens": 572,
+        "completion_tokens": 126,
+        "total_tokens": 698,
+        "completion_tokens_details": {
+          "reasoning_tokens": 94
+        }
+      }
+    },
+    {
+      "case_id": "oldest-manual",
+      "repeat": 3,
+      "query": "Show the oldest 10 manually entered earthquake events.",
+      "expected_kind": "tool",
+      "expected": {
+        "source": "MANUAL",
+        "limit": 10,
+        "orderby": "time-asc"
+      },
+      "passed": true,
+      "outcome": "exact",
+      "actual": {
+        "source": "MANUAL",
+        "limit": 10,
+        "orderby": "time-asc"
+      },
+      "actual_raw": {
+        "limit": 10,
+        "orderby": "time-asc",
+        "source": "MANUAL"
+      },
+      "field_results": {
+        "source": true,
+        "limit": true,
+        "orderby": true
+      },
+      "unexpected_fields": [],
+      "error": null,
+      "latency_s": 1.015,
+      "model_returned": "google/gemma-4-26b-a4b",
+      "usage": {
+        "prompt_tokens": 572,
+        "completion_tokens": 126,
+        "total_tokens": 698,
+        "completion_tokens_details": {
+          "reasoning_tokens": 94
+        }
+      }
+    },
+    {
+      "case_id": "place-substring",
+      "repeat": 1,
+      "query": "Search the earthquake catalog for events whose place contains Quetta.",
+      "expected_kind": "tool",
+      "expected": {
+        "search": "Quetta"
+      },
+      "passed": true,
+      "outcome": "exact",
+      "actual": {
+        "search": "Quetta"
+      },
+      "actual_raw": {
+        "search": "Quetta"
+      },
+      "field_results": {
+        "search": true
+      },
+      "unexpected_fields": [],
+      "error": null,
+      "latency_s": 0.797,
+      "model_returned": "google/gemma-4-26b-a4b",
+      "usage": {
+        "prompt_tokens": 573,
+        "completion_tokens": 93,
+        "total_tokens": 666,
+        "completion_tokens_details": {
+          "reasoning_tokens": 74
+        }
+      }
+    },
+    {
+      "case_id": "place-substring",
+      "repeat": 2,
+      "query": "Search the earthquake catalog for events whose place contains Quetta.",
+      "expected_kind": "tool",
+      "expected": {
+        "search": "Quetta"
+      },
+      "passed": true,
+      "outcome": "exact",
+      "actual": {
+        "search": "Quetta"
+      },
+      "actual_raw": {
+        "search": "Quetta"
+      },
+      "field_results": {
+        "search": true
+      },
+      "unexpected_fields": [],
+      "error": null,
+      "latency_s": 0.766,
+      "model_returned": "google/gemma-4-26b-a4b",
+      "usage": {
+        "prompt_tokens": 573,
+        "completion_tokens": 90,
+        "total_tokens": 663,
+        "completion_tokens_details": {
+          "reasoning_tokens": 71
+        }
+      }
+    },
+    {
+      "case_id": "place-substring",
+      "repeat": 3,
+      "query": "Search the earthquake catalog for events whose place contains Quetta.",
+      "expected_kind": "tool",
+      "expected": {
+        "search": "Quetta"
+      },
+      "passed": true,
+      "outcome": "exact",
+      "actual": {
+        "search": "Quetta"
+      },
+      "actual_raw": {
+        "search": "Quetta"
+      },
+      "field_results": {
+        "search": true
+      },
+      "unexpected_fields": [],
+      "error": null,
+      "latency_s": 0.75,
+      "model_returned": "google/gemma-4-26b-a4b",
+      "usage": {
+        "prompt_tokens": 573,
+        "completion_tokens": 90,
+        "total_tokens": 663,
+        "completion_tokens_details": {
+          "reasoning_tokens": 71
+        }
+      }
+    },
+    {
+      "case_id": "abstain-general-knowledge",
+      "repeat": 1,
+      "query": "What is the capital of France?",
+      "expected_kind": "abstain",
+      "expected": null,
+      "passed": true,
+      "outcome": "abstained",
+      "actual": null,
+      "actual_raw": null,
+      "field_results": null,
+      "unexpected_fields": null,
+      "error": null,
+      "latency_s": 0.468,
+      "model_returned": "google/gemma-4-26b-a4b",
+      "usage": {
+        "prompt_tokens": 568,
+        "completion_tokens": 46,
+        "total_tokens": 614,
+        "completion_tokens_details": {
+          "reasoning_tokens": 35
+        }
+      }
+    },
+    {
+      "case_id": "abstain-general-knowledge",
+      "repeat": 2,
+      "query": "What is the capital of France?",
+      "expected_kind": "abstain",
+      "expected": null,
+      "passed": true,
+      "outcome": "abstained",
+      "actual": null,
+      "actual_raw": null,
+      "field_results": null,
+      "unexpected_fields": null,
+      "error": null,
+      "latency_s": 0.454,
+      "model_returned": "google/gemma-4-26b-a4b",
+      "usage": {
+        "prompt_tokens": 568,
+        "completion_tokens": 47,
+        "total_tokens": 615,
+        "completion_tokens_details": {
+          "reasoning_tokens": 36
+        }
+      }
+    },
+    {
+      "case_id": "abstain-general-knowledge",
+      "repeat": 3,
+      "query": "What is the capital of France?",
+      "expected_kind": "abstain",
+      "expected": null,
+      "passed": true,
+      "outcome": "abstained",
+      "actual": null,
+      "actual_raw": null,
+      "field_results": null,
+      "unexpected_fields": null,
+      "error": null,
+      "latency_s": 0.453,
+      "model_returned": "google/gemma-4-26b-a4b",
+      "usage": {
+        "prompt_tokens": 568,
+        "completion_tokens": 47,
+        "total_tokens": 615,
+        "completion_tokens_details": {
+          "reasoning_tokens": 36
+        }
+      }
+    },
+    {
+      "case_id": "abstain-writing",
+      "repeat": 1,
+      "query": "Write a short poem about mountains.",
+      "expected_kind": "abstain",
+      "expected": null,
+      "passed": true,
+      "outcome": "abstained",
+      "actual": null,
+      "actual_raw": null,
+      "field_results": null,
+      "unexpected_fields": null,
+      "error": null,
+      "latency_s": 0.656,
+      "model_returned": "google/gemma-4-26b-a4b",
+      "usage": {
+        "prompt_tokens": 568,
+        "completion_tokens": 72,
+        "total_tokens": 640,
+        "completion_tokens_details": {
+          "reasoning_tokens": 38
+        }
+      }
+    },
+    {
+      "case_id": "abstain-writing",
+      "repeat": 2,
+      "query": "Write a short poem about mountains.",
+      "expected_kind": "abstain",
+      "expected": null,
+      "passed": true,
+      "outcome": "abstained",
+      "actual": null,
+      "actual_raw": null,
+      "field_results": null,
+      "unexpected_fields": null,
+      "error": null,
+      "latency_s": 0.609,
+      "model_returned": "google/gemma-4-26b-a4b",
+      "usage": {
+        "prompt_tokens": 568,
+        "completion_tokens": 69,
+        "total_tokens": 637,
+        "completion_tokens_details": {
+          "reasoning_tokens": 35
+        }
+      }
+    },
+    {
+      "case_id": "abstain-writing",
+      "repeat": 3,
+      "query": "Write a short poem about mountains.",
+      "expected_kind": "abstain",
+      "expected": null,
+      "passed": true,
+      "outcome": "abstained",
+      "actual": null,
+      "actual_raw": null,
+      "field_results": null,
+      "unexpected_fields": null,
+      "error": null,
+      "latency_s": 0.61,
+      "model_returned": "google/gemma-4-26b-a4b",
+      "usage": {
+        "prompt_tokens": 568,
+        "completion_tokens": 69,
+        "total_tokens": 637,
+        "completion_tokens_details": {
+          "reasoning_tokens": 35
+        }
+      }
+    },
+    {
+      "case_id": "abstain-weather",
+      "repeat": 1,
+      "query": "Will it rain in Islamabad tomorrow?",
+      "expected_kind": "abstain",
+      "expected": null,
+      "passed": true,
+      "outcome": "abstained",
+      "actual": null,
+      "actual_raw": null,
+      "field_results": null,
+      "unexpected_fields": null,
+      "error": null,
+      "latency_s": 1.031,
+      "model_returned": "google/gemma-4-26b-a4b",
+      "usage": {
+        "prompt_tokens": 568,
+        "completion_tokens": 124,
+        "total_tokens": 692,
+        "completion_tokens_details": {
+          "reasoning_tokens": 82
+        }
+      }
+    },
+    {
+      "case_id": "abstain-weather",
+      "repeat": 2,
+      "query": "Will it rain in Islamabad tomorrow?",
+      "expected_kind": "abstain",
+      "expected": null,
+      "passed": true,
+      "outcome": "abstained",
+      "actual": null,
+      "actual_raw": null,
+      "field_results": null,
+      "unexpected_fields": null,
+      "error": null,
+      "latency_s": 0.969,
+      "model_returned": "google/gemma-4-26b-a4b",
+      "usage": {
+        "prompt_tokens": 568,
+        "completion_tokens": 121,
+        "total_tokens": 689,
+        "completion_tokens_details": {
+          "reasoning_tokens": 82
+        }
+      }
+    },
+    {
+      "case_id": "abstain-weather",
+      "repeat": 3,
+      "query": "Will it rain in Islamabad tomorrow?",
+      "expected_kind": "abstain",
+      "expected": null,
+      "passed": true,
+      "outcome": "abstained",
+      "actual": null,
+      "actual_raw": null,
+      "field_results": null,
+      "unexpected_fields": null,
+      "error": null,
+      "latency_s": 0.984,
+      "model_returned": "google/gemma-4-26b-a4b",
+      "usage": {
+        "prompt_tokens": 568,
+        "completion_tokens": 121,
+        "total_tokens": 689,
+        "completion_tokens_details": {
+          "reasoning_tokens": 82
+        }
+      }
+    }
+  ]
+}

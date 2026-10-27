@@ -24,12 +24,19 @@ data/Global_Active_Earthquake_Faults-shp/
 data/Tectonic Plate Boundaries/
 data/Tectonic Plates/
 data/_tiles_src/
+# Raw filtered landslide masks and normalized future source drops
+data/LS Susceptability Maps/
+data/landslide_susceptibility_raw/
 
 # Generated vector tiles (regenerate via scripts/build_tiles.py)
 web/tiles/
 
 # Generated PGA hazard overlays (regenerate via scripts/build_pga_overlays.py)
 web/pga/
+
+# Generated landslide COGs, manifests, and raster PMTiles
+data/landslides/
+web/landslides/
 
 # Local secrets / connection strings
 .env
@@ -52,5 +59,13 @@ eqapi.json
 # Editor settings / auto-generated IDE files
 .vscode/
 
+# Runtime logs (directory is created on demand, never tracked)
+logs/
+
 # Local scratch / debug scripts
 tmp_check_plates.py
+
+# eq_arc source layers (2.3 GB) and their derived caches — caches ship via R2
+eq_arc/data/layers/
+eq_arc/data/cache/
+eq_arc/data/uploads/

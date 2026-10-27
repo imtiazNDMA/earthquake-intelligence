@@ -44,7 +44,7 @@ One-time data prep, must run in this sequence:
 
 ## Existing instruction files
 - `CLAUDE.md` — architecture overview and dev workflow (stale on dependency install — ignore its `requirements*.txt` references, use `uv sync`).
-- `CONTEXT.md` — domain language glossary for the seismic intelligence domain.
+- `docs/reference/CONTEXT.md` — domain language glossary for the seismic intelligence domain.
 
 ## Quick reference
 | Task | Command |

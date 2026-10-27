@@ -1,0 +1,41 @@
+{
+  "camera": {
+    "center": [69.3, 30.4],
+    "zoom": 5,
+    "bearing": 0,
+    "pitch": 0
+  },
+  "basemap": "OpenStreetMap",
+  "active_event": {
+    "initial": null,
+    "event_name": "eqmon:current-event",
+    "clear_detail": null
+  },
+  "pane_order": [
+    {"name": "landslidePane", "z_index": 320},
+    {"name": "pgaPane", "z_index": 330},
+    {"name": "buildingsPane", "z_index": 350},
+    {"name": "overlayPane", "z_index": 400},
+    {"name": "referencePane", "z_index": 410},
+    {"name": "eventPane", "z_index": 450},
+    {"name": "mmiLoaderPane", "z_index": 650}
+  ],
+  "visible_reference_overlays": [
+    "National",
+    "Provinces",
+    "National Faults"
+  ],
+  "current_mmi_visible": true,
+  "opacity": {
+    "current_mmi": 0.45,
+    "buildings": 0.75,
+    "landslides": 0.62
+  },
+  "buildings": {
+    "enabled": true,
+    "minimum_zoom": 12,
+    "selected_district": null
+  },
+  "landslide_regions": [],
+  "pga_enabled": false
+}

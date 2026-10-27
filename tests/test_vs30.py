@@ -23,6 +23,8 @@ def test_grid_provides_cell_center_coordinates(tmp_path):
     # cell centers: columns at 70.5, 71.5 ; rows at 31.5, 30.5 (north-down)
     assert np.allclose(grid.lon[0], [70.5, 71.5])
     assert np.allclose(grid.lat[:, 0], [31.5, 30.5])
+    assert len(grid.source_sha256) == 64
+    assert grid.default_vs30 == 760.0
 
 
 def test_nodata_filled_with_default_vs30(tmp_path):

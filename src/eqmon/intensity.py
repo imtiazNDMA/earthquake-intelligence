@@ -1,4 +1,4 @@
-"""Ported intensity model. Replaces the arcpy `Expression.cal` field
+"""Ported intensity model. Replaces the arcpy `docs/reference/legacy/Expression.cal` field
 calculator with vectorized NumPy; no ArcGIS.
 
 Epicentral distance uses the haversine (great-circle) formula rather than the

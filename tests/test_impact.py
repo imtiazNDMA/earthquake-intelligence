@@ -1,4 +1,5 @@
 import os
+from decimal import Decimal
 import numpy as np
 import pytest
 from rasterio.transform import from_origin
@@ -26,11 +27,11 @@ pytest_db = pytest.mark.skipif(
 
 
 @pytest_db
-def test_compute_event_impact_reports_rollups_per_level(db_conn):
+def test_compute_event_impact_reports_rollups_per_level(db_conn, monkeypatch):
     from eqmon.vs30 import load_grid
     from eqmon.config import VS30_TIF
     from eqmon.events.repo import create_manual_event
-    from eqmon.impact import compute_event_impact
+    from eqmon.impact import get_or_compute_event_impact
 
     # one district + its enclosing province, both over the epicenter
     # (a province's parent is NULL; the district's parent is its province)
@@ -43,8 +44,13 @@ def test_compute_event_impact_reports_rollups_per_level(db_conn):
         )
     grid = load_grid(VS30_TIF)
     ev = create_manual_event(db_conn, magnitude=6.5, depth_km=10, lon=72.5, lat=34.0)
-    impact = compute_event_impact(db_conn, ev, grid)
+    first = get_or_compute_event_impact(db_conn, ev, grid)
+    second = get_or_compute_event_impact(db_conn, ev, grid)
+    impact = first.artifact.payload
 
+    assert first.created is True
+    assert second.created is False
+    assert first.artifact.id == second.artifact.id
     assert impact["bands"]["type"] == "FeatureCollection"
     assert set(impact["rollups"]) == {"province", "district", "tehsil"}
     assert impact["rollups"]["tehsil"] == []          # none loaded
@@ -54,3 +60,31 @@ def test_compute_event_impact_reports_rollups_per_level(db_conn):
     assert epi["mmi_max"] >= int(epi["mmi_repr"])
     assert epi["mmi_repr"] >= 1.0
     assert isinstance(epi["mmi_repr"], float)
+
+    from eqmon.ai.tools import analysis as analysis_tools
+    monkeypatch.setattr(analysis_tools, "get_grid", lambda: grid)
+    projected = analysis_tools.get_event_analysis(db_conn, event_id=ev["id"])
+    assert projected.artifact_id == first.artifact.id
+
+    from eqmon.claims import (ClaimDraft, ClaimType, ClaimUnit, EntityType,
+                              get_or_create_claim)
+    district_rows = first.artifact.payload["rollups"]["district"]
+    district_index = next(
+        index for index, row in enumerate(district_rows) if row["name"] == "Epi")
+    row = district_rows[district_index]
+    claim = get_or_create_claim(db_conn, ClaimDraft(
+        claim_type=ClaimType.MODELED_ADMIN_MAXIMUM_MMI_CLASS,
+        entity_type=EntityType.ADMIN_BOUNDARY,
+        entity_id=row["id"],
+        display_name=row["name"],
+        value=Decimal(str(row["mmi_max"])),
+        unit=ClaimUnit.MMI_CLASS,
+        source_kind=first.artifact.kind,
+        source_artifact_id=first.artifact.id,
+        source_path=f"/payload/rollups/district/{district_index}/mmi_max",
+        source_artifact_schema_version=first.artifact.schema_version,
+        calculation_version=first.artifact.calculation_version,
+        observed_at=ev["occurred_at"],
+    ))
+    assert claim.claim.entity_id == row["id"]
+    assert claim.claim.value == Decimal(str(row["mmi_max"]))
