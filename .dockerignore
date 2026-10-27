@@ -3,8 +3,24 @@ __pycache__/
 *.pyc
 .git/
 .gitignore
+.env
+.remember/
+.claude/
+.playwright-mcp/
+.superpowers/
+logs/
+docs/
+notebooks/
+tests/
+Vs30_Polygons/
+Vs30_Polygons.zip
 data/Boundaries_Data/
+data/DEM PK/
+data/Global_Active_Earthquake_Faults-shp/
 data/LS Susceptability Maps/
+data/Tectonic Plate Boundaries/
+data/Tectonic Plates/
+data/_tiles_src/
 data/landslide_susceptibility_raw/
 data/landslides/
 web/landslides/

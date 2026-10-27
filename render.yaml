@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: eqmon-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    region: singapore
+    plan: starter
+    healthCheckPath: /docs
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: VS30_URL
+        sync: false
+      - key: PMD_API_URL
+        value: https://weather.gov.pk/api/seismic-events
+      - key: PMD_API_TOKEN
+        sync: false
+      - key: ARC_URL
+        sync: false
+      - key: BUILDINGS_TILE_URL
+        sync: false
+      - key: EQMON_AI_ENABLED
+        value: "false"
